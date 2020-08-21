@@ -22,8 +22,8 @@ that should cover many basic usage models.
 
 While AWS has many varied services with extensive flexibility, using it for more straight-forward 
 applications is sometimes a daunting task. There are access modes that are probably not requried 
-and some default behaviors are not best for common usages.  `awsimple` aimes to create a higher 
-level API to S3 and DynamoDB to improve programmer productivity.
+and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
+level API to AWS services (such as S3 and DynamoDB) to improve programmer productivity.
 
 ## What`awsimple` Is Not
 
