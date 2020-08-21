@@ -38,76 +38,61 @@ class S3Access(AWSAccess):
         return self.get_client("s3")
 
     @typechecked(always=True)
-    def download_cached(self, s3_key: str, dest_dir: (Path, None), dest_path: (Path, None), cache_dir: (Path, None), retries: int = 10) -> AWSS3DownloadStatus:
+    def download_cached(self, dest_path: Path, s3_key: str, cache_dir: Path = None, retries: int = 10) -> AWSS3DownloadStatus:
         """
         download from AWS S3 with caching
-        :param s3_bucket: S3 bucket of source
-        :param s3_key: S3 key of source
-        :param dest_dir: destination directory.  If given, the destination full path is the dest_dir and s3_key (in this case s3_key must not have slashes).  If dest_dir is used,
-                         do not pass in dest_path.
         :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
+        :param s3_key: S3 key of source
         :param cache_dir: cache dir
         :param retries: number of times to retry the AWS S3 access
         :return: AWSS3DownloadStatus instance
         """
         status = AWSS3DownloadStatus()
 
-        if (dest_dir is None and dest_path is None) or (dest_dir is not None and dest_path is not None):
-            log.error(f"{dest_dir=} and {dest_path=}")
+        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
+        cache_file_name = get_string_sha512(f"{self.bucket}{s3_key}")
+
+        if cache_dir is None:
+            cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
+        cache_path = Path(cache_dir, cache_file_name)
+        log.debug(f"{cache_path}")
+
+        if cache_path.exists():
+            s3_size, s3_mtime, s3_hash = self.get_size_mtime_hash(s3_key)
+            s3_mtime_ts = s3_mtime.timestamp()
+            local_size = os.path.getsize(cache_path)
+            local_mtime = os.path.getmtime(cache_path)
+
+            if local_size != s3_size:
+                log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_size=}")
+                status.cached = False
+                status.sizes_differ = True
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.cache_abs_tol):
+                log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_mtime=}")
+                status.cached = False
+                status.mtimes_differ = True
+            else:
+                status.cached = True
+                status.success = True
+                shutil.copy2(cache_path, dest_path)
         else:
+            status.cached = False
 
-            if dest_dir is not None and dest_path is None:
-                if "/" in s3_key or "\\" in s3_key:
-                    log.error(f"slash (/ or \\) in s3_key '{s3_key}' - can not download {self.bucket}:{s3_key}")
-                else:
-                    dest_path = Path(dest_dir, s3_key)
+        if not status.cached:
+            log.info(f"S3 download : {self.bucket=},{s3_key=},{dest_path=}")
 
-            if dest_path is not None:
+            transfer_retry_count = 0
 
-                # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-                cache_file_name = get_string_sha512(f"{self.bucket}{s3_key}")
-
-                if cache_dir is None:
-                    cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
-                cache_path = Path(cache_dir, cache_file_name)
-                log.debug(f"{cache_path}")
-
-                if cache_path.exists():
-                    s3_size, s3_mtime, s3_hash = self.get_size_mtime_hash(s3_key)
-                    local_size = os.path.getsize(cache_path)
-                    local_mtime = os.path.getmtime(cache_path)
-
-                    if local_size != s3_size:
-                        log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_size=}")
-                        status.cached = False
-                        status.sizes_differ = True
-                    elif not isclose(local_mtime, s3_mtime, abs_tol=self.cache_abs_tol):
-                        log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_mtime=}")
-                        status.cached = False
-                        status.mtimes_differ = True
-                    else:
-                        status.cached = True
-                        status.success = True
-                        shutil.copy2(cache_path, dest_path)
-                else:
-                    status.cached = False
-
-                if not status.cached:
-                    log.info(f"S3 download : {self.bucket=},{s3_key=},{dest_path=}")
-                    s3_client = self.get_client("s3")
-                    transfer = S3Transfer(s3_client)
-
-                    transfer_retry_count = 0
-
-                    while not status.success and transfer_retry_count < retries:
-                        try:
-                            transfer.download_file(self.bucket, s3_key, dest_path)
-                            shutil.copy2(dest_path, cache_path)
-                            status.success = True
-                        except ClientError as e:
-                            log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
-                            transfer_retry_count += 1
-                            time.sleep(3.0)
+            while not status.success and transfer_retry_count < retries:
+                try:
+                    self.download(dest_path, s3_key)
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dest_path, cache_path)
+                    status.success = True
+                except ClientError as e:
+                    log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
+                    transfer_retry_count += 1
+                    time.sleep(3.0)
 
         return status
 
@@ -181,13 +166,15 @@ class S3Access(AWSAccess):
 
         log.info(f"S3 download : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
         s3_client = self.get_client("s3")
-        transfer = S3Transfer(s3_client)
 
         transfer_retry_count = 0
         success = False
         while not success and transfer_retry_count < 10:
             try:
-                transfer.download_file(self.bucket, s3_key, file_path)
+                s3_client.download_file(self.bucket, s3_key, file_path)
+                size, mtime, s3_hash = self.get_size_mtime_hash(s3_key)
+                mtime_ts = mtime.timestamp()
+                os.utime(file_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
             except ClientError as e:
                 log.warning(f"{self.bucket}:{s3_key} to {file_path} : {transfer_retry_count=} : {e}")
