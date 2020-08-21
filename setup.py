@@ -2,7 +2,7 @@ import os
 
 from setuptools import setup
 
-from yaaws.__version__ import __version__, __title__, __author__, __author_email__, __url__, __download_url__, __description__
+from awsimple.__version__ import __version__, __title__, __author__, __author_email__, __url__, __download_url__, __description__
 
 readme_file_path = os.path.join(__title__, "readme.md")
 
@@ -23,6 +23,6 @@ setup(
     keywords=["utility"],
     packages=[__title__],
     package_data={__title__: [readme_file_path]},
-    install_requires=["balsa", "boto3"],
+    install_requires=["balsa", "boto3", "typeguard"],
     classifiers=[],
 )

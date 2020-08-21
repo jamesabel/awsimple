@@ -1,6 +1,7 @@
 import io
 import decimal
 import pickle
+from dataclasses import dataclass
 import time
 from collections import OrderedDict, defaultdict
 import datetime
@@ -10,6 +11,7 @@ from pprint import pformat
 
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
+from typeguard import typechecked
 
 from awsimple import AWSAccess
 from awsimple.aws import log
@@ -30,6 +32,7 @@ decimal_context.prec = 38  # Numbers can have 38 digits precision
 handle_inexact_error = True
 
 
+@typechecked(always=True)
 def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: bool = True):
     """
     makes a dictionary follow boto3 item standards
@@ -78,6 +81,7 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
     return resp
 
 
+@typechecked(always=True)
 def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)):
     is_valid = file_path.exists() and getsize(str(file_path)) > 0
     if is_valid and cache_life is not None:
@@ -85,12 +89,13 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)):
     return is_valid
 
 
+@dataclass
 class DynamoDBAccess(AWSAccess):
     table_name: str = None  # required
 
     def __post_init__(self):
         if self.table_name is None:
-            log.warning(f"{self.table_name=}")
+            log.error(f"{self.table_name=}")
 
     def get_dynamodb_resource(self):
         return self.get_resource("dynamodb")
@@ -124,6 +129,7 @@ class DynamoDBAccess(AWSAccess):
 
         return table_names
 
+    @typechecked(always=True)
     def scan_table(self) -> (list, None):
         """
         returns entire lookup table
@@ -162,7 +168,8 @@ class DynamoDBAccess(AWSAccess):
 
         return items
 
-    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: (float, None) = None) -> list:
+    @typechecked(always=True)
+    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> list:
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
@@ -210,7 +217,9 @@ class DynamoDBAccess(AWSAccess):
 
         return output_data
 
+    @typechecked(always=True)
     def create_table(self, hash_key: str, range_key: str = None) -> bool:
+
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
             assert kt in ("HASH", "RANGE")
