@@ -8,6 +8,7 @@ Simple API for basic AWS services
 
 ## Examples
 
+    # print string contents of an existing S3 object
     s = S3Access(profile_name="testawsimple", bucket="testawsimple").read_string("helloworld.txt")
     print(s)
 
