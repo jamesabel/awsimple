@@ -63,7 +63,7 @@ def test_s3_download_cached():
 
 
 def test_aws_big_file():
-    # make a big file
+    # test big file upload (e.g. that we don't get a timeout)
 
     temp_dir.mkdir(parents=True, exist_ok=True)
 
