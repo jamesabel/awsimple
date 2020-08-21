@@ -7,6 +7,7 @@ from collections import OrderedDict, defaultdict
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
+from typing import List
 from pprint import pformat
 
 from boto3.exceptions import RetriesExceededError
@@ -82,7 +83,7 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
 
 
 @typechecked(always=True)
-def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)):
+def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -> bool:
     is_valid = file_path.exists() and getsize(str(file_path)) > 0
     if is_valid and cache_life is not None:
         is_valid = time.time() <= getmtime(str(file_path)) + cache_life
@@ -103,10 +104,10 @@ class DynamoDBAccess(AWSAccess):
     def get_dynamodb_client(self):
         return self.get_client("dynamodb")
 
-    def get_table_names(self) -> list:
+    @typechecked(always=True)
+    def get_table_names(self) -> List[str]:
         """
         get all DynamoDB tables
-        :param profile_name:  AWS IAM profile name
         :return: a list of DynamoDB table names
         """
         dynamodb_client = self.get_dynamodb_client()
@@ -169,7 +170,7 @@ class DynamoDBAccess(AWSAccess):
         return items
 
     @typechecked(always=True)
-    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> list:
+    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> (list, None):
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
@@ -261,7 +262,10 @@ class DynamoDBAccess(AWSAccess):
         return created
 
     def delete_table(self):
-        raise NotImplementedError
+        client = self.get_dynamodb_client()
+        client.delete_table(TableName=self.table_name)
 
-    def table_exists(self):
-        raise NotImplementedError
+    @typechecked(always=True)
+    def table_exists(self) -> bool:
+        assert self.table_name is not None
+        return self.table_name in self.get_table_names()
