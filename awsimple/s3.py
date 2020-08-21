@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from appdirs import user_cache_dir
 from botocore.exceptions import ClientError
 from s3transfer import S3Transfer, S3UploadFailedError
+from typeguard import typechecked
 
 from awsimple import AWSAccess, get_string_sha512, get_file_md5, __application_name__, __author__
 from awsimple.aws import log
@@ -36,6 +37,7 @@ class S3Access(AWSAccess):
     def get_s3_client(self):
         return self.get_client("s3")
 
+    @typechecked(always=True)
     def download_cached(self, s3_key: str, dest_dir: (Path, None), dest_path: (Path, None), cache_dir: (Path, None), retries: int = 10) -> AWSS3DownloadStatus:
         """
         download from AWS S3 with caching
@@ -109,27 +111,33 @@ class S3Access(AWSAccess):
 
         return status
 
+    @typechecked(always=True)
     def read_string(self, s3_key: str) -> str:
         log.debug(f"reading {self.bucket}:{s3_key}")
         s3 = self.get_s3_resource()
         return s3.Object(self.bucket, s3_key).get()["Body"].read().decode()
 
+    @typechecked(always=True)
     def read_lines(self, s3_key: str) -> list:
         return self.read_string(s3_key).splitlines()
 
+    @typechecked(always=True)
     def write_string(self, input_str: str, s3_key: str):
         log.debug(f"writing {self.bucket}:{s3_key}")
         s3 = self.get_s3_resource()
         s3.Object(self.bucket, s3_key).put(Body=input_str)
 
+    @typechecked(always=True)
     def write_lines(self, input_lines: list, s3_key: str):
         self.write_string("\n".join(input_lines), s3_key)
 
+    @typechecked(always=True)
     def delete_object(self, s3_key: str):
         log.debug(f"deleting {self.bucket}:{s3_key}")
         s3 = self.get_s3_resource()
         s3.Object(self.bucket, s3_key).delete()
 
+    @typechecked(always=True)
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
 
         log.info(f"S3 upload : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
@@ -162,6 +170,7 @@ class S3Access(AWSAccess):
 
         return uploaded_flag
 
+    @typechecked(always=True)
     def download(self, file_path: (str, Path), s3_key: str) -> bool:
 
         if isinstance(file_path, str):
@@ -186,6 +195,7 @@ class S3Access(AWSAccess):
                 time.sleep(1.0)
         return success
 
+    @typechecked(always=True)
     def get_size_mtime_hash(self, s3_key: str) -> tuple:
         s3_resource = self.get_s3_resource()
         bucket_resource = s3_resource.Bucket(self.bucket)
@@ -204,6 +214,7 @@ class S3Access(AWSAccess):
         log.debug(f"size : {object_size} ,  mtime : {object_mtime} , hash : {object_hash}")
         return object_size, object_mtime, object_hash
 
+    @typechecked(always=True)
     def object_exists(self, s3_key: str) -> bool:
         """
         determine if an s3 object exists
@@ -218,6 +229,7 @@ class S3Access(AWSAccess):
         log.debug(f"{self.bucket}:{s3_key} : {object_exists=}")
         return object_exists
 
+    @typechecked(always=True)
     def bucket_exists(self) -> bool:
         s3_client = self.get_s3_client()
         try:
@@ -228,6 +240,7 @@ class S3Access(AWSAccess):
             exists = False
         return exists
 
+    @typechecked(always=True)
     def create_bucket(self) -> bool:
         s3_client = self.get_s3_client()
 
@@ -243,6 +256,7 @@ class S3Access(AWSAccess):
                 log.debug(f"{self.bucket=} {e=}")  # exists
         return exists
 
+    @typechecked(always=True)
     def delete_bucket(self) -> bool:
         try:
             s3_client = self.get_s3_client()
