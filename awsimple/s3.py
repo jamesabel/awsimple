@@ -232,7 +232,7 @@ class S3Access(AWSAccess):
         s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
-        location = {'LocationConstraint': self.get_session().region_name}
+        location = {'LocationConstraint': self.get_region()}
 
         try:
             s3_client.create_bucket(Bucket=self.bucket, CreateBucketConfiguration=location)
