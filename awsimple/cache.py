@@ -36,13 +36,13 @@ def lru_cache_write(new_file: Path, cache_dir: Path, max_absolute_cache_size: in
     :param cache_dir: cache directory
     :param max_absolute_cache_size: max absolute cache size (or None if not specified)
     :param max_free_portion: max portion of disk free space the cache is allowed to consume (e.g. 0.1 to take up to 10% of free disk space)
-    :return: True if there is now enough space for the new file
+    :return: True wrote to cache
     """
 
     least_recently_used_path = None
     least_recently_used_access_time = None
     least_recently_used_size = None
-    success = False
+    wrote_to_cache = False
 
     try:
         max_free_absolute = max_free_portion * get_disk_free() if max_free_portion is not None else None
@@ -50,11 +50,16 @@ def lru_cache_write(new_file: Path, cache_dir: Path, max_absolute_cache_size: in
         max_cache_size = min(values) if len(values) > 0 else None
         log.info(f"{max_cache_size=}")
 
+        new_file_size = os.path.getsize(new_file)
+
         if max_cache_size is None:
-            success = True  # no max cache size given - we don't have to free up anything so we don't have to do anything to be "successful"
+            is_room = True  # no limit
+        elif new_file_size > max_cache_size:
+            is_room = False  # new file will never fit
         else:
 
-            overage = (get_directory_size(cache_dir) + os.path.getsize(new_file)) - max_cache_size
+            cache_size = get_directory_size(cache_dir)
+            overage = (cache_size + new_file_size) - max_cache_size
 
             while overage > 0:
                 starting_overage = overage
@@ -78,12 +83,13 @@ def lru_cache_write(new_file: Path, cache_dir: Path, max_absolute_cache_size: in
                     # tried to free up space but were unsuccessful, so give up
                     overage = 0
 
-            success = get_directory_size(cache_dir) <= max_cache_size
+            is_room = get_directory_size(cache_dir) + new_file_size <= max_cache_size
+
+        if is_room:
+            copy2(new_file, cache_dir)
+            wrote_to_cache = True
 
     except (FileNotFoundError, IOError, PermissionError) as e:
         log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}")
 
-    if success:
-        copy2(new_file, cache_dir)
-
-    return success
+    return wrote_to_cache

@@ -18,6 +18,7 @@ from awsimple.aws import log
 class AWSS3DownloadStatus:
     success: bool = False
     cached: bool = None
+    wrote_to_cache: bool = None
     sizes_differ: bool = None
     mtimes_differ: bool = None
 
@@ -25,8 +26,10 @@ class AWSS3DownloadStatus:
 @dataclass
 class S3Access(AWSAccess):
     bucket: str = None  # required
-    cache_max_absolute_footprint: int = round(1E9)  # max absolute cache size
-    cache_max_footprint_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
+    cache_dir: Path = None
+    cache_retries: int = 10
+    cache_max_absolute: int = round(1E9)  # max absolute cache size
+    cache_max_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
     cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
 
     def __post_init__(self):
@@ -40,7 +43,7 @@ class S3Access(AWSAccess):
         return self.get_client("s3")
 
     @typechecked(always=True)
-    def download_cached(self, dest_path: Path, s3_key: str, cache_dir: Path = None, retries: int = 10) -> AWSS3DownloadStatus:
+    def download_cached(self, dest_path: Path, s3_key: str) -> AWSS3DownloadStatus:
         """
         download from AWS S3 with caching
         :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
@@ -54,9 +57,9 @@ class S3Access(AWSAccess):
         # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
         cache_file_name = get_string_sha512(f"{self.bucket}{s3_key}")
 
-        if cache_dir is None:
-            cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
-        cache_path = Path(cache_dir, cache_file_name)
+        if self.cache_dir is None:
+            self.cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
+        cache_path = Path(self.cache_dir, cache_file_name)
         log.debug(f"{cache_path}")
 
         if cache_path.exists():
@@ -85,11 +88,11 @@ class S3Access(AWSAccess):
 
             transfer_retry_count = 0
 
-            while not status.success and transfer_retry_count < retries:
+            while not status.success and transfer_retry_count < self.cache_retries:
                 try:
                     self.download(dest_path, s3_key)
-                    cache_dir.mkdir(parents=True, exist_ok=True)
-                    lru_cache_write(dest_path, cache_path, self.cache_max_absolute_footprint, self.cache_max_footprint_of_free)
+                    self.cache_dir.mkdir(parents=True, exist_ok=True)
+                    status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, self.cache_max_absolute, self.cache_max_of_free)
                     status.success = True
                 except ClientError as e:
                     log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
