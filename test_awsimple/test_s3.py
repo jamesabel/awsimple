@@ -111,13 +111,13 @@ def test_s3_download_cached():
 
 def test_cache_eviction():
     # force cache eviction
-    cache_max = 200
+    cache_max = 100
     eviction_dir = Path(temp_dir, "eviction")
     eviction_cache = Path(eviction_dir, "cache")
     s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str, cache_dir=eviction_cache, cache_max_absolute=cache_max)
     size = 50
     rmtree(eviction_dir, ignore_errors=True)
-    while size <= 4 * cache_max:
+    while size <= 2 * cache_max:
         file_name = f"t{size}.txt"
         source_file_path = Path(eviction_dir, "source", file_name)
         source_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,10 +127,21 @@ def test_cache_eviction():
             f.truncate(round(size))  # this quickly makes a (sparse) file filled with zeros
         s3_access.upload(source_file_path, file_name)
 
-        # download
         dest_path = Path(eviction_dir, "dest", file_name)
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        put_in_cache = s3_access.download_cached(dest_path, file_name)
+
+        # cold download
+        status_cold = s3_access.download_cached(dest_path, file_name)
+        assert not status_cold.cached
+        if size <= cache_max:
+            assert status_cold.wrote_to_cache
+
+        # warm download
+        assert dest_path.exists()
+        status_warm = s3_access.download_cached(dest_path, file_name)
+        if size <= cache_max:
+            assert status_warm.cached
+            assert not status_warm.wrote_to_cache
         assert dest_path.exists()
 
         # make sure cache stays within max size limit

@@ -92,7 +92,7 @@ class S3Access(AWSAccess):
                 try:
                     self.download(dest_path, s3_key)
                     self.cache_dir.mkdir(parents=True, exist_ok=True)
-                    status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, self.cache_max_absolute, self.cache_max_of_free)
+                    status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
                     status.success = True
                 except ClientError as e:
                     log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")

@@ -29,11 +29,12 @@ def get_directory_size(path: Path) -> int:
 
 
 @typechecked(always=True)
-def lru_cache_write(new_file: Path, cache_dir: Path, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
+def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
     """
     free up space in the LRU cache to make room for the new file
     :param new_file: path to new file we want to put in the cache
     :param cache_dir: cache directory
+    :param cache_file_name: file name to write in cache
     :param max_absolute_cache_size: max absolute cache size (or None if not specified)
     :param max_free_portion: max portion of disk free space the cache is allowed to consume (e.g. 0.1 to take up to 10% of free disk space)
     :return: True wrote to cache
@@ -86,7 +87,7 @@ def lru_cache_write(new_file: Path, cache_dir: Path, max_absolute_cache_size: in
             is_room = get_directory_size(cache_dir) + new_file_size <= max_cache_size
 
         if is_room:
-            copy2(new_file, cache_dir)
+            copy2(new_file, Path(cache_dir, cache_file_name))
             wrote_to_cache = True
 
     except (FileNotFoundError, IOError, PermissionError) as e:
