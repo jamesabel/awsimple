@@ -1,0 +1,11 @@
+ismain
+balsa
+twine
+pytest
+boto3
+wheel
+coverage
+pytest-cov
+black
+pillow
+typeguard
