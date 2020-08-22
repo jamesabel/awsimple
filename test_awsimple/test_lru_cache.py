@@ -12,4 +12,4 @@ def test_disk_free():
 def test_get_directory_size():
     size = get_directory_size(Path("venv"))  # just use the venv as something that's relatively large and multiple directory levels
     print(f"{size=:,}")
-    assert size >= 50000000  # 94302709 on 8/21/20, so assume it's not going to get a lot smaller
+    assert size >= 50000000  # 94,302,709 on 8/21/20, so assume it's not going to get a lot smaller
