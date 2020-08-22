@@ -25,6 +25,7 @@ class AWSS3DownloadStatus:
 @dataclass
 class S3Access(AWSAccess):
     bucket: str = None  # required
+    cache_max_footprint_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
     cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
 
     def __post_init__(self):
