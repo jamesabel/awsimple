@@ -10,7 +10,7 @@ from botocore.exceptions import ClientError
 from s3transfer import S3Transfer, S3UploadFailedError
 from typeguard import typechecked
 
-from awsimple import AWSAccess, get_string_sha512, get_file_md5, __application_name__, __author__
+from awsimple import AWSAccess, get_string_sha512, get_file_md5, __application_name__, __author__, lru_cache_write
 from awsimple.aws import log
 
 
@@ -25,6 +25,8 @@ class AWSS3DownloadStatus:
 @dataclass
 class S3Access(AWSAccess):
     bucket: str = None  # required
+    cache_max_absolute_footprint: int = round(1E9)  # max absolute cache size
+    cache_max_footprint_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
     cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
 
     def __post_init__(self):
@@ -87,7 +89,7 @@ class S3Access(AWSAccess):
                 try:
                     self.download(dest_path, s3_key)
                     cache_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(dest_path, cache_path)
+                    lru_cache_write(dest_path, cache_path, self.cache_max_absolute_footprint, self.cache_max_footprint_of_free)
                     status.success = True
                 except ClientError as e:
                     log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
