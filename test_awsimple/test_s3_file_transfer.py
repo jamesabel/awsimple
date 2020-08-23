@@ -42,8 +42,9 @@ def test_s3_big_file_upload():
         last_run = 0.0
 
     # only run once a day max since it takes so long
-    if last_run + timedelta(days=7).total_seconds() < time.time():
+    if last_run + timedelta(days=1).total_seconds() < time.time():
 
+        s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
         big_file_path = Path(temp_dir, big_file_name)
         size = big_file_max_size/1000  # start with something small
         while size < big_file_max_size:
@@ -52,13 +53,21 @@ def test_s3_big_file_upload():
             with big_file_path.open("w") as f:
                 f.truncate(round(size))  # this quickly makes a (sparse) file filled with zeros
             start = time.time()
-            s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
             s3_access.upload(big_file_path, big_file_name)
             print(f"{time.time() - start},{size:.0f}")
 
         big_last_run_file_path.open('w').write(str(time.time()))
     else:
         print(f"last run {time.time() - last_run} seconds ago so not running now")
+
+
+def test_s3_upload():
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    test_file_name = "test.txt"
+    test_file_path = Path(temp_dir, test_file_name)
+    test_file_path.open("w").write("hello world")
+    assert s3_access.upload(test_file_path, test_file_name, force=True)
+    assert s3_access.object_exists(test_file_name)
 
 
 def test_s3_metadata():
