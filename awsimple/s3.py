@@ -234,6 +234,10 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def create_bucket(self) -> bool:
+        """
+        create S3 bucket
+        :return: True if bucket exists upon exit
+        """
         s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
@@ -250,6 +254,10 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def delete_bucket(self) -> bool:
+        """
+        delete S3 bucket
+        :return: True if bucket deleted (False if didn't exist in the first place)
+        """
         try:
             s3_client = self.get_s3_client()
             s3_client.delete_bucket(Bucket=self.bucket)
