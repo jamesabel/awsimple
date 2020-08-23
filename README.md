@@ -25,10 +25,15 @@ applications is sometimes a daunting task. There are access modes that are proba
 and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
 level API to AWS services (such as S3 and DynamoDB) to improve programmer productivity.
 
+## Caching
+
+S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 
+and potentially offer a speedup.
+
 ## What`awsimple` Is Not
 
 - `awsimple` is not necessarily memory and CPU efficient
 
 - `awsimple` does not provide cost monitoring hooks
 
-- `awsimple` is not particularly flexible
+- `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
