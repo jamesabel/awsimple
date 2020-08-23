@@ -6,7 +6,6 @@ import math
 import datetime
 from datetime import timedelta
 import pickle
-from pathlib import Path
 
 from PIL import Image
 

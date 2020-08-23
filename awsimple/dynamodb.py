@@ -239,31 +239,50 @@ class DynamoDBAccess(AWSAccess):
                 raise ValueError(type(v), v)
             return t
 
-        client = self.get_dynamodb_client()
-        d, s = add_key(hash_key, type_to_attribute_type(hash_key), "HASH")  # required
-        attribute_definitions = [d]
-        key_schema = [s]
-        if range_key is not None:
-            d, s = add_key(range_key, type_to_attribute_type(range_key), "RANGE")  # optional
-            attribute_definitions.append(d)
-            key_schema.append(s)
-        log.info(pformat(key_schema, indent=4))
+        created = False
+        if not self.table_exists():
+            client = self.get_dynamodb_client()
+            d, s = add_key(hash_key, type_to_attribute_type(hash_key), "HASH")  # required
+            attribute_definitions = [d]
+            key_schema = [s]
+            if range_key is not None:
+                d, s = add_key(range_key, type_to_attribute_type(range_key), "RANGE")  # optional
+                attribute_definitions.append(d)
+                key_schema.append(s)
+            log.info(pformat(key_schema, indent=4))
 
-        try:
-            client.create_table(AttributeDefinitions=attribute_definitions,
-                                KeySchema=key_schema,
-                                BillingMode="PAY_PER_REQUEST",  # on-demand
-                                TableName=self.table_name)
-            created = True
-        except ClientError as e:
-            log.warning(e)
-            created = False
+            try:
+                client.create_table(AttributeDefinitions=attribute_definitions,
+                                    KeySchema=key_schema,
+                                    BillingMode="PAY_PER_REQUEST",  # on-demand
+                                    TableName=self.table_name)
+                created = True
+            except ClientError as e:
+                log.warning(e)
 
         return created
 
-    def delete_table(self):
+    @typechecked(always=True)
+    def delete_table(self) -> bool:
+        """
+        deletes the current table
+        :return: True if actually deleted, False if it didn't exist in the first place
+        """
         client = self.get_dynamodb_client()
-        client.delete_table(TableName=self.table_name)
+        timeout_count = 10
+        done = False
+        deleted_it = False
+        while not done and timeout_count > 0:
+            try:
+                client.delete_table(TableName=self.table_name)
+                deleted_it = True
+                done = True
+            except client.exceptions.ResourceInUseException:
+                time.sleep(10)
+            except client.exceptions.ResourceNotFoundException:
+                done = True
+            timeout_count -= 1
+        return deleted_it
 
     @typechecked(always=True)
     def table_exists(self) -> bool:
