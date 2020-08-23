@@ -238,21 +238,21 @@ class S3Access(AWSAccess):
     def create_bucket(self) -> bool:
         """
         create S3 bucket
-        :return: True if bucket exists upon exit
+        :return: True if bucket created
         """
         s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
         location = {'LocationConstraint': self.get_region()}
 
-        exists = self.bucket_exists()
-        if not exists:
+        created = False
+        if not self.bucket_exists():
             try:
                 s3_client.create_bucket(Bucket=self.bucket, CreateBucketConfiguration=location)
-                exists = True
+                created = True
             except ClientError as e:
-                log.debug(f"{self.bucket=} {e=}")  # exists
-        return exists
+                log.warning(f"{self.bucket=} {e=}")
+        return created
 
     @typechecked(always=True)
     def delete_bucket(self) -> bool:

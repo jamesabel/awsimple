@@ -24,7 +24,7 @@ def test_s3_read_string():
     test_string = str(time.time())  # so it changes between tests
 
     s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
-    assert s3_access.create_bucket()
+    s3_access.create_bucket()  # may already exist
     s3_access.write_string(test_string, test_awsimple_str)
     assert s3_access.read_string(test_awsimple_str) == test_string
 
@@ -67,6 +67,7 @@ def test_s3_upload():
     test_file_path = Path(temp_dir, test_file_name)
     test_file_path.open("w").write("hello world")
     assert s3_access.upload(test_file_path, test_file_name, force=True)
+    time.sleep(3)
     assert s3_access.object_exists(test_file_name)
 
 
