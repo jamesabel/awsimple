@@ -55,7 +55,9 @@ class S3Access(AWSAccess):
         status = AWSS3DownloadStatus()
 
         # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-        cache_file_name = get_string_sha512(f"{self.bucket}{s3_key}")
+        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
+        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
+        cache_file_name = get_string_sha512(f"{self.bucket}/{s3_key}")
 
         if self.cache_dir is None:
             self.cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
