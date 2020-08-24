@@ -26,11 +26,6 @@ class AWSS3DownloadStatus:
 @dataclass
 class S3Access(AWSAccess):
     bucket: str = None  # required
-    cache_dir: Path = None
-    cache_retries: int = 10
-    cache_max_absolute: int = round(1E9)  # max absolute cache size
-    cache_max_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
-    cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
 
     def __post_init__(self):
         if self.bucket is None:
@@ -60,7 +55,7 @@ class S3Access(AWSAccess):
         cache_file_name = get_string_sha512(f"{self.bucket}/{s3_key}")
 
         if self.cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__, "aws", "s3"))
+            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "s3")
         cache_path = Path(self.cache_dir, cache_file_name)
         log.debug(f"{cache_path}")
 

@@ -10,11 +10,12 @@ from os.path import getsize, getmtime
 from typing import List
 from pprint import pformat
 
+from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from typeguard import typechecked
 
-from awsimple import AWSAccess
+from awsimple import AWSAccess, __application_name__, __author__
 from awsimple.aws import log
 
 # don't require pillow, but convert images with it if it exists
@@ -170,15 +171,12 @@ class DynamoDBAccess(AWSAccess):
         return items
 
     @typechecked(always=True)
-    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> list:
+    def scan_table_cached(self, invalidate_cache: bool = False, cache_life: float = None) -> list:
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
         from run to run without setting invalidate_cache.
 
-        :param table_name: DynamoDB table name
-        :param profile_name: AWS IAM profile name
-        :param cache_dir: cache dir
         :param invalidate_cache: True to initially invalidate the cache (forcing a table scan)
         :param cache_life: Life of cache in seconds (None=forever)
         :return: a list with the (possibly cached) table data
@@ -186,8 +184,10 @@ class DynamoDBAccess(AWSAccess):
 
         # todo: check the table size in AWS (since this is quick) and if it's different than what's in the cache, invalidate the cache first
 
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file_path = Path(cache_dir, f"{self.table_name}.pickle")
+        if self.cache_dir is None:
+            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "dynamodb")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
         if invalidate_cache and cache_file_path.exists():
             cache_file_path.unlink(missing_ok=True)

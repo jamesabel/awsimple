@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import boto3
 from botocore.config import Config
@@ -14,6 +15,12 @@ class AWSAccess:
     profile_name: str = None
     access_key_id: str = None
     secret_access_key: str = None
+
+    cache_dir: Path = None
+    cache_retries: int = 10
+    cache_max_absolute: int = round(1E9)  # max absolute cache size
+    cache_max_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
+    cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
 
     def _get_config(self):
         timeout = 60 * 60  # AWS default is 60
