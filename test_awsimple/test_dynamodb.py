@@ -77,7 +77,7 @@ def test_dynamodb():
     assert dynamodb_dict["test_date_time"] == "2019-06-04T13:18:55"
     assert dynamodb_dict["zero_len_string"] is None
 
-    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str)
+    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table("id")
 
     try:
@@ -92,11 +92,11 @@ def test_dynamodb():
         print(e)
         assert True
 
-    table_contents = dynamodb_access.scan_table_cached(cache_life=timedelta(seconds=1).total_seconds())
+    table_contents = dynamodb_access.scan_table_cached()
     check_table_contents(table_contents)
     table_contents = dynamodb_access.scan_table()
     check_table_contents(table_contents)
-    table_contents = dynamodb_access.scan_table_cached(cache_life=timedelta(hours=1).total_seconds())
+    table_contents = dynamodb_access.scan_table_cached()
     check_table_contents(table_contents)
 
     dynamodb_tables = dynamodb_access.get_table_names()

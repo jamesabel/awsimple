@@ -171,14 +171,13 @@ class DynamoDBAccess(AWSAccess):
         return items
 
     @typechecked(always=True)
-    def scan_table_cached(self, invalidate_cache: bool = False, cache_life: float = None) -> list:
+    def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
         from run to run without setting invalidate_cache.
 
         :param invalidate_cache: True to initially invalidate the cache (forcing a table scan)
-        :param cache_life: Life of cache in seconds (None=forever)
         :return: a list with the (possibly cached) table data
         """
 
@@ -193,13 +192,13 @@ class DynamoDBAccess(AWSAccess):
             cache_file_path.unlink(missing_ok=True)
 
         output_data = []
-        if _is_valid_db_pickled_file(cache_file_path, cache_life):
+        if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             with open(cache_file_path, "rb") as f:
                 log.info(f"{self.table_name} : reading {cache_file_path}")
                 output_data = pickle.load(f)
                 log.debug(f"done reading {cache_file_path}")
 
-        if not _is_valid_db_pickled_file(cache_file_path, cache_life):
+        if not _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             log.info(f"getting {self.table_name} from DB")
 
             try:

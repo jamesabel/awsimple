@@ -21,6 +21,7 @@ class AWSAccess:
     cache_max_absolute: int = round(1E9)  # max absolute cache size
     cache_max_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
     cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
+    cache_life: float = None  # seconds
 
     def _get_config(self):
         timeout = 60 * 60  # AWS default is 60
