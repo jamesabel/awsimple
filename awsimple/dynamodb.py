@@ -287,4 +287,10 @@ class DynamoDBAccess(AWSAccess):
     @typechecked(always=True)
     def table_exists(self) -> bool:
         assert self.table_name is not None
-        return self.table_name in self.get_table_names()
+        dynamodb_client = self.get_dynamodb_client()
+        try:
+            dynamodb_client.describe_table(TableName=self.table_name)
+            table_exists = True
+        except dynamodb_client.exceptions.ResourceNotFoundException:
+            table_exists = False
+        return table_exists
