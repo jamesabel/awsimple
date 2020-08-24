@@ -170,7 +170,7 @@ class DynamoDBAccess(AWSAccess):
         return items
 
     @typechecked(always=True)
-    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> (list, None):
+    def scan_table_cached(self, cache_dir: Path = Path("cache"), invalidate_cache: bool = False, cache_life: float = None) -> list:
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
@@ -190,9 +190,9 @@ class DynamoDBAccess(AWSAccess):
         cache_file_path = Path(cache_dir, f"{self.table_name}.pickle")
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
         if invalidate_cache and cache_file_path.exists():
-            cache_file_path.remove()
+            cache_file_path.unlink(missing_ok=True)
 
-        output_data = None
+        output_data = []
         if _is_valid_db_pickled_file(cache_file_path, cache_life):
             with open(cache_file_path, "rb") as f:
                 log.info(f"{self.table_name} : reading {cache_file_path}")
@@ -294,3 +294,9 @@ class DynamoDBAccess(AWSAccess):
         except dynamodb_client.exceptions.ResourceNotFoundException:
             table_exists = False
         return table_exists
+
+    @typechecked(always=True)
+    def write_item(self, item: dict):
+        dynamodb_resource = self.get_dynamodb_resource()
+        table = dynamodb_resource.Table(self.table_name)
+        table.put_item(Item=item)
