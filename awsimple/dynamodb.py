@@ -218,7 +218,7 @@ class DynamoDBAccess(AWSAccess):
         return output_data
 
     @typechecked(always=True)
-    def create_table(self, hash_key: str, range_key: str = None) -> bool:
+    def create_table(self, partition_key: str, sort_key: str = None) -> bool:
 
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
@@ -241,11 +241,14 @@ class DynamoDBAccess(AWSAccess):
         created = False
         if not self.table_exists():
             client = self.get_dynamodb_client()
-            d, s = add_key(hash_key, type_to_attribute_type(hash_key), "HASH")  # required
+
+            # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html#HowItWorks.CoreComponents.PrimaryKey
+
+            d, s = add_key(partition_key, type_to_attribute_type(partition_key), "HASH")  # required
             attribute_definitions = [d]
             key_schema = [s]
-            if range_key is not None:
-                d, s = add_key(range_key, type_to_attribute_type(range_key), "RANGE")  # optional
+            if sort_key is not None:
+                d, s = add_key(sort_key, type_to_attribute_type(sort_key), "RANGE")  # optional
                 attribute_definitions.append(d)
                 key_schema.append(s)
             log.info(pformat(key_schema, indent=4))
