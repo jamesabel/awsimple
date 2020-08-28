@@ -8,6 +8,7 @@ from datetime import timedelta
 import pickle
 
 from PIL import Image
+from ismain import is_main
 
 from botocore.exceptions import ProfileNotFound
 
@@ -79,18 +80,10 @@ def test_dynamodb():
 
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table("id")
+    dynamodb_access.put_item(dynamodb_dict)
 
-    try:
-        dynamodb_resource = dynamodb_access.get_dynamodb_resource()
-        table = dynamodb_resource.Table(test_awsimple_str)
-        table.put_item(Item=dynamodb_dict)
-        item = table.get_item(Key={id_str: dict_id})
-        sample_from_db = item["Item"]
-        assert sample_from_db == dynamodb_dict  # make sure we get back exactly what we wrote
-    except ProfileNotFound as e:
-        print(f'*** ERROR : could not get AWS profile "{test_awsimple_str}" - could not test actual AWS access ***')
-        print(e)
-        assert True
+    sample_from_db = dynamodb_access.get_item(id_str, dict_id)
+    assert sample_from_db == dynamodb_dict  # make sure we get back exactly what we wrote
 
     table_contents = dynamodb_access.scan_table_cached()
     check_table_contents(table_contents)
@@ -105,5 +98,5 @@ def test_dynamodb():
     assert test_awsimple_str in dynamodb_tables
 
 
-if __name__ == "__main__":
+if is_main():
     test_dynamodb()

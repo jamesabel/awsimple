@@ -294,7 +294,16 @@ class DynamoDBAccess(AWSAccess):
         return table_exists
 
     @typechecked(always=True)
-    def write_item(self, item: dict):
+    def put_item(self, item: dict):
         dynamodb_resource = self.get_dynamodb_resource()
         table = dynamodb_resource.Table(self.table_name)
         table.put_item(Item=item)
+
+    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
+        dynamodb_resource = self.get_dynamodb_resource()
+        table = dynamodb_resource.Table(self.table_name)
+        key = {partition_key: partition_value}
+        if sort_key is not None:
+            key[sort_key] = sort_value
+        response = table.get_item(Key=key)
+        return response['Item']
