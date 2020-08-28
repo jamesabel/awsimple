@@ -6,7 +6,7 @@ from awsimple import get_disk_free, get_directory_size
 def test_disk_free():
     free = get_disk_free()
     print(f"{free=:,}")
-    assert free > 1E9  # assume we have some reasonable amount free
+    assert free > 1e9  # assume we have some reasonable amount free
 
 
 def test_get_directory_size():

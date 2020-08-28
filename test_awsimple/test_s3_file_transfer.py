@@ -14,7 +14,7 @@ cache_dir = Path(temp_dir, "cache")
 cache_dir.mkdir(parents=True, exist_ok=True)
 
 big_file_name = "big.txt"
-big_file_max_size = round(100E6)  # should be large enough to do a multi-part upload and would timeout with default AWS timeouts (we use longer timeouts than the defaults)
+big_file_max_size = round(100e6)  # should be large enough to do a multi-part upload and would timeout with default AWS timeouts (we use longer timeouts than the defaults)
 never_change_file_name = "never_change.txt"
 never_change_mtime = 1598046722.0
 
@@ -46,7 +46,7 @@ def test_s3_big_file_upload():
 
         s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
         big_file_path = Path(temp_dir, big_file_name)
-        size = big_file_max_size/1000  # start with something small
+        size = big_file_max_size / 1000  # start with something small
         while size < big_file_max_size:
             size *= 2  # get bigger on each iteration
             size = min(big_file_max_size, size)  # make sure at the end we do one of max size
@@ -56,7 +56,7 @@ def test_s3_big_file_upload():
             s3_access.upload(big_file_path, big_file_name)
             print(f"{time.time() - start},{size:.0f}")
 
-        big_last_run_file_path.open('w').write(str(time.time()))
+        big_last_run_file_path.open("w").write(str(time.time()))
     else:
         print(f"last run {time.time() - last_run} seconds ago so not running now")
 

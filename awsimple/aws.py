@@ -18,7 +18,7 @@ class AWSAccess:
 
     cache_dir: Path = None
     cache_retries: int = 10
-    cache_max_absolute: int = round(1E9)  # max absolute cache size
+    cache_max_absolute: int = round(1e9)  # max absolute cache size
     cache_max_of_free: float = 0.05  # max portion of the disk's free space this LRU cache will take
     cache_abs_tol: float = 3.0  # file modification times within this cache window (in seconds) are considered equivalent
     cache_life: float = None  # seconds
@@ -44,7 +44,7 @@ class AWSAccess:
 
     def get_client(self, resource_name: str):
         session = self._get_session()
-        return session.client(resource_name,  config=self._get_config())
+        return session.client(resource_name, config=self._get_config())
 
     def get_region(self) -> str:
         session = self._get_session()

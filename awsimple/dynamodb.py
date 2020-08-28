@@ -219,7 +219,6 @@ class DynamoDBAccess(AWSAccess):
 
     @typechecked(always=True)
     def create_table(self, partition_key: str, sort_key: str = None) -> bool:
-
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
             assert kt in ("HASH", "RANGE")
@@ -254,10 +253,7 @@ class DynamoDBAccess(AWSAccess):
             log.info(pformat(key_schema, indent=4))
 
             try:
-                client.create_table(AttributeDefinitions=attribute_definitions,
-                                    KeySchema=key_schema,
-                                    BillingMode="PAY_PER_REQUEST",  # on-demand
-                                    TableName=self.table_name)
+                client.create_table(AttributeDefinitions=attribute_definitions, KeySchema=key_schema, BillingMode="PAY_PER_REQUEST", TableName=self.table_name)  # on-demand
                 created = True
             except ClientError as e:
                 log.warning(e)

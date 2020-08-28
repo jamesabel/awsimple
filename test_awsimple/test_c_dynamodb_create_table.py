@@ -19,7 +19,7 @@ def test_dynamodb_create_table():
         timeout_count -= 1
     assert dynamodb_access.table_exists()
 
-    dynamodb_access.write_item({'id': 'me', 'value': 1})
+    dynamodb_access.write_item({"id": "me", "value": 1})
 
     table_data = dynamodb_access.scan_table_cached()
     pprint(table_data)

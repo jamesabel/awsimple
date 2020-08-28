@@ -9,8 +9,9 @@ from appdirs import user_cache_dir
 from botocore.exceptions import ClientError
 from s3transfer import S3Transfer, S3UploadFailedError
 from typeguard import typechecked
+from hashy import get_string_sha512, get_file_md5
 
-from awsimple import AWSAccess, get_string_sha512, get_file_md5, __application_name__, __author__, lru_cache_write
+from awsimple import AWSAccess, __application_name__, __author__, lru_cache_write
 from awsimple.aws import log
 
 
@@ -238,7 +239,7 @@ class S3Access(AWSAccess):
         s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
-        location = {'LocationConstraint': self.get_region()}
+        location = {"LocationConstraint": self.get_region()}
 
         created = False
         if not self.bucket_exists():
