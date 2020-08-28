@@ -4,15 +4,19 @@ import time
 from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
+from datetime import datetime
 
 from appdirs import user_cache_dir
 from botocore.exceptions import ClientError
-from s3transfer import S3Transfer, S3UploadFailedError
+from s3transfer import S3UploadFailedError
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_md5
+from hashy import get_string_sha512, get_file_sha512, get_file_md5
 
 from awsimple import AWSAccess, __application_name__, __author__, lru_cache_write
 from awsimple.aws import log
+
+# Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
+sha512_string = f"{__application_name__}-sha512"
 
 
 @dataclass
@@ -22,6 +26,14 @@ class AWSS3DownloadStatus:
     wrote_to_cache: bool = None
     sizes_differ: bool = None
     mtimes_differ: bool = None
+
+
+@dataclass
+class AWSS3ObjectMetadata:
+    size: int
+    mtime: datetime
+    etag: str
+    sha512: (str, None)  # hex string - only entries written with awsimple will have this
 
 
 @dataclass
@@ -61,17 +73,17 @@ class S3Access(AWSAccess):
         log.debug(f"{cache_path}")
 
         if cache_path.exists():
-            s3_size, s3_mtime, s3_hash = self.get_size_mtime_hash(s3_key)
-            s3_mtime_ts = s3_mtime.timestamp()
+            s3_object_metadata = self.get_s3_object_metadata(s3_key)
+            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
             local_size = os.path.getsize(cache_path)
             local_mtime = os.path.getmtime(cache_path)
 
-            if local_size != s3_size:
-                log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_size=}")
+            if local_size != s3_object_metadata.size:
+                log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
                 status.cached = False
                 status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.cache_abs_tol):
-                log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_mtime=}")
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.abs_tol):
+                log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
                 status.cached = False
                 status.mtimes_differ = True
             else:
@@ -121,7 +133,7 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def delete_object(self, s3_key: str):
-        log.debug(f"deleting {self.bucket}:{s3_key}")
+        log.info(f"deleting {self.bucket}:{s3_key}")
         s3 = self.get_s3_resource()
         s3.Object(self.bucket, s3_key).delete()
 
@@ -135,18 +147,30 @@ class S3Access(AWSAccess):
         if isinstance(file_path, str):
             file_path = Path(file_path)
 
+        file_mtime = os.path.getmtime(file_path)
         file_md5 = get_file_md5(file_path)
-        _, _, s3_md5 = self.get_size_mtime_hash(s3_key)
+        file_sha512 = get_file_sha512(file_path)
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
 
-        if file_md5 != s3_md5 or force:
-            log.info(f"file hash of local file is {file_md5} and the S3 etag is {s3_md5} , force={force} - uploading")
+        upload_flag = force
+        if not upload_flag:
+            if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+                # use the hash provided by awsimple, if it exists
+                upload_flag = file_sha512 != s3_object_metadata.sha512
+            else:
+                # if not, use mtime
+                upload_flag = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
+
+        if upload_flag:
+            log.info(f"local file : {file_sha512=},{s3_object_metadata.sha512=},force={force} - uploading")
             s3_client = self.get_client("s3")
-            transfer = S3Transfer(s3_client)
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < 10:
+                metadata = {sha512_string: file_sha512}
+                log.info(f"{metadata=}")
                 try:
-                    transfer.upload_file(file_path, self.bucket, s3_key)
+                    s3_client.upload_file(str(file_path), self.bucket, s3_key, ExtraArgs={'Metadata': metadata})
                     uploaded_flag = True
                 except S3UploadFailedError as e:
                     log.warning(f"{file_path} to {self.bucket}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -175,8 +199,8 @@ class S3Access(AWSAccess):
         while not success and transfer_retry_count < 10:
             try:
                 s3_client.download_file(self.bucket, s3_key, file_path)
-                size, mtime, s3_hash = self.get_size_mtime_hash(s3_key)
-                mtime_ts = mtime.timestamp()
+                s3_object_metadata = self.get_s3_object_metadata(s3_key)
+                mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(file_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
             except ClientError as e:
@@ -186,23 +210,16 @@ class S3Access(AWSAccess):
         return success
 
     @typechecked(always=True)
-    def get_size_mtime_hash(self, s3_key: str) -> tuple:
+    def get_s3_object_metadata(self, s3_key: str) -> (AWSS3ObjectMetadata, None):
         s3_resource = self.get_s3_resource()
         bucket_resource = s3_resource.Bucket(self.bucket)
-
-        # determine if the object exists before we try to get the info
-        objs = list(bucket_resource.objects.filter(Prefix=s3_key))
-        if len(objs) > 0 and objs[0].key == s3_key:
+        if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
-            object_size = bucket_object.content_length
-            object_mtime = bucket_object.last_modified
-            object_hash = bucket_object.e_tag[1:-1].lower()
+            s3_object_metadata = AWSS3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
         else:
-            object_size = None
-            object_mtime = None
-            object_hash = None  # does not exist
-        log.debug(f"size : {object_size} ,  mtime : {object_mtime} , hash : {object_hash}")
-        return object_size, object_mtime, object_hash
+            s3_object_metadata = None
+        log.debug(f"{s3_object_metadata=}")
+        return s3_object_metadata
 
     @typechecked(always=True)
     def object_exists(self, s3_key: str) -> bool:

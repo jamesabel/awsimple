@@ -25,6 +25,11 @@ applications is sometimes a daunting task. There are access modes that are proba
 and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
 level API to AWS services (such as S3 and DynamoDB) to improve programmer productivity.
 
+## S3
+
+`awsimple` calculates the local file hash (sha512) and inserts it into the S3 object metadata.  This is used
+to test for file equivalency.
+
 ## Caching
 
 S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 

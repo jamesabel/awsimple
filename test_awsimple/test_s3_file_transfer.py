@@ -71,13 +71,23 @@ def test_s3_upload():
     assert s3_access.object_exists(test_file_name)
 
 
-def test_s3_metadata():
+def test_s3_metadata_not_uploaded_with_awsimple():
     s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
-    size, mtime, s3_hash = s3_access.get_size_mtime_hash(never_change_file_name)
-    mtime_epoch = mtime.timestamp()
+    s3_object_metadata = s3_access.get_s3_object_metadata(never_change_file_name)
+    mtime_epoch = s3_object_metadata.mtime.timestamp()
     assert isclose(mtime_epoch, never_change_mtime, rel_tol=0.0, abs_tol=3.0)  # SWAG
-    assert s3_hash == "0b344cb999fb3d07bffc558c0cdf33d5"
-    assert size == 65
+    assert s3_object_metadata.etag == "0b344cb999fb3d07bffc558c0cdf33d5"
+    assert s3_object_metadata.sha512 is None  # not uploaded with awsimple
+    assert s3_object_metadata.size == 65
+
+
+def test_s3_z_metadata():
+    test_file_name = "test.txt"
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    s3_object_metadata = s3_access.get_s3_object_metadata(test_file_name)
+    # "hello world" uploaded with awsimple
+    assert s3_object_metadata.sha512 == "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
+    assert s3_object_metadata.size == 11
 
 
 def test_s3_download():
