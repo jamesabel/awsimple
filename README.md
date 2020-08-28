@@ -8,9 +8,22 @@ Simple API for basic AWS services
 
 ## Examples
 
+### S3
+
     # print string contents of an existing S3 object
     s = S3Access(profile_name="testawsimple", bucket="testawsimple").read_string("helloworld.txt")
     print(s)
+
+### DynamoDB
+
+    dynamodb_access = DynamoDBAccess(profile_name="testawsimple", table_name="testawsimple")
+
+    # put an item into DynamoDB
+    dynamodb_access.put_item({"id": "batman", "city": "Gotham"})
+
+    # now get it back
+    item = dynamodb_access.get_item("id", "batman")
+    print(item["city"])  # Gotham
 
 ## Introduction
 
