@@ -45,10 +45,12 @@ class S3Access(AWSAccess):
             log.warning(f"{self.bucket=}")
 
     def get_s3_resource(self):
-        return self.get_resource("s3")
+        self.get_client_and_resource("s3")
+        return self.resource
 
     def get_s3_client(self):
-        return self.get_client("s3")
+        self.get_client_and_resource("s3")
+        return self.client
 
     @typechecked(always=True)
     def download_cached(self, dest_path: Path, s3_key: str) -> S3DownloadStatus:
