@@ -20,7 +20,7 @@ sha512_string = f"{__application_name__}-sha512"
 
 
 @dataclass
-class AWSS3DownloadStatus:
+class S3DownloadStatus:
     success: bool = False
     cached: bool = None
     wrote_to_cache: bool = None
@@ -29,7 +29,7 @@ class AWSS3DownloadStatus:
 
 
 @dataclass
-class AWSS3ObjectMetadata:
+class S3ObjectMetadata:
     size: int
     mtime: datetime
     etag: str
@@ -51,7 +51,7 @@ class S3Access(AWSAccess):
         return self.get_client("s3")
 
     @typechecked(always=True)
-    def download_cached(self, dest_path: Path, s3_key: str) -> AWSS3DownloadStatus:
+    def download_cached(self, dest_path: Path, s3_key: str) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
         :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
@@ -60,7 +60,7 @@ class S3Access(AWSAccess):
         :param retries: number of times to retry the AWS S3 access
         :return: AWSS3DownloadStatus instance
         """
-        status = AWSS3DownloadStatus()
+        status = S3DownloadStatus()
 
         # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
         # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
@@ -210,12 +210,12 @@ class S3Access(AWSAccess):
         return success
 
     @typechecked(always=True)
-    def get_s3_object_metadata(self, s3_key: str) -> (AWSS3ObjectMetadata, None):
+    def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
         s3_resource = self.get_s3_resource()
         bucket_resource = s3_resource.Bucket(self.bucket)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = AWSS3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
+            s3_object_metadata = S3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
         else:
             s3_object_metadata = None
         log.debug(f"{s3_object_metadata=}")
