@@ -13,9 +13,9 @@ from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from typeguard import typechecked
+from balsa import get_logger
 
 from awsimple import AWSAccess, __application_name__, __author__
-from awsimple.aws import log
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -31,6 +31,8 @@ except ImportError:
 decimal_context = decimal.getcontext().copy()
 decimal_context.prec = 38  # Numbers can have 38 digits precision
 handle_inexact_error = True
+
+log = get_logger(__application_name__)
 
 
 @typechecked(always=True)
@@ -257,18 +259,17 @@ class DynamoDBAccess(AWSAccess):
         deletes the current table
         :return: True if actually deleted, False if it didn't exist in the first place
         """
-        client = self.client
         timeout_count = 10
         done = False
         deleted_it = False
         while not done and timeout_count > 0:
             try:
-                client.delete_table(TableName=self.table_name)
+                self.client.delete_table(TableName=self.table_name)
                 deleted_it = True
                 done = True
-            except client.exceptions.ResourceInUseException:
+            except self.client.exceptions.ResourceInUseException:
                 time.sleep(10)
-            except client.exceptions.ResourceNotFoundException:
+            except self.client.exceptions.ResourceNotFoundException:
                 done = True
             timeout_count -= 1
         return deleted_it
@@ -276,25 +277,51 @@ class DynamoDBAccess(AWSAccess):
     @typechecked(always=True)
     def table_exists(self) -> bool:
         assert self.table_name is not None
-        dynamodb_client = self.client
         try:
-            dynamodb_client.describe_table(TableName=self.table_name)
+            self.client.describe_table(TableName=self.table_name)
             table_exists = True
-        except dynamodb_client.exceptions.ResourceNotFoundException:
+        except self.client.exceptions.ResourceNotFoundException:
             table_exists = False
         return table_exists
 
     @typechecked(always=True)
     def put_item(self, item: dict):
-        dynamodb_resource = self.resource
-        table = dynamodb_resource.Table(self.table_name)
+        table = self.resource.Table(self.table_name)
         table.put_item(Item=item)
 
-    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
-        dynamodb_resource = self.resource
-        table = dynamodb_resource.Table(self.table_name)
+    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> (dict, None):
+        table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
         if sort_key is not None:
             key[sort_key] = sort_value
         response = table.get_item(Key=key)
-        return response['Item']
+        if (item := response.get('Item')) is None:
+            log.warning(f"{self.table_name=} {key=} does not exist")
+        return item
+
+    def delete_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None):
+        table = self.resource.Table(self.table_name)
+        key = {partition_key: partition_value}
+        if sort_key is not None:
+            key[sort_key] = sort_value
+        table.delete_item(Key=key)
+
+    def upsert_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None, item: dict = None):
+
+        if item is None:
+            log.warning(f"{item=} : nothing to do")
+        else:
+
+            table = self.resource.Table(self.table_name)
+            key = {partition_key: partition_value}
+            if sort_key is not None:
+                key[sort_key] = sort_value
+
+            # create the required boto3 strings and dict for the update
+            update_expression = "SET "
+            expression_attribute_values = {}
+            for k, v in item.items():
+                update_expression += f"{k} = :{k} "
+                expression_attribute_values[f":{k}"] = v
+
+            table.update_item(Key=key, UpdateExpression=update_expression, ExpressionAttributeValues=expression_attribute_values)

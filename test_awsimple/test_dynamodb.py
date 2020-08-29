@@ -11,9 +11,8 @@ from PIL import Image
 from ismain import is_main
 
 from awsimple import dict_to_dynamodb, DynamoDBAccess
-from test_awsimple import dict_is_close, test_awsimple_str
+from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
-id_str = "id"
 dict_id = "test"
 
 # source:
