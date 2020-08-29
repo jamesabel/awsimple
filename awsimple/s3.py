@@ -6,7 +6,6 @@ from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 
-from appdirs import user_cache_dir
 from botocore.exceptions import ClientError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
@@ -36,21 +35,10 @@ class S3ObjectMetadata:
     sha512: (str, None)  # hex string - only entries written with awsimple will have this
 
 
-@dataclass
 class S3Access(AWSAccess):
-    bucket: str = None  # required
-
-    def __post_init__(self):
-        if self.bucket is None:
-            log.warning(f"{self.bucket=}")
-
-    def get_s3_resource(self):
-        self._get_client_and_resource("s3")
-        return self.resource
-
-    def get_s3_client(self):
-        self._get_client_and_resource("s3")
-        return self.client
+    def __init__(self, bucket: str, **kwargs):
+        self.bucket = bucket
+        super().__init__(resource_name="s3", **kwargs)
 
     @typechecked(always=True)
     def download_cached(self, dest_path: Path, s3_key: str) -> S3DownloadStatus:
@@ -69,8 +57,6 @@ class S3Access(AWSAccess):
         # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
         cache_file_name = get_string_sha512(f"{self.bucket}/{s3_key}")
 
-        if self.cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "s3")
         cache_path = Path(self.cache_dir, cache_file_name)
         log.debug(f"{cache_path}")
 
@@ -116,8 +102,7 @@ class S3Access(AWSAccess):
     @typechecked(always=True)
     def read_string(self, s3_key: str) -> str:
         log.debug(f"reading {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        return s3.Object(self.bucket, s3_key).get()["Body"].read().decode()
+        return self.resource.Object(self.bucket, s3_key).get()["Body"].read().decode()
 
     @typechecked(always=True)
     def read_lines(self, s3_key: str) -> list:
@@ -126,8 +111,7 @@ class S3Access(AWSAccess):
     @typechecked(always=True)
     def write_string(self, input_str: str, s3_key: str):
         log.debug(f"writing {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        s3.Object(self.bucket, s3_key).put(Body=input_str)
+        self.resource.Object(self.bucket, s3_key).put(Body=input_str)
 
     @typechecked(always=True)
     def write_lines(self, input_lines: list, s3_key: str):
@@ -136,8 +120,7 @@ class S3Access(AWSAccess):
     @typechecked(always=True)
     def delete_object(self, s3_key: str):
         log.info(f"deleting {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        s3.Object(self.bucket, s3_key).delete()
+        self.resource.Object(self.bucket, s3_key).delete()
 
     @typechecked(always=True)
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
@@ -167,14 +150,13 @@ class S3Access(AWSAccess):
 
         if upload_flag:
             log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
-            s3_client = self.get_client("s3")
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < 10:
                 metadata = {sha512_string: file_sha512}
                 log.info(f"{metadata=}")
                 try:
-                    s3_client.upload_file(str(file_path), self.bucket, s3_key, ExtraArgs={'Metadata': metadata})
+                    self.client.upload_file(str(file_path), self.bucket, s3_key, ExtraArgs={'Metadata': metadata})
                     uploaded_flag = True
                 except S3UploadFailedError as e:
                     log.warning(f"{file_path} to {self.bucket}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -196,13 +178,12 @@ class S3Access(AWSAccess):
             file_path = str(file_path)
 
         log.info(f"S3 download : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
-        s3_client = self.get_client("s3")
 
         transfer_retry_count = 0
         success = False
         while not success and transfer_retry_count < 10:
             try:
-                s3_client.download_file(self.bucket, s3_key, file_path)
+                self.client.download_file(self.bucket, s3_key, file_path)
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(file_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
@@ -215,8 +196,7 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
-        s3_resource = self.get_s3_resource()
-        bucket_resource = s3_resource.Bucket(self.bucket)
+        bucket_resource = self.resource.Bucket(self.bucket)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
             s3_object_metadata = S3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
@@ -233,8 +213,7 @@ class S3Access(AWSAccess):
         :param s3_key: the S3 object key
         :return: True if object exists
         """
-        s3_resource = self.get_s3_resource()
-        bucket_resource = s3_resource.Bucket(self.bucket)
+        bucket_resource = self.resource.Bucket(self.bucket)
         objs = list(bucket_resource.objects.filter(Prefix=s3_key))
         object_exists = len(objs) > 0 and objs[0].key == s3_key
         log.debug(f"{self.bucket}:{s3_key} : {object_exists=}")
@@ -242,9 +221,8 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def bucket_exists(self) -> bool:
-        s3_client = self.get_s3_client()
         try:
-            s3_client.head_bucket(Bucket=self.bucket)
+            self.client.head_bucket(Bucket=self.bucket)
             exists = True
         except ClientError as e:
             log.info(f"{self.bucket=}{e=}")
@@ -257,7 +235,6 @@ class S3Access(AWSAccess):
         create S3 bucket
         :return: True if bucket created
         """
-        s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
         location = {"LocationConstraint": self.get_region()}
@@ -265,7 +242,7 @@ class S3Access(AWSAccess):
         created = False
         if not self.bucket_exists():
             try:
-                s3_client.create_bucket(Bucket=self.bucket, CreateBucketConfiguration=location)
+                self.client.create_bucket(Bucket=self.bucket, CreateBucketConfiguration=location)
                 created = True
             except ClientError as e:
                 log.warning(f"{self.bucket=} {e=}")
@@ -278,8 +255,7 @@ class S3Access(AWSAccess):
         :return: True if bucket deleted (False if didn't exist in the first place)
         """
         try:
-            s3_client = self.get_s3_client()
-            s3_client.delete_bucket(Bucket=self.bucket)
+            self.client.delete_bucket(Bucket=self.bucket)
             deleted = True
         except ClientError as e:
             log.info(f"{self.bucket=}{e=}")  # does not exist

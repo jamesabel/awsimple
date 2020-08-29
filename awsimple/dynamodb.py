@@ -93,19 +93,9 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 @dataclass
 class DynamoDBAccess(AWSAccess):
-    table_name: str = None  # required
-
-    def __post_init__(self):
-        if self.table_name is None:
-            log.error(f"{self.table_name=}")
-
-    def get_dynamodb_resource(self):
-        self._get_client_and_resource("dynamodb")
-        return self.resource
-
-    def get_dynamodb_client(self):
-        self._get_client_and_resource("dynamodb")
-        return self.client
+    def __init__(self, table_name: str, **kwargs):
+        self.table_name = table_name
+        super().__init__(resource_name="dynamodb", **kwargs)
 
     @typechecked(always=True)
     def get_table_names(self) -> List[str]:
@@ -113,16 +103,15 @@ class DynamoDBAccess(AWSAccess):
         get all DynamoDB tables
         :return: a list of DynamoDB table names
         """
-        dynamodb_client = self.get_dynamodb_client()
 
         table_names = []
         more_to_evaluate = True
         last_evaluated_table_name = None
         while more_to_evaluate:
             if last_evaluated_table_name is None:
-                response = dynamodb_client.list_tables()
+                response = self.client.list_tables()
             else:
-                response = dynamodb_client.list_tables(ExclusiveStartTableName=last_evaluated_table_name)
+                response = self.client.list_tables(ExclusiveStartTableName=last_evaluated_table_name)
             partial_table_names = response.get("TableNames")
             last_evaluated_table_name = response.get("LastEvaluatedTableName")
             if partial_table_names is not None and len(partial_table_names) > 0:
@@ -143,7 +132,7 @@ class DynamoDBAccess(AWSAccess):
         """
 
         items = []
-        dynamodb = self.get_dynamodb_resource()
+        dynamodb = self.resource
         table = dynamodb.Table(self.table_name)
 
         more_to_evaluate = True
@@ -241,7 +230,7 @@ class DynamoDBAccess(AWSAccess):
 
         created = False
         if not self.table_exists():
-            client = self.get_dynamodb_client()
+            client = self.client
 
             # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html#HowItWorks.CoreComponents.PrimaryKey
 
@@ -268,7 +257,7 @@ class DynamoDBAccess(AWSAccess):
         deletes the current table
         :return: True if actually deleted, False if it didn't exist in the first place
         """
-        client = self.get_dynamodb_client()
+        client = self.client
         timeout_count = 10
         done = False
         deleted_it = False
@@ -287,7 +276,7 @@ class DynamoDBAccess(AWSAccess):
     @typechecked(always=True)
     def table_exists(self) -> bool:
         assert self.table_name is not None
-        dynamodb_client = self.get_dynamodb_client()
+        dynamodb_client = self.client
         try:
             dynamodb_client.describe_table(TableName=self.table_name)
             table_exists = True
@@ -297,12 +286,12 @@ class DynamoDBAccess(AWSAccess):
 
     @typechecked(always=True)
     def put_item(self, item: dict):
-        dynamodb_resource = self.get_dynamodb_resource()
+        dynamodb_resource = self.resource
         table = dynamodb_resource.Table(self.table_name)
         table.put_item(Item=item)
 
     def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
-        dynamodb_resource = self.get_dynamodb_resource()
+        dynamodb_resource = self.resource
         table = dynamodb_resource.Table(self.table_name)
         key = {partition_key: partition_value}
         if sort_key is not None:
