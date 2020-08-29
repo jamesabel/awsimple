@@ -31,7 +31,7 @@ class AWSAccess:
         timeout = 60 * 60  # AWS default is 60
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
-    def get_client_and_resource(self, resource_name: str):
+    def _get_client_and_resource(self, resource_name: str):
 
         if self.client is None or self.resource is None:
             # use keys in AWS config
@@ -50,9 +50,9 @@ class AWSAccess:
         return self.session.region_name
 
     def get_client(self, resource_name: str):
-        self.get_client_and_resource(resource_name)
+        self._get_client_and_resource(resource_name)
         return self.client
 
     def get_resource(self, resource_name: str):
-        self.get_client_and_resource(resource_name)
+        self._get_client_and_resource(resource_name)
         return self.resource

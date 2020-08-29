@@ -45,11 +45,11 @@ class S3Access(AWSAccess):
             log.warning(f"{self.bucket=}")
 
     def get_s3_resource(self):
-        self.get_client_and_resource("s3")
+        self._get_client_and_resource("s3")
         return self.resource
 
     def get_s3_client(self):
-        self.get_client_and_resource("s3")
+        self._get_client_and_resource("s3")
         return self.client
 
     @typechecked(always=True)

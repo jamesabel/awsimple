@@ -100,11 +100,11 @@ class DynamoDBAccess(AWSAccess):
             log.error(f"{self.table_name=}")
 
     def get_dynamodb_resource(self):
-        self.get_client_and_resource("dynamodb")
+        self._get_client_and_resource("dynamodb")
         return self.resource
 
     def get_dynamodb_client(self):
-        self.get_client_and_resource("dynamodb")
+        self._get_client_and_resource("dynamodb")
         return self.client
 
     @typechecked(always=True)
