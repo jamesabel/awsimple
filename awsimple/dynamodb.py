@@ -1,7 +1,6 @@
 import io
 import decimal
 import pickle
-from dataclasses import dataclass
 import time
 from collections import OrderedDict, defaultdict
 import datetime
@@ -91,7 +90,6 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
     return is_valid
 
 
-@dataclass
 class DynamoDBAccess(AWSAccess):
     def __init__(self, table_name: str, **kwargs):
         self.table_name = table_name
