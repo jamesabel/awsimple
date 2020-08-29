@@ -163,7 +163,7 @@ class S3Access(AWSAccess):
                 upload_flag = file_sha512 != s3_object_metadata.sha512
             else:
                 # if not, use mtime
-                upload_flag = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
+                upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
 
         if upload_flag:
             log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
