@@ -36,6 +36,8 @@ class S3ObjectMetadata:
 
 
 class S3Access(AWSAccess):
+
+    @typechecked(always=True)
     def __init__(self, bucket: str, **kwargs):
         self.bucket = bucket
         super().__init__(resource_name="s3", **kwargs)

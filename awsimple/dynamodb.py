@@ -91,6 +91,8 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 
 class DynamoDBAccess(AWSAccess):
+
+    @typechecked(always=True)
     def __init__(self, table_name: str, **kwargs):
         self.table_name = table_name
         super().__init__(resource_name="dynamodb", **kwargs)
