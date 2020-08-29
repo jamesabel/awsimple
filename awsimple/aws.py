@@ -13,7 +13,8 @@ log = logging.getLogger(__application_name__)
 
 class AWSAccess:
     def __init__(self, resource_name: str, profile_name: str = None, access_key_id: str = None, secret_access_key: str = None,
-                 cache_dir: Path = None, cache_life: float = math.inf, cache_max_absolute: int = round(1e9)):
+                 cache_dir: Path = None, cache_life: float = math.inf, cache_max_absolute: int = round(1e9), cache_max_of_free: float = 0.05,
+                 mtime_abs_tol: float = 10.0):
         self.resource_name = resource_name
         self.profile_name = profile_name
         self.access_key_id = access_key_id
@@ -24,11 +25,11 @@ class AWSAccess:
         else:
             self.cache_dir = cache_dir
 
-        self.cache_retries = 10
-        self.cache_max_absolute = cache_max_absolute  # max absolute cache size
-        self.cache_max_of_free = 0.05  # max portion of the disk's free space this LRU cache will take
         self.cache_life = cache_life  # seconds
-        self.abs_tol = 10.0  # file modification times within this cache window (in seconds) are considered equivalent
+        self.cache_max_absolute = cache_max_absolute  # max absolute cache size
+        self.cache_max_of_free = cache_max_of_free  # max portion of the disk's free space this LRU cache will take
+        self.mtime_abs_tol = mtime_abs_tol  # file modification times within this cache window (in seconds) are considered equivalent
+        self.cache_retries = 10  # cache upload retries
 
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html

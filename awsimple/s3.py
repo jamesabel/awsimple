@@ -11,7 +11,7 @@ from s3transfer import S3UploadFailedError
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
 
-from awsimple import AWSAccess, __application_name__, __author__, lru_cache_write
+from awsimple import AWSAccess, __application_name__, lru_cache_write
 from awsimple.aws import log
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
@@ -70,7 +70,7 @@ class S3Access(AWSAccess):
                 log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
                 status.cached = False
                 status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.abs_tol):
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
                 log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
                 status.cached = False
                 status.mtimes_differ = True
@@ -146,7 +146,7 @@ class S3Access(AWSAccess):
                 upload_flag = file_sha512 != s3_object_metadata.sha512
             else:
                 # if not, use mtime
-                upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
+                upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
 
         if upload_flag:
             log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
