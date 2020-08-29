@@ -156,7 +156,9 @@ class S3Access(AWSAccess):
 
         upload_flag = force
         if not upload_flag:
-            if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+            if s3_object_metadata is None:
+                upload_flag = True
+            elif s3_object_metadata.sha512 is not None and file_sha512 is not None:
                 # use the hash provided by awsimple, if it exists
                 upload_flag = file_sha512 != s3_object_metadata.sha512
             else:
@@ -164,7 +166,7 @@ class S3Access(AWSAccess):
                 upload_flag = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
 
         if upload_flag:
-            log.info(f"local file : {file_sha512=},{s3_object_metadata.sha512=},force={force} - uploading")
+            log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
             s3_client = self.get_client("s3")
 
             transfer_retry_count = 0
