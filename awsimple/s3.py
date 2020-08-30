@@ -50,9 +50,7 @@ class S3Access(AWSAccess):
         download from AWS S3 with caching
         :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
         :param s3_key: S3 key of source
-        :param cache_dir: cache dir
-        :param retries: number of times to retry the AWS S3 access
-        :return: AWSS3DownloadStatus instance
+        :return: S3DownloadStatus instance
         """
         status = S3DownloadStatus()
 
@@ -79,6 +77,7 @@ class S3Access(AWSAccess):
                 status.cached = False
                 status.mtimes_differ = True
             else:
+                log.info(f"{self.bucket}:{s3_key} cache hit : copying {cache_path=} to {dest_path=}")
                 status.cached = True
                 status.success = True
                 shutil.copy2(cache_path, dest_path)
@@ -86,7 +85,7 @@ class S3Access(AWSAccess):
             status.cached = False
 
         if not status.cached:
-            log.info(f"S3 download : {self.bucket=},{s3_key=},{dest_path=}")
+            log.info(f"cache miss : {self.bucket=},{s3_key=},{dest_path=}")
 
             transfer_retry_count = 0
 

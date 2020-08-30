@@ -56,12 +56,14 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
         if max_cache_size is None:
             is_room = True  # no limit
         elif new_file_size > max_cache_size:
-            is_room = False  # new file will never fit
+            log.info(f"{new_file=} {new_file_size=} is larger than the cache itself {max_cache_size=}")
+            is_room = False  # new file will never fit so don't try to evict to make room for it
         else:
 
             cache_size = get_directory_size(cache_dir)
             overage = (cache_size + new_file_size) - max_cache_size
 
+            # cache eviction
             while overage > 0:
                 starting_overage = overage
 
@@ -77,6 +79,7 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
                         least_recently_used_size = os.path.getsize(file_path)
 
                 if least_recently_used_path is not None:
+                    log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=}")
                     least_recently_used_path.unlink()
                     overage -= least_recently_used_size
 
@@ -84,11 +87,16 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
                     # tried to free up space but were unsuccessful, so give up
                     overage = 0
 
+            # determine if we have room for the new file
             is_room = get_directory_size(cache_dir) + new_file_size <= max_cache_size
 
         if is_room:
-            copy2(new_file, Path(cache_dir, cache_file_name))
+            cache_dest = Path(cache_dir, cache_file_name)
+            log.info(f"caching {new_file=} to {cache_dest=}")
+            copy2(new_file, cache_dest)
             wrote_to_cache = True
+        else:
+            log.info(f"no room for {new_file=}")
 
     except (FileNotFoundError, IOError, PermissionError) as e:
         log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}")
