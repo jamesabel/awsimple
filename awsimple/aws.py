@@ -36,12 +36,12 @@ class AWSAccess:
 
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
-        if self.profile_name is not None:
-            self.session = boto3.session.Session(profile_name=self.profile_name)
-        elif self.access_key_id is not None and self.secret_access_key is not None:
+        if self.access_key_id is not None and self.secret_access_key is not None:
             self.session = boto3.session.Session(aws_access_key_id=self.access_key_id, aws_secret_access_key=self.secret_access_key)
+        elif self.profile_name is not None:
+            self.session = boto3.session.Session(profile_name=self.profile_name)
         else:
-            raise ValueError("AWS profile or access keys must be specified")
+            self.session = boto3.session.Session()  # defaults
 
         self.client = self.session.client(self.resource_name, config=self._get_config())
         self.resource = self.session.resource(self.resource_name, config=self._get_config())
