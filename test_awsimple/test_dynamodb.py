@@ -9,6 +9,7 @@ import pickle
 
 from PIL import Image
 from ismain import is_main
+from dictim import dictim
 
 from awsimple import dict_to_dynamodb, DynamoDBAccess
 from test_awsimple import dict_is_close, test_awsimple_str, id_str
@@ -48,6 +49,7 @@ sample_input = {
     "image": png_image,
     "test_date_time": datetime.datetime.fromtimestamp(1559679535),  # 2019-06-04T13:18:55
     "zero_len_string": "",
+    "dictim": dictim({"HI": "there"})
 }
 
 
@@ -74,6 +76,7 @@ def test_dynamodb():
     assert dynamodb_dict["42"] == "my_key_is_an_int"  # test conversion of an int key to a string
     assert dynamodb_dict["test_date_time"] == "2019-06-04T13:18:55"
     assert dynamodb_dict["zero_len_string"] is None
+    assert dynamodb_dict["dictim"]["hi"] == "there"  # case insensitive
 
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table("id")

@@ -14,6 +14,7 @@ from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from typeguard import typechecked
 from balsa import get_logger
+from dictim import dictim
 
 from awsimple import AWSAccess, __application_name__, __author__
 
@@ -48,8 +49,11 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
 
     """
     resp = None
-    if type(input_value) is dict or type(input_value) is OrderedDict or type(input_value) is defaultdict:
-        resp = {}
+    if type(input_value) is dict or type(input_value) is OrderedDict or type(input_value) is defaultdict or type(input_value) is dictim:
+        if type(input_value) is dictim:
+            resp = dictim()
+        else:
+            resp = {}
         for k, v in input_value.items():
             if type(k) is int:
                 k = str(k)  # allow int as key since it is unambiguous (e.g. bool and float are ambiguous)

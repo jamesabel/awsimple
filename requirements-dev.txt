@@ -10,3 +10,4 @@ pytest-cov
 black
 pillow
 typeguard
+dictim
