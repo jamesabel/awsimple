@@ -49,7 +49,7 @@ sample_input = {
     "image": png_image,
     "test_date_time": datetime.datetime.fromtimestamp(1559679535),  # 2019-06-04T13:18:55
     "zero_len_string": "",
-    "dictim": dictim({"HI": "there"})
+    "dictim": dictim({"HI": dictim({"there": 1})})  # nested
 }
 
 
@@ -76,7 +76,11 @@ def test_dynamodb():
     assert dynamodb_dict["42"] == "my_key_is_an_int"  # test conversion of an int key to a string
     assert dynamodb_dict["test_date_time"] == "2019-06-04T13:18:55"
     assert dynamodb_dict["zero_len_string"] is None
-    assert dynamodb_dict["dictim"]["hi"] == "there"  # case insensitive
+
+    # while dictim is case insensitive, when we convert to dict for DynamoDB it becomes case sensitive
+    assert list(dynamodb_dict["dictim"]["HI"])[0] == "there"
+    assert dynamodb_dict["dictim"]["HI"]["there"] == 1  # actually Decimal(1)
+    assert dynamodb_dict["dictim"].get("hi") is None  # we're back to case sensitivity
 
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table("id")

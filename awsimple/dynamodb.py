@@ -51,7 +51,7 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
     resp = None
     if type(input_value) is dict or type(input_value) is OrderedDict or type(input_value) is defaultdict or type(input_value) is dictim:
         if type(input_value) is dictim:
-            resp = dictim()
+            resp = dict(input_value)
         else:
             resp = {}
         for k, v in input_value.items():
