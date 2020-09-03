@@ -1,4 +1,3 @@
-import time
 from pprint import pprint
 
 from awsimple import DynamoDBAccess
