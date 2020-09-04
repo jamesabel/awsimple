@@ -93,8 +93,8 @@ def test_s3_z_metadata():
 def test_s3_download():
     dest_path = Path(temp_dir, never_change_file_name)
     dest_path.unlink(missing_ok=True)
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
-    s3_access.download(dest_path, never_change_file_name)
+    s3_access = S3Access(test_awsimple_str, profile_name=test_awsimple_str)
+    s3_access.download(never_change_file_name, dest_path)
     assert dest_path.exists()
     assert isclose(os.path.getmtime(dest_path), never_change_mtime, rel_tol=0.0, abs_tol=3.0)
 
@@ -109,12 +109,12 @@ def test_s3_download_cached():
     rmtree(cache_dir, ignore_errors=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     dest_path.unlink(missing_ok=True)
-    s3_access.download_cached(dest_path, never_change_file_name)
+    s3_access.download_cached(never_change_file_name, dest_path)
     assert dest_path.exists()
 
     # with warm cache
     dest_path.unlink()
-    s3_access.download_cached(dest_path, never_change_file_name)
+    s3_access.download_cached(never_change_file_name, dest_path)
     assert dest_path.exists()
 
     # download big file with normal cache size
@@ -122,7 +122,7 @@ def test_s3_download_cached():
     print(f"{cache_size=}")
     assert cache_size < 1000  # big file not in cache
     big_file_path = Path(temp_dir, big_file_name)
-    s3_access.download_cached(big_file_path, big_file_name)
+    s3_access.download_cached(big_file_name, big_file_path)
     assert big_file_path.exists()
     cache_size = get_directory_size(cache_dir)
     print(f"{cache_size=}")
@@ -151,14 +151,14 @@ def test_cache_eviction():
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
         # cold download
-        status_cold = s3_access.download_cached(dest_path, file_name)
+        status_cold = s3_access.download_cached(file_name, dest_path)
         assert not status_cold.cached
         if size <= cache_max:
             assert status_cold.wrote_to_cache
 
         # warm download
         assert dest_path.exists()
-        status_warm = s3_access.download_cached(dest_path, file_name)
+        status_warm = s3_access.download_cached(file_name, dest_path)
         if size <= cache_max:
             assert status_warm.cached
             assert not status_warm.wrote_to_cache

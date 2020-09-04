@@ -45,7 +45,7 @@ class S3Access(AWSAccess):
         super().__init__(resource_name="s3", **kwargs)
 
     @typechecked(always=True)
-    def download_cached(self, dest_path: Path, s3_key: str) -> S3DownloadStatus:
+    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
         :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
@@ -91,7 +91,7 @@ class S3Access(AWSAccess):
 
             while not status.success and transfer_retry_count < self.cache_retries:
                 try:
-                    self.download(dest_path, s3_key)
+                    self.download(s3_key, dest_path)
                     self.cache_dir.mkdir(parents=True, exist_ok=True)
                     status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
                     status.success = True
@@ -104,7 +104,7 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def read_string(self, s3_key: str) -> str:
-        log.debug(f"reading {self.bucket}:{s3_key}")
+        log.debug(f"reading {self.bucket}/{s3_key}")
         return self.resource.Object(self.bucket, s3_key).get()["Body"].read().decode()
 
     @typechecked(always=True)
@@ -113,7 +113,7 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def write_string(self, input_str: str, s3_key: str):
-        log.debug(f"writing {self.bucket}:{s3_key}")
+        log.debug(f"writing {self.bucket}/{s3_key}")
         self.resource.Object(self.bucket, s3_key).put(Body=input_str)
 
     @typechecked(always=True)
@@ -122,13 +122,13 @@ class S3Access(AWSAccess):
 
     @typechecked(always=True)
     def delete_object(self, s3_key: str):
-        log.info(f"deleting {self.bucket}:{s3_key}")
+        log.info(f"deleting {self.bucket}/{s3_key}")
         self.resource.Object(self.bucket, s3_key).delete()
 
     @typechecked(always=True)
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
 
-        log.info(f"S3 upload : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
+        log.info(f'S3 upload : "{file_path}" to {self.bucket}/{s3_key}')
 
         uploaded_flag = False
 
@@ -172,27 +172,27 @@ class S3Access(AWSAccess):
         return uploaded_flag
 
     @typechecked(always=True)
-    def download(self, file_path: (str, Path), s3_key: str) -> bool:
+    def download(self, s3_key: str, dest_path: (str, Path)) -> bool:
 
-        if isinstance(file_path, str):
-            log.info(f"{file_path} is not Path object.  Non-Path objects will be deprecated in the future")
+        if isinstance(dest_path, str):
+            log.info(f"{dest_path} is not Path object.  Non-Path objects will be deprecated in the future")
 
-        if isinstance(file_path, Path):
-            file_path = str(file_path)
+        if isinstance(dest_path, Path):
+            dest_path = str(dest_path)
 
-        log.info(f"S3 download : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
+        log.info(f'S3 download : {self.bucket}/{s3_key} to "{dest_path}"')
 
         transfer_retry_count = 0
         success = False
         while not success and transfer_retry_count < 10:
             try:
-                self.client.download_file(self.bucket, s3_key, file_path)
+                self.client.download_file(self.bucket, s3_key, dest_path)
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 mtime_ts = s3_object_metadata.mtime.timestamp()
-                os.utime(file_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
+                os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
             except ClientError as e:
-                log.warning(f"{self.bucket}:{s3_key} to {file_path} : {transfer_retry_count=} : {e}")
+                log.warning(f"{self.bucket}:{s3_key} to {dest_path} : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
                 time.sleep(1.0)
         return success

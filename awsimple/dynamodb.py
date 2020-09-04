@@ -295,6 +295,7 @@ class DynamoDBAccess(AWSAccess):
         table = self.resource.Table(self.table_name)
         table.put_item(Item=item)
 
+    # cant' do a @typechecked(always=True) since optional item requires a single type
     def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> (dict, None):
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
@@ -305,6 +306,7 @@ class DynamoDBAccess(AWSAccess):
             log.warning(f"{self.table_name=} {key=} does not exist")
         return item
 
+    # cant' do a @typechecked(always=True) since optional item requires a single type
     def delete_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None):
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
@@ -312,6 +314,7 @@ class DynamoDBAccess(AWSAccess):
             key[sort_key] = sort_value
         table.delete_item(Key=key)
 
+    # cant' do a @typechecked(always=True) since optional item requires a single type
     def upsert_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None, item: dict = None):
 
         if item is None:
