@@ -17,7 +17,7 @@ class TestAWSimpleLoggingHandler(logging.Handler):
 @pytest.fixture(scope="session", autouse=True)
 def session_fixture():
 
-    balsa = Balsa(__application_name__, __author__, log_directory=Path("log"), delete_existing_log_files=True, verbose=True)
+    balsa = Balsa(__application_name__, __author__, log_directory=Path("log"), delete_existing_log_files=True, verbose=False)
 
     # add handler that will throw an assert on ERROR or greater
     test_handler = TestAWSimpleLoggingHandler()

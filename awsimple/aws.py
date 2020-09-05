@@ -19,7 +19,7 @@ class AWSimpleException(Exception):
 class AWSAccess:
 
     @typechecked(always=True)
-    def __init__(self, resource_name: str, profile_name: str = None, access_key_id: str = None, secret_access_key: str = None,
+    def __init__(self, resource_name: str = None, profile_name: str = None, access_key_id: str = None, secret_access_key: str = None,
                  cache_dir: Path = None, cache_life: float = math.inf, cache_max_absolute: int = round(1e9), cache_max_of_free: float = 0.05,
                  mtime_abs_tol: float = 10.0):
         self.resource_name = resource_name
@@ -28,7 +28,10 @@ class AWSAccess:
         self.secret_access_key: secret_access_key
 
         if cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
+            if resource_name is None:
+                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws")
+            else:
+                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
         else:
             self.cache_dir = cache_dir
 
@@ -47,8 +50,13 @@ class AWSAccess:
         else:
             self.session = boto3.session.Session()  # defaults
 
-        self.client = self.session.client(self.resource_name, config=self._get_config())
-        self.resource = self.session.resource(self.resource_name, config=self._get_config())
+        if self.resource_name is None:
+            # just the session, but not the client or resource
+            self.client = None
+            self.resource = None
+        else:
+            self.client = self.session.client(self.resource_name, config=self._get_config())
+            self.resource = self.session.resource(self.resource_name, config=self._get_config())
 
     def _get_config(self):
         timeout = 60 * 60  # AWS default is 60, which is too short for some uses and/or connections
