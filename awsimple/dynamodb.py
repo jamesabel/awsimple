@@ -16,7 +16,7 @@ from typeguard import typechecked
 from balsa import get_logger
 from dictim import dictim
 
-from awsimple import AWSAccess, __application_name__, __author__
+from awsimple import AWSAccess, __application_name__, __author__, AWSimpleException
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -86,6 +86,16 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
         if raise_exception:
             raise NotImplementedError(type(input_value), input_value)
     return resp
+
+
+class DBItemNotFound(AWSimpleException):
+    def __init__(self, key):
+        self.key = key
+        self.message = "Item not found"
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.key=} {self.message}"
 
 
 @typechecked(always=True)
@@ -296,14 +306,22 @@ class DynamoDBAccess(AWSAccess):
         table.put_item(Item=item)
 
     # cant' do a @typechecked(always=True) since optional item requires a single type
-    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> (dict, None):
+    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
+        """
+        get a DB item
+        :param partition_key: partition key
+        :param partition_value: partition value (str or int)
+        :param sort_key: sort key (optional)
+        :param sort_value: sort value (optional str or int)
+        :return: item dict or raises DBItemNotFound if does not exist
+        """
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
         if sort_key is not None:
             key[sort_key] = sort_value
         response = table.get_item(Key=key)
         if (item := response.get('Item')) is None:
-            log.warning(f"{self.table_name=} {key=} does not exist")
+            raise DBItemNotFound(key)
         return item
 
     # cant' do a @typechecked(always=True) since optional item requires a single type

@@ -1,4 +1,0 @@
-
-- add write a string directoy to S3 bucket (i.e. not a file ... a string, which of course will have to be written to a temp file first)
-
-- use the user-defined S3 metadata to add a hash (SHA-512?) of the actual file so I can use that for caching

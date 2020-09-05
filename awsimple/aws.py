@@ -12,6 +12,10 @@ from awsimple import __application_name__, __author__
 log = logging.getLogger(__application_name__)
 
 
+class AWSimpleException(Exception):
+    pass
+
+
 class AWSAccess:
 
     @typechecked(always=True)
@@ -53,3 +57,6 @@ class AWSAccess:
     @typechecked(always=True)
     def get_region(self) -> str:
         return self.session.region_name
+
+    def get_access_key(self):
+        return self.session.get_credentials().access_key
