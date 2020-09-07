@@ -2,12 +2,10 @@ from ismain import is_main
 
 from awsimple import S3Access
 
-profile_name = "testawsimple"
-
 
 class ExampleStorageAccess(S3Access):
     def __init__(self, bucket: str, **kwargs):
-        super().__init__(bucket, profile_name=profile_name, **kwargs)
+        super().__init__(bucket, profile_name="testawsimple", **kwargs)
 
 
 def read_s3_object():
