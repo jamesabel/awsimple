@@ -10,7 +10,7 @@ class ExampleStorageAccess(S3Access):
 
 def read_s3_object():
     # profile_name provided by ExampleCloudStorageAccess
-    s3_access = ExampleStorageAccess("testawsimple")
+    s3_access = ExampleStorageAccess("testawsimple")  # bucket name
     print(s3_access.read_string("helloworld.txt"))
 
 
