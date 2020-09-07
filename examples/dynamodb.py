@@ -4,7 +4,7 @@ from awsimple import DynamoDBAccess
 
 
 def dynamodb():
-    dynamodb_access = DynamoDBAccess(profile_name="testawsimple", table_name="testawsimple")
+    dynamodb_access = DynamoDBAccess("testawsimple", profile_name="testawsimple")
 
     # put an item into DynamoDB
     dynamodb_access.put_item({"id": "batman", "city": "Gotham"})

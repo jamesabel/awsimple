@@ -23,7 +23,7 @@ def test_s3_read_string():
 
     test_string = str(time.time())  # so it changes between tests
 
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)
     s3_access.create_bucket()  # may already exist
     s3_access.write_string(test_string, test_awsimple_str)
     assert s3_access.read_string(test_awsimple_str) == test_string
@@ -44,7 +44,7 @@ def test_s3_big_file_upload():
     # only run once a day max since it takes so long
     if last_run + timedelta(days=1).total_seconds() < time.time():
 
-        s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+        s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)
         big_file_path = Path(temp_dir, big_file_name)
         size = big_file_max_size / 1000  # start with something small
         while size < big_file_max_size:
@@ -62,7 +62,7 @@ def test_s3_big_file_upload():
 
 
 def test_s3_upload():
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)
     test_file_name = "test.txt"
     test_file_path = Path(temp_dir, test_file_name)
     test_file_path.open("w").write("hello world")
@@ -72,7 +72,7 @@ def test_s3_upload():
 
 
 def test_s3_metadata_not_uploaded_with_awsimple():
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)
     s3_object_metadata = s3_access.get_s3_object_metadata(never_change_file_name)
     mtime_epoch = s3_object_metadata.mtime.timestamp()
     assert isclose(mtime_epoch, never_change_mtime, rel_tol=0.0, abs_tol=3.0)  # SWAG
@@ -83,7 +83,7 @@ def test_s3_metadata_not_uploaded_with_awsimple():
 
 def test_s3_z_metadata():
     test_file_name = "test.txt"
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)
     s3_object_metadata = s3_access.get_s3_object_metadata(test_file_name)
     # "hello world" uploaded with awsimple
     assert s3_object_metadata.sha512 == "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
@@ -103,7 +103,7 @@ def test_s3_download_cached():
     # runs last
 
     dest_path = Path(temp_dir, never_change_file_name)  # small file
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str, cache_dir=cache_dir)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=cache_dir)
 
     # start with empty cache
     rmtree(cache_dir, ignore_errors=True)
@@ -134,7 +134,7 @@ def test_cache_eviction():
     cache_max = 100
     eviction_dir = Path(temp_dir, "eviction")
     eviction_cache = Path(eviction_dir, "cache")
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_awsimple_str, cache_dir=eviction_cache, cache_max_absolute=cache_max)
+    s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=eviction_cache, cache_max_absolute=cache_max)
     size = 50
     rmtree(eviction_dir, ignore_errors=True)
     while size <= 2 * cache_max:

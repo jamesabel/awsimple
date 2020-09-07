@@ -8,7 +8,7 @@ test_bucket_name = f"{test_awsimple_str}temp"  # temp bucket that will be create
 
 
 def test_s3_bucket():
-    s3_access = S3Access(profile_name=test_awsimple_str, bucket=test_bucket_name)
+    s3_access = S3Access(test_bucket_name, profile_name=test_awsimple_str)  # use non-keyword parameter for bucket_name
     s3_access.create_bucket()  # may already exist
 
     # wait for bucket to exist
