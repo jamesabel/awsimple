@@ -1,11 +1,10 @@
 import time
 import math
 
-from awsimple import SQSAccess, SQSPollAccess
+from awsimple import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time
 
 from test_awsimple import test_awsimple_str, drain
 
-aws_long_poll = 20.0  # shouldn't change ... hopefully ...
 margin = 3.0
 rel_tol = 0.2
 
@@ -29,7 +28,7 @@ def test_sqs_receive_nothing_poll_one():
 
     t = time.time() - start
     print(f"{t=}")
-    assert math.isclose(t, aws_long_poll + margin, rel_tol=rel_tol, abs_tol=margin)
+    assert math.isclose(t, aws_sqs_long_poll_max_wait_time + margin, rel_tol=rel_tol, abs_tol=margin)
 
 
 def test_sqs_receive_nothing_poll_many():
@@ -40,4 +39,4 @@ def test_sqs_receive_nothing_poll_many():
 
     t = time.time() - start
     print(f"{t=}")
-    assert math.isclose(t, aws_long_poll + margin, rel_tol=rel_tol, abs_tol=margin)
+    assert math.isclose(t, aws_sqs_long_poll_max_wait_time + margin, rel_tol=rel_tol, abs_tol=margin)

@@ -80,7 +80,7 @@ def test_sqs_poll_user_delete():
     poll_queue.delete_message(receive_message)
 
     nominal_work_time = poll_queue.calculate_nominal_work_time()
-    print(f"{nominal_work_time=}")
+    print(f"{work_time=}, calculated {nominal_work_time=}")
     assert math.isclose(nominal_work_time, work_time, rel_tol=0.5, abs_tol=1.0)  # fairly wide tolerance
 
 

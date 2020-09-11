@@ -23,19 +23,20 @@ class SQSMessage:
 
 
 # AWS defaults
-aws_long_poll_wait_time = 20  # seconds
-aws_max_messages = 10
+aws_sqs_long_poll_max_wait_time = 20  # seconds
+aws_sqs_max_messages = 10
 
 
 class SQSAccess(AWSAccess):
 
     @typechecked(always=True)
-    def __init__(self, queue_name: str, immediate_delete: bool = True, timeout: int = None, **kwargs):
+    def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: int = None, minimum_visibility_timeout: int = 0, **kwargs):
         """
         SQS access
         :param queue_name: queue name
         :param immediate_delete: True to immediately delete read message(s) upon receipt, False to require the user to call delete_message()
-        :param timeout: visibility timeout (if explicitly given) - set to None to automatically attempt to determine the timeout
+        :param visibility_timeout: visibility timeout (if explicitly given) - set to None to automatically attempt to determine the timeout
+        :param minimum_visibility_timeout: visibility timeout will be at least this long (do not set if timeout set)
         :param kwargs: kwargs to send to base class
         """
         super().__init__(resource_name="sqs", **kwargs)
@@ -43,7 +44,8 @@ class SQSAccess(AWSAccess):
 
         # visibility timeout
         self.immediate_delete = immediate_delete  # True to immediately delete messages
-        self.user_provided_timeout = timeout  # the queue will re-try a message (make it re-visible) if not deleted within this time
+        self.user_provided_timeout = visibility_timeout  # the queue will re-try a message (make it re-visible) if not deleted within this time
+        self.user_provided_minimum_timeout = minimum_visibility_timeout  # the timeout will be at least this long
         self.auto_timeout_multiplier = 10.0  # for automatic timeout calculations, multiply this times the median run time to get the timeout
 
         self.sqs_call_wait_time = 0  # short (0) or long poll (> 0, usually 20)
@@ -93,35 +95,39 @@ class SQSAccess(AWSAccess):
         log.debug(f"{nominal_work_time=}")
         return nominal_work_time
 
-    @typechecked(always=True)
-    def _receive(self, max_number_of_messages_parameter: int = None) -> List[SQSMessage]:
+    def calculate_visibility_timeout(self) -> int:
 
-        # determine visibility timeout
         if self.user_provided_timeout is None:
             if self.immediate_delete:
                 visibility_timeout = self.immediate_delete_timeout  # we immediately delete the message so this doesn't need to be very long
             else:
-
-                # automatically calculate the visibility timeout from history of message receipt/delete
-                try:
-                    with open(self.get_response_history_file_path()) as f:
-                        self.response_history = json.load(f)
-                except FileNotFoundError:
-                    pass
-                except json.JSONDecodeError as e:
-                    log.warning(f"{self.get_response_history_file_path()} : {e}")
-                if len(self.response_history) == 0:
-                    now = time.time()
-                    self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
-
-                visibility_timeout = round(self.auto_timeout_multiplier * self.calculate_nominal_work_time())
-
+                visibility_timeout = max(self.user_provided_minimum_timeout, round(self.auto_timeout_multiplier * self.calculate_nominal_work_time()))
         else:
             if self.immediate_delete:
                 # if we immediately delete the message it doesn't make sense for the user to try to specify the timeout
                 raise ValueError(f"nonsensical values: {self.user_provided_timeout=} and {self.immediate_delete=}")
+            elif self.user_provided_minimum_timeout > 0:
+                raise ValueError(f"do not specify both timeout ({self.user_provided_timeout}) and minimum_timeout {self.user_provided_minimum_timeout}")
             else:
                 visibility_timeout = self.user_provided_timeout  # timeout explicitly given by the user
+
+        return visibility_timeout
+
+    @typechecked(always=True)
+    def _receive(self, max_number_of_messages_parameter: int = None) -> List[SQSMessage]:
+
+        if self.user_provided_timeout is None and not self.immediate_delete:
+            # read in response history (and initialize it if it doesn't exist)
+            try:
+                with open(self.get_response_history_file_path()) as f:
+                    self.response_history = json.load(f)
+            except FileNotFoundError:
+                pass
+            except json.JSONDecodeError as e:
+                log.warning(f"{self.get_response_history_file_path()} : {e}")
+            if len(self.response_history) == 0:
+                now = time.time()
+                self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
 
         # receive the message(s)
         messages = []
@@ -133,15 +139,16 @@ class SQSAccess(AWSAccess):
             aws_messages = None
 
             if max_number_of_messages_parameter is None:
-                max_number_of_messages = aws_max_messages
+                max_number_of_messages = aws_sqs_max_messages
             else:
                 max_number_of_messages = max_number_of_messages_parameter - len(messages)  # how many left to do
 
             try:
 
                 # if polling, wait for first message but after that read any and all available messages
-                aws_messages = self._get_queue().receive_messages(MaxNumberOfMessages=min(max_number_of_messages, aws_max_messages),
-                                                                  VisibilityTimeout=visibility_timeout, WaitTimeSeconds=call_wait_time)
+                aws_messages = self._get_queue().receive_messages(MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages),
+                                                                  VisibilityTimeout=self.calculate_visibility_timeout(),
+                                                                  WaitTimeSeconds=call_wait_time)
 
                 for m in aws_messages:
                     if self.immediate_delete:
@@ -218,4 +225,4 @@ class SQSPollAccess(SQSAccess):
 
     def __init__(self, queue_name: str, **kwargs):
         super().__init__(queue_name, **kwargs)
-        self.sqs_call_wait_time = aws_long_poll_wait_time
+        self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
