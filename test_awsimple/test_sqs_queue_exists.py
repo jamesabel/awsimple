@@ -1,4 +1,3 @@
-
 from awsimple import SQSAccess
 
 from test_awsimple import test_awsimple_str

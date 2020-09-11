@@ -1,4 +1,3 @@
-
 from awsimple import DynamoDBAccess
 
 from test_awsimple import test_awsimple_str, id_str

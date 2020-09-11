@@ -49,7 +49,7 @@ sample_input = {
     "image": png_image,
     "test_date_time": datetime.datetime.fromtimestamp(1559679535),  # 2019-06-04T13:18:55
     "zero_len_string": "",
-    "dictim": dictim({"HI": dictim({"there": 1})})  # nested
+    "dictim": dictim({"HI": dictim({"there": 1})}),  # nested
 }
 
 

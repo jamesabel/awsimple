@@ -107,7 +107,6 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 
 class DynamoDBAccess(AWSAccess):
-
     @typechecked(always=True)
     def __init__(self, table_name: str, **kwargs):
         self.table_name = table_name
@@ -261,7 +260,7 @@ class DynamoDBAccess(AWSAccess):
 
             try:
                 client.create_table(AttributeDefinitions=attribute_definitions, KeySchema=key_schema, BillingMode="PAY_PER_REQUEST", TableName=self.table_name)  # on-demand
-                client.get_waiter('table_exists').wait(TableName=self.table_name)
+                client.get_waiter("table_exists").wait(TableName=self.table_name)
                 created = True
             except ClientError as e:
                 log.warning(e)
@@ -280,7 +279,7 @@ class DynamoDBAccess(AWSAccess):
         while not done and timeout_count > 0:
             try:
                 self.client.delete_table(TableName=self.table_name)
-                self.client.get_waiter('table_not_exists').wait(TableName=self.table_name)
+                self.client.get_waiter("table_not_exists").wait(TableName=self.table_name)
                 deleted_it = True
                 done = True
             except self.client.exceptions.ResourceInUseException:
@@ -320,7 +319,7 @@ class DynamoDBAccess(AWSAccess):
         if sort_key is not None:
             key[sort_key] = sort_value
         response = table.get_item(Key=key)
-        if (item := response.get('Item')) is None:
+        if (item := response.get("Item")) is None:
             raise DBItemNotFound(key)
         return item
 

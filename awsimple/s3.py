@@ -38,7 +38,6 @@ class S3ObjectMetadata:
 
 
 class S3Access(AWSAccess):
-
     @typechecked(always=True)
     def __init__(self, bucket_name: str, **kwargs):
         self.bucket_name = bucket_name
@@ -159,7 +158,7 @@ class S3Access(AWSAccess):
                 metadata = {sha512_string: file_sha512}
                 log.info(f"{metadata=}")
                 try:
-                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={'Metadata': metadata})
+                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={"Metadata": metadata})
                     uploaded_flag = True
                 except S3UploadFailedError as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")

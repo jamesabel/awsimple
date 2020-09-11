@@ -28,7 +28,6 @@ aws_sqs_max_messages = 10
 
 
 class SQSAccess(AWSAccess):
-
     @typechecked(always=True)
     def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: int = None, minimum_visibility_timeout: int = 0, **kwargs):
         """
@@ -146,9 +145,9 @@ class SQSAccess(AWSAccess):
             try:
 
                 # if polling, wait for first message but after that read any and all available messages
-                aws_messages = self._get_queue().receive_messages(MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages),
-                                                                  VisibilityTimeout=self.calculate_visibility_timeout(),
-                                                                  WaitTimeSeconds=call_wait_time)
+                aws_messages = self._get_queue().receive_messages(
+                    MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
+                )
 
                 for m in aws_messages:
                     if self.immediate_delete:
@@ -222,7 +221,6 @@ class SQSAccess(AWSAccess):
 
 
 class SQSPollAccess(SQSAccess):
-
     def __init__(self, queue_name: str, **kwargs):
         super().__init__(queue_name, **kwargs)
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
