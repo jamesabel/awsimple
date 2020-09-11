@@ -12,6 +12,7 @@ from pprint import pformat
 from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
+from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from balsa import get_logger
 from dictim import dictim
@@ -108,8 +109,8 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 class DynamoDBAccess(AWSAccess):
     @typechecked(always=True)
-    def __init__(self, table_name: str, **kwargs):
-        self.table_name = table_name
+    def __init__(self, table_name: str = None, **kwargs):
+        self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
         super().__init__(resource_name="dynamodb", **kwargs)
 
     @typechecked(always=True)
@@ -147,8 +148,7 @@ class DynamoDBAccess(AWSAccess):
         """
 
         items = []
-        dynamodb = self.resource
-        table = dynamodb.Table(self.table_name)
+        table = self.resource.Table(self.table_name)
 
         more_to_evaluate = True
         exclusive_start_key = None
@@ -266,6 +266,22 @@ class DynamoDBAccess(AWSAccess):
                 log.warning(e)
 
         return created
+
+    def query(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> list:
+        """
+        query the table with a partition value and optional sort value
+        :param partition_key: partition key
+        :param partition_value: partition value
+        :param sort_key:  sort key
+        :param sort_value: sort value
+        :return: a (possibly empty) list of rows
+        """
+
+        key_condition_expression = Key(partition_key).eq(partition_value)
+        if sort_key is not None:
+            key_condition_expression &= Key(sort_key).eq(sort_value)
+        query_response = self.resource.Table(self.table_name).query(KeyConditionExpression=key_condition_expression)
+        return query_response.get("Items", []) if query_response is not None else []
 
     @typechecked(always=True)
     def delete_table(self) -> bool:

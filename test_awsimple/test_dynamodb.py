@@ -59,6 +59,14 @@ def check_table_contents(contents):
         assert dict_is_close(sample_input, pickle.load(f)[0])
 
 
+def test_get_table_names():
+    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str)  # since we're only going to get the existing table names, we don't have to provide a table name
+    dynamodb_tables = dynamodb_access.get_table_names()
+    print(dynamodb_tables)
+    assert len(dynamodb_tables) > 0
+    assert test_awsimple_str in dynamodb_tables
+
+
 def test_dynamodb():
 
     dynamodb_dict = dict_to_dynamodb(sample_input)
@@ -95,11 +103,6 @@ def test_dynamodb():
     check_table_contents(table_contents)
     table_contents = dynamodb_access.scan_table_cached()
     check_table_contents(table_contents)
-
-    dynamodb_tables = dynamodb_access.get_table_names()
-    print(dynamodb_tables)
-    assert len(dynamodb_tables) > 0
-    assert test_awsimple_str in dynamodb_tables
 
 
 if is_main():

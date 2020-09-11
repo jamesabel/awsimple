@@ -62,7 +62,7 @@ def test_sqs_poll_user_delete():
         pprint(messages)
         for m in messages:
             print(f"deleting {m.message}")
-            queue.delete_message(m)
+            m.delete()
 
     # now do a long poll style
     poll_queue = SQSPollAccess(test_awsimple_str, immediate_delete=False, profile_name=test_awsimple_str)
@@ -77,7 +77,7 @@ def test_sqs_poll_user_delete():
     assert receive_message.message == send_message
     time.sleep(work_time)  # do some work
     print(f"took {time.time() - send_time} seconds")
-    poll_queue.delete_message(receive_message)
+    receive_message.delete()
 
     nominal_work_time = poll_queue.calculate_nominal_work_time()
     print(f"{work_time=}, calculated {nominal_work_time=}")

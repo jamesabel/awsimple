@@ -19,7 +19,7 @@ def test_user_provided_timeout():
     receive_message = q.receive_message()
     assert receive_message.message == send_message
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None  # make sure the message is now invisible
-    q.delete_message(receive_message)
+    receive_message.delete()
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None
 
 
@@ -36,7 +36,7 @@ def test_user_provided_minimum_timeout():
     receive_message = q.receive_message()
     assert receive_message.message == send_message
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None  # make sure the message is now invisible
-    q.delete_message(receive_message)
+    receive_message.delete()
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None
 
 
@@ -55,7 +55,7 @@ def test_actually_timeout():
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None  # make sure the message is now invisible
     time.sleep(work_time)  # will take "too long", so message should be available again on next receive_message
     assert q.receive_message().message == send_message
-    q.delete_message(receive_message)  # now we delete it
+    receive_message.delete()  # now we delete it
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).receive_message() is None
 
 

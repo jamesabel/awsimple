@@ -19,7 +19,15 @@ log = get_logger(__application_name__)
 @dataclass
 class SQSMessage:
     message: str  # payload
-    handle: str  # AWS SQS message handle
+    _m: any  # AWS message itself (from boto3)
+    _q: any  # SQSAccess instance
+
+    def delete(self):
+        self._m.delete()  # boto3
+        self._q.update_response_history(self.get_id())
+
+    def get_id(self):
+        return self._m.message_id
 
 
 # AWS defaults
@@ -154,8 +162,8 @@ class SQSAccess(AWSAccess):
                         m.delete()
                     elif self.user_provided_timeout is None:
 
-                        #  keep history of message processing times for user deletes
-                        self.response_history[m.receipt_handle] = [time.time(), None]  # start (finish will be filled in upon delete)
+                        #  keep history of message processing times for user deletes, by AWS's message id
+                        self.response_history[m.message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
 
                         # if history is too large, delete the oldest
                         while len(self.response_history) > self.max_history:
@@ -165,7 +173,7 @@ class SQSAccess(AWSAccess):
                                     oldest = handle
                             del self.response_history[oldest]
 
-                    messages.append(SQSMessage(m.body, m.receipt_handle))
+                    messages.append(SQSMessage(m.body, m, self))
 
             except ClientError as e:
                 # should happen very infrequently
@@ -200,14 +208,10 @@ class SQSAccess(AWSAccess):
         """
         return self._receive(max_messages)
 
-    @typechecked(always=True)
-    def delete_message(self, message: SQSMessage):
-        handle = message.handle
-        self.client.delete_message(QueueUrl=self._get_queue().url, ReceiptHandle=message.handle)
-
+    def update_response_history(self, message_id: str):
         # update response history
-        if not self.immediate_delete and self.user_provided_timeout is None and handle in self.response_history:
-            self.response_history[handle][1] = time.time()  # set finish time
+        if not self.immediate_delete and self.user_provided_timeout is None and message_id in self.response_history:
+            self.response_history[message_id][1] = time.time()  # set finish time
 
             # save to file
             file_path = self.get_response_history_file_path()
