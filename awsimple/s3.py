@@ -203,7 +203,9 @@ class S3Access(AWSAccess):
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = S3ObjectMetadata(s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
+            s3_object_metadata = S3ObjectMetadata(
+                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string)
+            )
         else:
             s3_object_metadata = None
         log.debug(f"{s3_object_metadata=}")

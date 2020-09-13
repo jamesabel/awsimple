@@ -270,7 +270,7 @@ class DynamoDBAccess(AWSAccess):
 
         return created
 
-    def  _query(self, comp: str, *args) -> list:
+    def _query(self, comp: str, *args) -> list:
         """
         query the table with key, value pairs. The first parameter pairs should be the primary key's key/value pairs.
 
