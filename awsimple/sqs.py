@@ -130,8 +130,10 @@ class SQSAccess(AWSAccess):
                     self.response_history = json.load(f)
             except FileNotFoundError:
                 pass
+            except IOError as e:
+                log.warning(f'IOError : "{self.get_response_history_file_path()}" : {e}')
             except json.JSONDecodeError as e:
-                log.warning(f"{self.get_response_history_file_path()} : {e}")
+                log.warning(f'JSONDecodeError : "{self.get_response_history_file_path()}" : {e}')
             if len(self.response_history) == 0:
                 now = time.time()
                 self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
@@ -152,7 +154,6 @@ class SQSAccess(AWSAccess):
 
             try:
 
-                # if polling, wait for first message but after that read any and all available messages
                 aws_messages = self._get_queue().receive_messages(
                     MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
                 )
@@ -216,8 +217,11 @@ class SQSAccess(AWSAccess):
             # save to file
             file_path = self.get_response_history_file_path()
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.get_response_history_file_path(), "w") as f:
-                json.dump(self.response_history, f, indent=4)
+            try:
+                with open(self.get_response_history_file_path(), "w") as f:
+                    json.dump(self.response_history, f, indent=4)
+            except IOError as e:
+                log.info(f'"{file_path}" : {e}')
 
     @typechecked(always=True)
     def send(self, message: str):

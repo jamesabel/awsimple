@@ -21,7 +21,12 @@ def test_dynamodb_query():
     response = dynamodb_access.query("id", "me", "name", "james")  # partition and sort
     assert len(response) == 1
 
-    response = dynamodb_access.query("id", "idonotexist")
+    response = dynamodb_access.query_begins_with("id", "me", "name", "james a")  # begins with
+    assert len(response) == 1
+    response = dynamodb_access.query_begins_with("id", "me", "name", "jame")
+    assert len(response) == 2
+
+    response = dynamodb_access.query("id", "idonotexist")  # does not exist
     assert len(response) == 0
 
 

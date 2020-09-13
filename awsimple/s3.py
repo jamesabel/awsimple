@@ -5,6 +5,7 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Dict
 
 from botocore.exceptions import ClientError
 from s3transfer import S3UploadFailedError
@@ -31,9 +32,10 @@ class S3DownloadStatus:
 
 @dataclass
 class S3ObjectMetadata:
+    key: str
     size: int
     mtime: datetime
-    etag: str
+    etag: str  # generally not used
     sha512: (str, None)  # hex string - only entries written with awsimple will have this
 
 
@@ -201,7 +203,7 @@ class S3Access(AWSAccess):
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = S3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
+            s3_object_metadata = S3ObjectMetadata(s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
         else:
             s3_object_metadata = None
         log.debug(f"{s3_object_metadata=}")
@@ -263,3 +265,16 @@ class S3Access(AWSAccess):
             log.info(f"{self.bucket_name=}{e=}")  # does not exist
             deleted = False
         return deleted
+
+    def dir(self) -> Dict[str, S3ObjectMetadata]:
+        directory = {}
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name):
+            for content in page["Contents"]:
+                s3_key = content.get("Key")
+                s3_size = content.get("Size")
+                s3_mtime = content.get("LastModified")
+                s3_etag = content.get("ETag")
+                metadata = self.get_s3_object_metadata(s3_key)
+                directory[s3_key] = S3ObjectMetadata(s3_key, s3_size, s3_mtime, s3_etag, metadata.sha512)
+        return directory

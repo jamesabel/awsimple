@@ -8,6 +8,7 @@ from pathlib import Path
 from os.path import getsize, getmtime
 from typing import List
 from pprint import pformat
+from itertools import islice
 
 from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
@@ -147,6 +148,8 @@ class DynamoDBAccess(AWSAccess):
         :return: table contents
         """
 
+        # todo: use boto3 paginator
+
         items = []
         table = self.resource.Table(self.table_name)
 
@@ -267,21 +270,40 @@ class DynamoDBAccess(AWSAccess):
 
         return created
 
-    def query(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> list:
+    def  _query(self, comp: str, *args) -> list:
         """
-        query the table with a partition value and optional sort value
-        :param partition_key: partition key
-        :param partition_value: partition value
-        :param sort_key:  sort key
-        :param sort_value: sort value
-        :return: a (possibly empty) list of rows
+        query the table with key, value pairs. The first parameter pairs should be the primary key's key/value pairs.
+
+        Examples:
+            query(primary_key, primary_value)
+            query(primary_key, primary_value, sort_key, sort_value)
+
+        :param comp: compare string (e.g. "eq", "begins_with", etc.)
+        :return: a (possibly empty) list of rows matching the query
         """
 
-        key_condition_expression = Key(partition_key).eq(partition_value)
-        if sort_key is not None:
-            key_condition_expression &= Key(sort_key).eq(sort_value)
+        key_condition_expression = Key(args[0]).eq(args[1])
+        for key, value in zip(islice(args, 2, None, 2), islice(args, 3, None, 2)):
+            key_condition_expression &= getattr(Key(key), comp)(value)
+
         query_response = self.resource.Table(self.table_name).query(KeyConditionExpression=key_condition_expression)
         return query_response.get("Items", []) if query_response is not None else []
+
+    def query(self, *args) -> list:
+        """
+        query exact match
+        :param args: key, value pairs
+        :return: a list of DB rows matching the query
+        """
+        return self._query("eq", *args)
+
+    def query_begins_with(self, *args) -> list:
+        """
+        query if begins with
+        :param args: key, value pairs
+        :return: a list of DB rows matching the query
+        """
+        return self._query("begins_with", *args)
 
     @typechecked(always=True)
     def delete_table(self) -> bool:
