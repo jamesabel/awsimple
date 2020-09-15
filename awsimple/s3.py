@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict
 import urllib3
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
@@ -156,7 +156,7 @@ class S3Access(AWSAccess):
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={"Metadata": metadata})
                     uploaded_flag = True
-                except (S3UploadFailedError, ClientError, urllib3.exceptions.ProtocolError) as e:
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
                     transfer_retry_count += 1
                     time.sleep(self.retry_sleep_time)
@@ -186,7 +186,7 @@ class S3Access(AWSAccess):
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
-            except (ClientError, urllib3.exceptions.ProtocolError) as e:
+            except (ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
                 # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}:{s3_key} to {dest_path} : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
