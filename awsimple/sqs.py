@@ -29,6 +29,10 @@ class SQSMessage:
     def get_id(self):
         return self._m.message_id
 
+    def get_aws_message(self):
+        # get the native AWS message
+        return self._m
+
 
 # AWS defaults
 aws_sqs_long_poll_max_wait_time = 20  # seconds

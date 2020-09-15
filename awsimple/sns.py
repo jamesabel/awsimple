@@ -61,10 +61,12 @@ class SNSAccess(AWSAccess):
         return response["SubscriptionArn"]
 
     @typechecked()
-    def publish(self, message: str, subject: str = None) -> str:
+    def publish(self, message: str, subject: str = None, attributes: dict = None) -> str:
         topic = self.get_topic()
-        if subject is None:
-            response = topic.publish(Message=message)
-        else:
-            response = topic.publish(Message=message, Subject=subject)
+        kwargs = {"Message": message}
+        if subject is not None:
+            kwargs["Subject"] = subject
+        if attributes is not None:
+            kwargs["MessageAttributes"] = attributes
+        response = topic.publish(**kwargs)
         return response["MessageId"]

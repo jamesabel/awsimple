@@ -24,10 +24,13 @@ def test_sns_publish():
 
     message_string = "There's a new package on PyPI called awsimple. Check it out."
     subject_string = "simple AWS access"
-    sns_access.publish(message_string, subject_string)
+    message_id = sns_access.publish(message_string, subject_string)
+    print(f"{message_id=}")
+    assert message_id is not None and len(message_id) > 0
+
     message = json.loads(sqs_access.receive_message().message)
     returned_message_string = message["Message"]
-    print(returned_message_string)
+    print(f"{returned_message_string=}")
     assert returned_message_string == message_string
 
 
