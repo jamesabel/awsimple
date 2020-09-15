@@ -1,0 +1,3 @@
+
+- AWS IAM permissions will be required to use awsimple.  S3, DynamoDB, SQS and SNS have Amazon<resource>FullAccess policies that can be used,
+  or you can set your own up to align with your particular usage model.

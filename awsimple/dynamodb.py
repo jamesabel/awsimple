@@ -38,7 +38,7 @@ handle_inexact_error = True
 log = get_logger(__application_name__)
 
 
-@typechecked(always=True)
+@typechecked()
 def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: bool = True):
     """
     makes a dictionary follow boto3 item standards
@@ -100,7 +100,7 @@ class DBItemNotFound(AWSimpleException):
         return f"{self.key=} {self.message}"
 
 
-@typechecked(always=True)
+@typechecked()
 def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -> bool:
     is_valid = file_path.exists() and getsize(str(file_path)) > 0
     if is_valid and cache_life is not None:
@@ -109,12 +109,12 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 
 class DynamoDBAccess(AWSAccess):
-    @typechecked(always=True)
+    @typechecked()
     def __init__(self, table_name: str = None, **kwargs):
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
         super().__init__(resource_name="dynamodb", **kwargs)
 
-    @typechecked(always=True)
+    @typechecked()
     def get_table_names(self) -> List[str]:
         """
         get all DynamoDB tables
@@ -139,7 +139,7 @@ class DynamoDBAccess(AWSAccess):
 
         return table_names
 
-    @typechecked(always=True)
+    @typechecked()
     def scan_table(self) -> (list, None):
         """
         returns entire lookup table
@@ -179,7 +179,7 @@ class DynamoDBAccess(AWSAccess):
 
         return items
 
-    @typechecked(always=True)
+    @typechecked()
     def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
@@ -226,7 +226,7 @@ class DynamoDBAccess(AWSAccess):
 
         return output_data
 
-    @typechecked(always=True)
+    @typechecked()
     def create_table(self, partition_key: str, sort_key: str = None) -> bool:
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
@@ -305,7 +305,7 @@ class DynamoDBAccess(AWSAccess):
         """
         return self._query("begins_with", *args)
 
-    @typechecked(always=True)
+    @typechecked()
     def delete_table(self) -> bool:
         """
         deletes the current table
@@ -327,7 +327,7 @@ class DynamoDBAccess(AWSAccess):
             timeout_count -= 1
         return deleted_it
 
-    @typechecked(always=True)
+    @typechecked()
     def table_exists(self) -> bool:
         assert self.table_name is not None
         try:
@@ -337,12 +337,12 @@ class DynamoDBAccess(AWSAccess):
             table_exists = False
         return table_exists
 
-    @typechecked(always=True)
+    @typechecked()
     def put_item(self, item: dict):
         table = self.resource.Table(self.table_name)
         table.put_item(Item=item)
 
-    # cant' do a @typechecked(always=True) since optional item requires a single type
+    # cant' do a @typechecked() since optional item requires a single type
     def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
         """
         get a DB item
@@ -361,7 +361,7 @@ class DynamoDBAccess(AWSAccess):
             raise DBItemNotFound(key)
         return item
 
-    # cant' do a @typechecked(always=True) since optional item requires a single type
+    # cant' do a @typechecked() since optional item requires a single type
     def delete_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None):
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
@@ -369,7 +369,7 @@ class DynamoDBAccess(AWSAccess):
             key[sort_key] = sort_value
         table.delete_item(Key=key)
 
-    # cant' do a @typechecked(always=True) since optional item requires a single type
+    # cant' do a @typechecked() since optional item requires a single type
     def upsert_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None, item: dict = None):
 
         if item is None:

@@ -40,12 +40,12 @@ class S3ObjectMetadata:
 
 
 class S3Access(AWSAccess):
-    @typechecked(always=True)
+    @typechecked()
     def __init__(self, bucket_name: str, **kwargs):
         self.bucket_name = bucket_name
         super().__init__(resource_name="s3", **kwargs)
 
-    @typechecked(always=True)
+    @typechecked()
     def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
@@ -103,30 +103,30 @@ class S3Access(AWSAccess):
 
         return status
 
-    @typechecked(always=True)
+    @typechecked()
     def read_string(self, s3_key: str) -> str:
         log.debug(f"reading {self.bucket_name}/{s3_key}")
         return self.resource.Object(self.bucket_name, s3_key).get()["Body"].read().decode()
 
-    @typechecked(always=True)
+    @typechecked()
     def read_lines(self, s3_key: str) -> list:
         return self.read_string(s3_key).splitlines()
 
-    @typechecked(always=True)
+    @typechecked()
     def write_string(self, input_str: str, s3_key: str):
         log.debug(f"writing {self.bucket_name}/{s3_key}")
         self.resource.Object(self.bucket_name, s3_key).put(Body=input_str)
 
-    @typechecked(always=True)
+    @typechecked()
     def write_lines(self, input_lines: list, s3_key: str):
         self.write_string("\n".join(input_lines), s3_key)
 
-    @typechecked(always=True)
+    @typechecked()
     def delete_object(self, s3_key: str):
         log.info(f"deleting {self.bucket_name}/{s3_key}")
         self.resource.Object(self.bucket_name, s3_key).delete()
 
-    @typechecked(always=True)
+    @typechecked()
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
 
         log.info(f'S3 upload : "{file_path}" to {self.bucket_name}/{s3_key}')
@@ -172,7 +172,7 @@ class S3Access(AWSAccess):
 
         return uploaded_flag
 
-    @typechecked(always=True)
+    @typechecked()
     def download(self, s3_key: str, dest_path: (str, Path)) -> bool:
 
         if isinstance(dest_path, str):
@@ -198,7 +198,7 @@ class S3Access(AWSAccess):
                 time.sleep(1.0)
         return success
 
-    @typechecked(always=True)
+    @typechecked()
     def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
@@ -211,7 +211,7 @@ class S3Access(AWSAccess):
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
 
-    @typechecked(always=True)
+    @typechecked()
     def object_exists(self, s3_key: str) -> bool:
         """
         determine if an s3 object exists
@@ -225,7 +225,7 @@ class S3Access(AWSAccess):
         log.debug(f"{self.bucket_name}:{s3_key} : {object_exists=}")
         return object_exists
 
-    @typechecked(always=True)
+    @typechecked()
     def bucket_exists(self) -> bool:
         try:
             self.client.head_bucket(Bucket=self.bucket_name)
@@ -235,7 +235,7 @@ class S3Access(AWSAccess):
             exists = False
         return exists
 
-    @typechecked(always=True)
+    @typechecked()
     def create_bucket(self) -> bool:
         """
         create S3 bucket
@@ -254,7 +254,7 @@ class S3Access(AWSAccess):
                 log.warning(f"{self.bucket_name=} {e=}")
         return created
 
-    @typechecked(always=True)
+    @typechecked()
     def delete_bucket(self) -> bool:
         """
         delete S3 bucket

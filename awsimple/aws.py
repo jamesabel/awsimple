@@ -17,7 +17,7 @@ class AWSimpleException(Exception):
 
 
 class AWSAccess:
-    @typechecked(always=True)
+    @typechecked()
     def __init__(
         self,
         resource_name: str = None,
@@ -70,12 +70,17 @@ class AWSAccess:
         timeout = 60 * 60  # AWS default is 60, which is too short for some uses and/or connections
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
-    @typechecked(always=True)
+    @typechecked()
     def get_region(self) -> str:
         return self.session.region_name
 
     def get_access_key(self):
         return self.session.get_credentials().access_key
+
+    def get_account_id(self):
+        arn = self.session.resource("iam").CurrentUser().arn
+        log.info("current user {arn=}")
+        return arn.split(":")[4]
 
     def test(self):
         # basic connection/capability test

@@ -9,6 +9,10 @@ Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB 
     - Easier credential handling
     
     - Easier resource specification (e.g. S3 bucket, DynamoDB table, SQS queue)
+    
+    - Takes care of deciding wheter to use AWS boto3 client or resource
+    
+    - Uses 'waiters' to ensure task (e.g. create) completes
 
 - One-line S3 file writes and reads
 

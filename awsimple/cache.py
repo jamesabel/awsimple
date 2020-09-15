@@ -10,14 +10,14 @@ from awsimple import __application_name__
 log = get_logger(__application_name__)
 
 
-@typechecked(always=True)
+@typechecked()
 def get_disk_free(path: Path = Path(".")) -> int:
     total, used, free = disk_usage(Path(path).absolute().anchor)
     log.info(f"{total=} {used=} {free=}")
     return free
 
 
-@typechecked(always=True)
+@typechecked()
 def get_directory_size(path: Path) -> int:
     size = 0
     for p in path.glob("*"):
@@ -28,7 +28,7 @@ def get_directory_size(path: Path) -> int:
     return size
 
 
-@typechecked(always=True)
+@typechecked()
 def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
     """
     free up space in the LRU cache to make room for the new file

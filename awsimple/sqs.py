@@ -36,7 +36,7 @@ aws_sqs_max_messages = 10
 
 
 class SQSAccess(AWSAccess):
-    @typechecked(always=True)
+    @typechecked()
     def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: int = None, minimum_visibility_timeout: int = 0, **kwargs):
         """
         SQS access
@@ -71,20 +71,20 @@ class SQSAccess(AWSAccess):
             self.queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
         return self.queue
 
-    @typechecked(always=True)
+    @typechecked()
     def get_response_history_file_path(self) -> Path:
         p = Path(appdirs.user_data_dir(__application_name__, __author__), "response", f"{self.queue_name}.json")
         log.debug(f'response history file path : "{p}"')
         return p
 
-    @typechecked(always=True)
+    @typechecked()
     def create_queue(self) -> str:
         return self.client.create_queue(QueueName=self.queue_name)["QueueUrl"]
 
     def delete_queue(self):
         self.resource.get_queue_by_name(QueueName=self.queue_name).delete()
 
-    @typechecked(always=True)
+    @typechecked()
     def exists(self) -> bool:
         try:
             self.resource.get_queue_by_name(QueueName=self.queue_name)
@@ -120,7 +120,7 @@ class SQSAccess(AWSAccess):
 
         return visibility_timeout
 
-    @typechecked(always=True)
+    @typechecked()
     def _receive(self, max_number_of_messages_parameter: int = None) -> List[SQSMessage]:
 
         if self.user_provided_timeout is None and not self.immediate_delete:
@@ -187,7 +187,7 @@ class SQSAccess(AWSAccess):
 
         return messages
 
-    @typechecked(always=True)
+    @typechecked()
     def receive_message(self) -> (SQSMessage, None):
 
         messages = self._receive(1)
@@ -200,7 +200,7 @@ class SQSAccess(AWSAccess):
             raise RuntimeError(f"{message_count=}")
         return message
 
-    @typechecked(always=True)
+    @typechecked()
     def receive_messages(self, max_messages: int = None) -> List[SQSMessage]:
         """
         receive messages
@@ -223,9 +223,32 @@ class SQSAccess(AWSAccess):
             except IOError as e:
                 log.info(f'"{file_path}" : {e}')
 
-    @typechecked(always=True)
+    @typechecked()
     def send(self, message: str):
         self._get_queue().send_message(MessageBody=message)
+
+    @typechecked()
+    def get_arn(self) -> str:
+        return self._get_queue().attributes["QueueArn"]
+
+    @typechecked()
+    def add_permission(self, source_arn: str):
+        """
+        allow source (e.g. SNS topic) to send to this SQS queue
+
+        :param source_arn: source arn (e.g. SNS queue arn)
+
+        """
+
+        # a little brute-force, but this is the only way I could assign SQS policy to accept messages from SNS
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Principal": "*", "Action": "SQS:SendMessage", "Resource": self.get_arn(), "Condition": {"StringEquals": {"aws:SourceArn": source_arn}}}],
+        }
+
+        policy_string = json.dumps(policy)
+        log.info(f"{policy_string=}")
+        self.client.set_queue_attributes(QueueUrl=self._get_queue().url, Attributes={"Policy": policy_string})
 
 
 class SQSPollAccess(SQSAccess):
