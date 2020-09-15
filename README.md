@@ -6,20 +6,16 @@ Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB 
 
 - Simple Object Oriented API on top of boto3
 
-    - Easier credential handling
-    
-    - Easier resource specification (e.g. S3 bucket, DynamoDB table, SQS queue)
-    
-    - Takes care of deciding wheter to use AWS boto3 client or resource
-    
-    - Uses 'waiters' to ensure task (e.g. create) completes
+- One-line S3 file write, read, and delete
 
-- One-line S3 file writes and reads
+- Automatic S3 retries
+
+- Locally cached S3 accesses
 
 - True file hashing (SHA512) for S3 files (S3's etag is not a true file hash)
 
-- Cached S3 accesses and DynamoDB full table scans
-    
+- DynamoDB full table scans (local cache option)
+
 - Built-in pagination for large data sets (e.g. DynamoDB table scans)
 
 - Can automatically set SQS timeouts based on runtime data (can also be user-specified)

@@ -6,6 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict
+import urllib3
 
 from botocore.exceptions import ClientError
 from s3transfer import S3UploadFailedError
@@ -43,6 +44,8 @@ class S3Access(AWSAccess):
     @typechecked()
     def __init__(self, bucket_name: str, **kwargs):
         self.bucket_name = bucket_name
+        self.retry_sleep_time = 3.0  # seconds
+        self.retry_count = 10
         super().__init__(resource_name="s3", **kwargs)
 
     @typechecked()
@@ -87,19 +90,10 @@ class S3Access(AWSAccess):
 
         if not status.cached:
             log.info(f"cache miss : {self.bucket_name=},{s3_key=},{dest_path=}")
-
-            transfer_retry_count = 0
-
-            while not status.success and transfer_retry_count < self.cache_retries:
-                try:
-                    self.download(s3_key, dest_path)
-                    self.cache_dir.mkdir(parents=True, exist_ok=True)
-                    status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
-                    status.success = True
-                except ClientError as e:
-                    log.warning(f"{self.bucket_name}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
-                    transfer_retry_count += 1
-                    time.sleep(3.0)
+            self.download(s3_key, dest_path)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            status.success = True
 
         return status
 
@@ -156,16 +150,16 @@ class S3Access(AWSAccess):
             log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
 
             transfer_retry_count = 0
-            while not uploaded_flag and transfer_retry_count < 10:
+            while not uploaded_flag and transfer_retry_count < self.retry_count:
                 metadata = {sha512_string: file_sha512}
                 log.info(f"{metadata=}")
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={"Metadata": metadata})
                     uploaded_flag = True
-                except S3UploadFailedError as e:
+                except (S3UploadFailedError, ClientError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
                     transfer_retry_count += 1
-                    time.sleep(1.0)
+                    time.sleep(self.retry_sleep_time)
 
         else:
             log.info(f"file hash of {file_md5} is the same as is already on S3 and force={force} - not uploading")
@@ -185,17 +179,18 @@ class S3Access(AWSAccess):
 
         transfer_retry_count = 0
         success = False
-        while not success and transfer_retry_count < 10:
+        while not success and transfer_retry_count < self.retry_count:
             try:
                 self.client.download_file(self.bucket_name, s3_key, dest_path)
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
-            except ClientError as e:
+            except (ClientError, urllib3.exceptions.ProtocolError) as e:
+                # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}:{s3_key} to {dest_path} : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
-                time.sleep(1.0)
+                time.sleep(self.retry_sleep_time)
         return success
 
     @typechecked()
