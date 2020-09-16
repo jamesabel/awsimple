@@ -46,6 +46,7 @@ class S3Access(AWSAccess):
         self.bucket_name = bucket_name
         self.retry_sleep_time = 3.0  # seconds
         self.retry_count = 10
+        self.download_status = S3DownloadStatus()
         super().__init__(resource_name="s3", **kwargs)
 
     @typechecked()
@@ -56,7 +57,8 @@ class S3Access(AWSAccess):
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
         """
-        status = S3DownloadStatus()
+
+        self.download_status = S3DownloadStatus()  # init
 
         # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
         # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
@@ -74,28 +76,28 @@ class S3Access(AWSAccess):
 
             if local_size != s3_object_metadata.size:
                 log.info(f"{self.bucket_name}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                status.cached = False
-                status.sizes_differ = True
+                self.download_status.cached = False
+                self.download_status.sizes_differ = True
             elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
                 log.info(f"{self.bucket_name}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                status.cached = False
-                status.mtimes_differ = True
+                self.download_status.cached = False
+                self.download_status.mtimes_differ = True
             else:
                 log.info(f"{self.bucket_name}:{s3_key} cache hit : copying {cache_path=} to {dest_path=}")
-                status.cached = True
-                status.success = True
+                self.download_status.cached = True
+                self.download_status.success = True
                 shutil.copy2(cache_path, dest_path)
         else:
-            status.cached = False
+            self.download_status.cached = False
 
-        if not status.cached:
+        if not self.download_status.cached:
             log.info(f"cache miss : {self.bucket_name=},{s3_key=},{dest_path=}")
             self.download(s3_key, dest_path)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
-            status.success = True
+            self.download_status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
 
-        return status
+        return self.download_status
 
     @typechecked()
     def read_string(self, s3_key: str) -> str:

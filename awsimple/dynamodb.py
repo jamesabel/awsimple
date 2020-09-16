@@ -9,6 +9,7 @@ from os.path import getsize, getmtime
 from typing import List
 from pprint import pformat
 from itertools import islice
+import os
 
 from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
@@ -112,6 +113,7 @@ class DynamoDBAccess(AWSAccess):
     @typechecked()
     def __init__(self, table_name: str = None, **kwargs):
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
+        self.cache_hit = False
         super().__init__(resource_name="dynamodb", **kwargs)
 
     @typechecked()
@@ -180,7 +182,7 @@ class DynamoDBAccess(AWSAccess):
         return items
 
     @typechecked()
-    def scan_table_cached(self, invalidate_cache: bool = False) -> list:
+    def scan_table_cached(self, invalidate_cache: bool = False) -> (list, None):
         """
 
         Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
@@ -190,24 +192,28 @@ class DynamoDBAccess(AWSAccess):
         :return: a list with the (possibly cached) table data
         """
 
-        # todo: check the table size in AWS (since this is quick) and if it's different than what's in the cache, invalidate the cache first
-
         if self.cache_dir is None:
             self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "dynamodb")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
-        if invalidate_cache and cache_file_path.exists():
+
+        if invalidate_cache:
             cache_file_path.unlink(missing_ok=True)
 
-        output_data = []
+        table_data = None
         if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             with open(cache_file_path, "rb") as f:
-                log.info(f"{self.table_name} : reading {cache_file_path}")
-                output_data = pickle.load(f)
-                log.debug(f"done reading {cache_file_path}")
 
-        if not _is_valid_db_pickled_file(cache_file_path, self.cache_life):
+                log.info(f"{self.table_name=} : reading {cache_file_path=}")
+                table_data = pickle.load(f)
+                log.debug(f"done reading {cache_file_path=}")
+
+                # AWS updates DynamoDB item count approximately every 6 hours
+                cache_age = time.time() - os.path.getmtime(cache_file_path)
+                item_count_mismatch = cache_age > datetime.timedelta(hours=6).total_seconds() and self.resource.Table(self.table_name).item_count != len(table_data)
+
+        if table_data is None or item_count_mismatch:
             log.info(f"getting {self.table_name} from DB")
 
             try:
@@ -216,15 +222,18 @@ class DynamoDBAccess(AWSAccess):
                 table_data = None
 
             if table_data is not None and len(table_data) > 0:
-                output_data = table_data
                 # update data cache
                 with open(cache_file_path, "wb") as f:
-                    pickle.dump(output_data, f)
+                    pickle.dump(table_data, f)
 
-        if output_data is None:
+            self.cache_hit = False
+        else:
+            self.cache_hit = True
+
+        if table_data is None:
             log.error(f'table "{self.table_name}" not accessible')
 
-        return output_data
+        return table_data
 
     @typechecked()
     def create_table(self, partition_key: str, sort_key: str = None) -> bool:

@@ -98,10 +98,14 @@ def test_dynamodb():
     assert sample_from_db == dynamodb_dict  # make sure we get back exactly what we wrote
 
     table_contents = dynamodb_access.scan_table_cached()
+    assert not dynamodb_access.cache_hit
     check_table_contents(table_contents)
+
     table_contents = dynamodb_access.scan_table()
     check_table_contents(table_contents)
+
     table_contents = dynamodb_access.scan_table_cached()
+    assert dynamodb_access.cache_hit
     check_table_contents(table_contents)
 
 
