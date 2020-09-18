@@ -22,18 +22,39 @@ class AWSAccess:
         self,
         resource_name: str = None,
         profile_name: str = None,
+
         access_key_id: str = None,
         secret_access_key: str = None,
+
+        region_name: str = None,
+
         cache_dir: Path = None,
         cache_life: float = math.inf,
         cache_max_absolute: int = round(1e9),
         cache_max_of_free: float = 0.05,
         mtime_abs_tol: float = 10.0,
     ):
+        """
+        AWS access
+        :param resource_name: AWS resource name (e.g. s3, dynamodb, sqs, sns, etc.)
+
+        # See AWS docs for use of profile name and/or access key ID/secret access key pair, as well as region name.
+        :param profile_name: AWS profile name
+        :param access_key_id: AWS access key (required if secret_access_key given)
+        :param secret_access_key: AWS secret access key (required if access_key_id given)
+        :param region_name: AWS region (may be optional - see AWS docs)
+
+        :param cache_dir: dir for cache
+        :param cache_life: life of cache (in seconds)
+        :param cache_max_absolute: max size of cache
+        :param cache_max_of_free: max portion of disk free space the cache will consume
+        :param mtime_abs_tol: window in seconds where a modification time will be considered equal
+        """
         self.resource_name = resource_name
         self.profile_name = profile_name
         self.access_key_id = access_key_id
-        self.secret_access_key: secret_access_key
+        self.secret_access_key = secret_access_key
+        self.region_name = region_name
 
         if cache_dir is None:
             if resource_name is None:
@@ -51,12 +72,11 @@ class AWSAccess:
 
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
-        if self.access_key_id is not None and self.secret_access_key is not None:
-            self.session = boto3.session.Session(aws_access_key_id=self.access_key_id, aws_secret_access_key=self.secret_access_key)
-        elif self.profile_name is not None:
-            self.session = boto3.session.Session(profile_name=self.profile_name)
-        else:
-            self.session = boto3.session.Session()  # defaults
+        kwargs = {}
+        for k in ["profile_name", "access_key_id", "secret_access_key", "region_name"]:
+            if getattr(self, k) is not None:
+                kwargs[k] = getattr(self, k)
+        self.session = boto3.session.Session(**kwargs)
 
         if self.resource_name is None:
             # just the session, but not the client or resource
