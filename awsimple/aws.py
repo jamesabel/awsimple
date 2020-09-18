@@ -102,8 +102,9 @@ class AWSAccess:
         log.info("current user {arn=}")
         return arn.split(":")[4]
 
-    def test(self):
+    def test(self) -> bool:
         # basic connection/capability test
         resources = self.session.get_available_resources()  # boto3 will throw an error if there's an issue here
         if self.resource_name is not None and self.resource_name not in resources:
             raise PermissionError(self.resource_name)  # we don't have permission to the specified resource
+        return True  # if we got here, we were successful
