@@ -23,8 +23,8 @@ class AWSAccess:
         resource_name: str = None,
         profile_name: str = None,
 
-        access_key_id: str = None,
-        secret_access_key: str = None,
+        aws_access_key_id : str = None,
+        aws_secret_access_key : str = None,
 
         region_name: str = None,
 
@@ -52,8 +52,8 @@ class AWSAccess:
         """
         self.resource_name = resource_name
         self.profile_name = profile_name
-        self.access_key_id = access_key_id
-        self.secret_access_key = secret_access_key
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
         self.region_name = region_name
 
         if cache_dir is None:
@@ -73,7 +73,7 @@ class AWSAccess:
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
         kwargs = {}
-        for k in ["profile_name", "access_key_id", "secret_access_key", "region_name"]:
+        for k in ["profile_name", "aws_access_key_id", "aws_secret_access_key", "region_name"]:
             if getattr(self, k) is not None:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
