@@ -14,9 +14,11 @@ Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB 
 
 - True file hashing (SHA512) for S3 files (S3's etag is not a true file hash)
 
-- DynamoDB full table scans (local cache option)
+- DynamoDB full table scans (with local cache option)
 
-- Built-in pagination for large data sets (e.g. DynamoDB table scans)
+- DynamoDB secondary indexes
+
+- Built-in pagination (e.g. for DynamoDB table scans and queries).  Always get everything you asked for.
 
 - Can automatically set SQS timeouts based on runtime data (can also be user-specified)
 

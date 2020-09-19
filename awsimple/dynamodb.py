@@ -114,6 +114,7 @@ class DynamoDBAccess(AWSAccess):
     def __init__(self, table_name: str = None, **kwargs):
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
         self.cache_hit = False
+        self.secondary_index_postfix = "-index"
         super().__init__(resource_name="dynamodb", **kwargs)
 
     @typechecked()
@@ -236,7 +237,7 @@ class DynamoDBAccess(AWSAccess):
         return table_data
 
     @typechecked()
-    def create_table(self, partition_key: str, sort_key: str = None) -> bool:
+    def create_table(self, partition_key: str, sort_key: str = None, secondary_index: str = None) -> bool:
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
             assert kt in ("HASH", "RANGE")
@@ -261,17 +262,28 @@ class DynamoDBAccess(AWSAccess):
 
             # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html#HowItWorks.CoreComponents.PrimaryKey
 
-            d, s = add_key(partition_key, type_to_attribute_type(partition_key), "HASH")  # required
-            attribute_definitions = [d]
-            key_schema = [s]
+            pd, ps = add_key(partition_key, type_to_attribute_type(partition_key), "HASH")  # required
+            attribute_definitions = [pd]
+            key_schema = [ps]
             if sort_key is not None:
                 d, s = add_key(sort_key, type_to_attribute_type(sort_key), "RANGE")  # optional
                 attribute_definitions.append(d)
                 key_schema.append(s)
             log.info(pformat(key_schema, indent=4))
 
+            kwargs = {"AttributeDefinitions": attribute_definitions,
+                      "KeySchema": key_schema,
+                      "BillingMode": "PAY_PER_REQUEST",  # on-demand
+                      "TableName": self.table_name
+                      }
+            if secondary_index is not None:
+                index_name = f"{secondary_index}{self.secondary_index_postfix}"
+                sd, ss = add_key(secondary_index, type_to_attribute_type(sort_key), "RANGE")
+                kwargs["LocalSecondaryIndexes"] = [{"IndexName": index_name, "KeySchema": [ps, ss], "Projection": {"ProjectionType": "ALL"}}]
+                kwargs["AttributeDefinitions"].append(sd)
+
             try:
-                client.create_table(AttributeDefinitions=attribute_definitions, KeySchema=key_schema, BillingMode="PAY_PER_REQUEST", TableName=self.table_name)  # on-demand
+                client.create_table(**kwargs)
                 client.get_waiter("table_exists").wait(TableName=self.table_name)
                 created = True
             except ClientError as e:
@@ -279,9 +291,26 @@ class DynamoDBAccess(AWSAccess):
 
         return created
 
+    def get_primary_keys(self) -> tuple:
+        """
+        get the table's primary keys
+        :return: a 2-tuple of (primary_key, sort_key).  sort_key will be None if there is no sort key.
+        """
+        keys = []
+        for key_schema in self.resource.Table(self.table_name).key_schema:
+            for key_type in ["HASH", "RANGE"]:
+                if key_schema["KeyType"] == key_type:
+                    keys.append(key_schema["AttributeName"])
+        if len(keys) == 0:
+            # we should always have a partition key
+            raise ValueError(f"no partition key in {self.table_name}")  # should be impossible if DynamoDB is working properly
+        elif len(keys) == 1:
+            keys.append(None)  # no sort key
+        return keys[0], keys[1]
+
     def _query(self, comp: str, *args) -> list:
         """
-        query the table with key, value pairs. The first parameter pairs should be the primary key's key/value pairs.
+        Query the table with key, value pairs. The first parameter pairs should be the primary key's key/value pairs.  Also supports secondary indexes.
 
         Examples:
             query(primary_key, primary_value)
@@ -291,12 +320,36 @@ class DynamoDBAccess(AWSAccess):
         :return: a (possibly empty) list of rows matching the query
         """
 
+        primary_keys = self.get_primary_keys()
+        secondary_index_name = None
+
         key_condition_expression = Key(args[0]).eq(args[1])
         for key, value in zip(islice(args, 2, None, 2), islice(args, 3, None, 2)):
             key_condition_expression &= getattr(Key(key), comp)(value)
+            if key not in primary_keys:
+                secondary_index_name = f"{key}{self.secondary_index_postfix}"
 
-        query_response = self.resource.Table(self.table_name).query(KeyConditionExpression=key_condition_expression)
-        return query_response.get("Items", []) if query_response is not None else []
+        kwargs = {"KeyConditionExpression": key_condition_expression}
+        if secondary_index_name is not None:
+            kwargs["IndexName"] = secondary_index_name
+
+        table = self.resource.Table(self.table_name)
+
+        results = []
+        more_to_go = True
+        last_evaluated_key = None  # pagination
+        while more_to_go:
+            if last_evaluated_key is not None:
+                kwargs["ExclusiveStartKey"] = last_evaluated_key
+            query_response = table.query(**kwargs)
+            items = query_response.get("Items")
+            if items is not None:
+                results.extend(items)
+            last_evaluated_key = query_response.get("LastEvaluatedKey")
+            if last_evaluated_key is None:
+                more_to_go = False
+
+        return results
 
     def query(self, *args) -> list:
         """

@@ -91,7 +91,7 @@ def test_dynamodb():
     assert dynamodb_dict["dictim"].get("hi") is None  # we're back to case sensitivity
 
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
-    dynamodb_access.create_table("id")
+    dynamodb_access.create_table(id_str)
     dynamodb_access.put_item(dynamodb_dict)
 
     sample_from_db = dynamodb_access.get_item(id_str, dict_id)
@@ -107,6 +107,8 @@ def test_dynamodb():
     table_contents = dynamodb_access.scan_table_cached()
     assert dynamodb_access.cache_hit
     check_table_contents(table_contents)
+
+    assert dynamodb_access.get_primary_keys() == (id_str, None)  # no sort key
 
 
 if is_main():
