@@ -22,8 +22,8 @@ def test_sns_publish():
     # put in your actual email and run this at least once:
     # sns_access.subscribe("me@mydomain.com")
 
-    message_string = "There's a new package on PyPI called awsimple. Check it out."
-    subject_string = "simple AWS access"
+    message_string = "This is a test for awsimple."
+    subject_string = "awsimple test"
     message_id = sns_access.publish(message_string, subject_string)
     print(f"{message_id=}")
     assert message_id is not None and len(message_id) > 0
