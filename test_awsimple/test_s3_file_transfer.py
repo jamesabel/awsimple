@@ -152,16 +152,16 @@ def test_cache_eviction():
 
         # cold download
         status_cold = s3_access.download_cached(file_name, dest_path)
-        assert not status_cold.cached
+        assert not status_cold.cache_hit
         if size <= cache_max:
-            assert status_cold.wrote_to_cache
+            assert status_cold.cache_write
 
         # warm download
         assert dest_path.exists()
         status_warm = s3_access.download_cached(file_name, dest_path)
         if size <= cache_max:
-            assert status_warm.cached
-            assert not status_warm.wrote_to_cache
+            assert status_warm.cache_hit
+            assert not status_warm.cache_write
         assert dest_path.exists()
 
         # make sure cache stays within max size limit

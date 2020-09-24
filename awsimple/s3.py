@@ -25,8 +25,8 @@ log = get_logger(__application_name__)
 @dataclass
 class S3DownloadStatus:
     success: bool = False
-    cached: bool = None
-    wrote_to_cache: bool = None
+    cache_hit: bool = None
+    cache_write: bool = None
     sizes_differ: bool = None
     mtimes_differ: bool = None
 
@@ -76,25 +76,25 @@ class S3Access(AWSAccess):
 
             if local_size != s3_object_metadata.size:
                 log.info(f"{self.bucket_name}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                self.download_status.cached = False
+                self.download_status.cache_hit = False
                 self.download_status.sizes_differ = True
             elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
                 log.info(f"{self.bucket_name}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                self.download_status.cached = False
+                self.download_status.cache_hit = False
                 self.download_status.mtimes_differ = True
             else:
                 log.info(f"{self.bucket_name}:{s3_key} cache hit : copying {cache_path=} to {dest_path=}")
-                self.download_status.cached = True
+                self.download_status.cache_hit = True
                 self.download_status.success = True
                 shutil.copy2(cache_path, dest_path)
         else:
-            self.download_status.cached = False
+            self.download_status.cache_hit = False
 
-        if not self.download_status.cached:
+        if not self.download_status.cache_hit:
             log.info(f"cache miss : {self.bucket_name=},{s3_key=},{dest_path=}")
             self.download(s3_key, dest_path)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
 
         return self.download_status
