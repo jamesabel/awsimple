@@ -40,8 +40,8 @@ class AWSAccess:
 
         # See AWS docs for use of profile name and/or access key ID/secret access key pair, as well as region name.
         :param profile_name: AWS profile name
-        :param access_key_id: AWS access key (required if secret_access_key given)
-        :param secret_access_key: AWS secret access key (required if access_key_id given)
+        :param aws_access_key_id: AWS access key (required if secret_access_key given)
+        :param aws_secret_access_key: AWS secret access key (required if access_key_id given)
         :param region_name: AWS region (may be optional - see AWS docs)
 
         :param cache_dir: dir for cache
