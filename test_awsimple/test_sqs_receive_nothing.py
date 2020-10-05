@@ -24,6 +24,7 @@ def test_sqs_receive_nothing_poll_one():
     drain()
     start = time.time()
     queue = SQSPollAccess(test_awsimple_str)  # will return in AWS SQS max wait time (e.g. 20 sec)
+    queue.create_queue()
     assert queue.receive_message() is None
 
     t = time.time() - start
@@ -35,6 +36,7 @@ def test_sqs_receive_nothing_poll_many():
     drain()
     start = time.time()
     queue = SQSPollAccess(test_awsimple_str)  # will return in AWS SQS max wait time (e.g. 20 sec)
+    queue.create_queue()
     assert len(queue.receive_messages()) == 0
 
     t = time.time() - start

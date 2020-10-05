@@ -2,16 +2,17 @@ import json
 
 from ismain import is_main
 
-from awsimple import SNSAccess, SQSPollAccess, SQSAccess
+from awsimple import SNSAccess, SQSPollAccess
 
-from test_awsimple import test_awsimple_str
+from test_awsimple import test_awsimple_str, drain
 
 
 def test_sns_publish():
 
-    SQSAccess(test_awsimple_str).receive_messages()  # drain the queue
+    drain()
 
     sqs_access = SQSPollAccess(test_awsimple_str)  # queue that will subscribe to this topic and we'll read from at the end to test the propagation from SNS to SQS
+    sqs_access.create_queue()
     sns_access = SNSAccess(test_awsimple_str)  # our test SNS topic
 
     sns_access.create_topic()  # this can set the permissions, which can take a while to propagate so it might fail the first time through

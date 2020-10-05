@@ -7,7 +7,7 @@ from test_awsimple import test_awsimple_str
 def test_dynamodb_create_table():
     table_name = f"{test_awsimple_str}temp"
 
-    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=table_name)
+    dynamodb_access = DynamoDBAccess(table_name, profile_name=test_awsimple_str)
 
     dynamodb_access.create_table("id")
     assert dynamodb_access.table_exists()  # create_table has a waiter so the table should exist at this point

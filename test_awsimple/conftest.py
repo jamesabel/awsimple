@@ -5,7 +5,7 @@ import logging
 
 from balsa import Balsa
 
-from awsimple import __application_name__, __author__
+from awsimple import __application_name__, __author__, is_mock
 
 
 class TestAWSimpleLoggingHandler(logging.Handler):
@@ -25,3 +25,5 @@ def session_fixture():
     logging.getLogger().addHandler(test_handler)
 
     balsa.init_logger()
+
+    print(f"{is_mock()=}")

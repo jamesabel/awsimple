@@ -11,7 +11,7 @@ from PIL import Image
 from ismain import is_main
 from dictim import dictim
 
-from awsimple import dict_to_dynamodb, DynamoDBAccess
+from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock
 from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
 dict_id = "test"
@@ -60,7 +60,11 @@ def check_table_contents(contents):
 
 
 def test_get_table_names():
-    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str)  # since we're only going to get the existing table names, we don't have to provide a table name
+    if is_mock():
+        dynamodb_access = DynamoDBAccess(test_awsimple_str, profile_name=test_awsimple_str)  # for mock we have to make the table
+        dynamodb_access.create_table(id_str)  # have to create the table on the fly for mocking
+    else:
+        dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str)  # since we're only going to get the existing table names, we don't have to provide a table name
     dynamodb_tables = dynamodb_access.get_table_names()
     print(dynamodb_tables)
     assert len(dynamodb_tables) > 0
