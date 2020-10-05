@@ -1,13 +1,12 @@
 import logging
+import os
 from pathlib import Path
 import math
 
-import boto3
-from botocore.config import Config
 from appdirs import user_cache_dir
 from typeguard import typechecked
 
-from awsimple import __application_name__, __author__
+from awsimple import __application_name__, __author__, is_mock
 
 log = logging.getLogger(__application_name__)
 
@@ -50,6 +49,9 @@ class AWSAccess:
         :param cache_max_of_free: max portion of disk free space the cache will consume
         :param mtime_abs_tol: window in seconds where a modification time will be considered equal
         """
+
+        import boto3  # import here to facilitate mocking
+
         self.resource_name = resource_name
         self.profile_name = profile_name
         self.aws_access_key_id = aws_access_key_id
@@ -78,15 +80,46 @@ class AWSAccess:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
 
-        if self.resource_name is None:
+        self.mock = None
+        self.aws_keys_save = {}
+
+        if is_mock():
+
+            # moto mock AWS
+            for aws_key in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SECURITY_TOKEN', 'AWS_SESSION_TOKEN']:
+                self.aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
+                os.environ[aws_key] = "testing"
+
+            if self.resource_name == 's3':
+                from moto import mock_s3 as moto_mock
+            elif self.resource_name == "sns":
+                from moto import mock_sns as moto_mock
+            elif self.resource_name == "sqs":
+                from moto import mock_sqs as moto_mock
+            elif self.resource_name == "dynamodb":
+                from moto import mock_dynamodb2 as moto_mock
+            else:
+                from moto import mock_iam as moto_mock
+
+            mock = moto_mock()
+            mock.start()
+            region = 'us-east-1'
+            self.resource = boto3.resource(self.resource_name, region_name=region)
+            self.client = boto3.client(self.resource_name, region_name=region)
+            if self.resource_name == "s3":
+                self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
+
+        elif self.resource_name is None:
             # just the session, but not the client or resource
             self.client = None
             self.resource = None
         else:
+            # real AWS (no mock)
             self.client = self.session.client(self.resource_name, config=self._get_config())
             self.resource = self.session.resource(self.resource_name, config=self._get_config())
 
     def _get_config(self):
+        from botocore.config import Config  # import here to facilitate mocking
         timeout = 60 * 60  # AWS default is 60, which is too short for some uses and/or connections
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
@@ -108,3 +141,16 @@ class AWSAccess:
         if self.resource_name is not None and self.resource_name not in resources:
             raise PermissionError(self.resource_name)  # we don't have permission to the specified resource
         return True  # if we got here, we were successful
+
+    def __del__(self):
+
+        if self.mock is not None:
+
+            for aws_key, value in self.aws_keys_save.items():
+                if value is None:
+                    del os.environ[aws_key]
+                else:
+                    os.environ[aws_key] = value
+
+            self.mock.stop()
+            self.mock = None

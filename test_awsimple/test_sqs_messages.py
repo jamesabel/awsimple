@@ -16,6 +16,7 @@ def test_sqs_immediate_delete():
     drain()
 
     q = SQSAccess(test_awsimple_str, profile_name=test_awsimple_str)
+    q.create_queue()
 
     send_time = time.time()
     q.send(send_message)
@@ -33,6 +34,7 @@ def test_sqs_poll_immediate_delete():
     drain()
 
     q = SQSPollAccess(test_awsimple_str, profile_name=test_awsimple_str)
+    q.create_queue()
 
     send_time = time.time()
     q.send(send_message)
@@ -52,6 +54,7 @@ def test_sqs_poll_user_delete():
 
     # populate the run time history
     queue = SQSAccess(test_awsimple_str, immediate_delete=False, profile_name=test_awsimple_str)
+    queue.create_queue()
     queue.get_response_history_file_path().unlink(missing_ok=True)
     queue.max_history = 5  # test that we can delete old history values by using a very small history
     for value in range(0, queue.max_history):
@@ -66,6 +69,7 @@ def test_sqs_poll_user_delete():
 
     # now do a long poll style
     poll_queue = SQSPollAccess(test_awsimple_str, immediate_delete=False, profile_name=test_awsimple_str)
+    poll_queue.create_queue()
 
     print("sending test message")
     send_time = time.time()
@@ -93,6 +97,7 @@ def test_sqs_n_messages():
 
     message = "hi"
     queue = SQSAccess(test_awsimple_str)
+    queue.create_queue()
 
     # more than we'll try to take out, and more than the AWS max per call
     for _ in range(0, 14):
