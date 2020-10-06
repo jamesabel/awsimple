@@ -80,14 +80,14 @@ class AWSAccess:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
 
-        self.mock = None
-        self.aws_keys_save = {}
+        self._mock = None
+        self._aws_keys_save = {}
 
         if is_mock():
 
             # moto mock AWS
             for aws_key in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SECURITY_TOKEN', 'AWS_SESSION_TOKEN']:
-                self.aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
+                self._aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
                 os.environ[aws_key] = "testing"
 
             if self.resource_name == 's3':
@@ -101,8 +101,8 @@ class AWSAccess:
             else:
                 from moto import mock_iam as moto_mock
 
-            self.mock = moto_mock()
-            self.mock.start()
+            self._mock = moto_mock()
+            self._mock.start()
             region = 'us-east-1'
             self.resource = boto3.resource(self.resource_name, region_name=region)
             self.client = boto3.client(self.resource_name, region_name=region)
@@ -142,22 +142,24 @@ class AWSAccess:
             raise PermissionError(self.resource_name)  # we don't have permission to the specified resource
         return True  # if we got here, we were successful
 
+    def is_mocked(self) -> bool:
+        return self._mock is not None
+
     def __del__(self):
 
-        if is_mock():
-            try:
-                m = self.mock
-            except AttributeError as e:
-                log.warning(f"self.mock {e}")
-                m = None
+        try:
+            m = self._mock
+        except AttributeError as e:
+            log.warning(f"self._mock {e}")
+            m = None
 
-            if m is not None:
+        if m is not None:
 
-                for aws_key, value in self.aws_keys_save.items():
-                    if value is None:
-                        del os.environ[aws_key]
-                    else:
-                        os.environ[aws_key] = value
+            for aws_key, value in self._aws_keys_save.items():
+                if value is None:
+                    del os.environ[aws_key]
+                else:
+                    os.environ[aws_key] = value
 
-                m.stop()
-                self.mock = None
+            m.stop()
+            self._mock = None  # mock is "done"
