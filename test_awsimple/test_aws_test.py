@@ -18,6 +18,7 @@ def test_aws_test():
     assert DynamoDBAccess(test_awsimple_str, profile_name=test_awsimple_str).test()
     assert SQSAccess(test_awsimple_str, profile_name=test_awsimple_str).test()
 
-    # this (non-existent) profile doesn't have access at all
-    with pytest.raises(ProfileNotFound):
-        AWSAccess(profile_name="IAmNotAProfile").test()
+    if not is_mock():
+        # this (non-existent) profile doesn't have access at all
+        with pytest.raises(ProfileNotFound):
+            AWSAccess(profile_name="IAmNotAProfile").test()

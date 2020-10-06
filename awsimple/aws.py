@@ -144,13 +144,20 @@ class AWSAccess:
 
     def __del__(self):
 
-        if self.mock is not None:
+        if is_mock():
+            try:
+                m = self.mock
+            except AttributeError as e:
+                log.warning(f"self.mock {e}")
+                m = None
 
-            for aws_key, value in self.aws_keys_save.items():
-                if value is None:
-                    del os.environ[aws_key]
-                else:
-                    os.environ[aws_key] = value
+            if m is not None:
 
-            self.mock.stop()
-            self.mock = None
+                for aws_key, value in self.aws_keys_save.items():
+                    if value is None:
+                        del os.environ[aws_key]
+                    else:
+                        os.environ[aws_key] = value
+
+                m.stop()
+                self.mock = None
