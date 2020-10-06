@@ -1,5 +1,5 @@
 from .__version__ import __application_name__, __version__, __author__, __title__
-from .is_mock import use_moto_mock_env_var, is_mock
+from .mock import use_moto_mock_env_var, is_mock
 from .aws import AWSAccess, AWSimpleException
 from .cache import get_disk_free, get_directory_size, lru_cache_write
 from .dynamodb import DynamoDBAccess, dict_to_dynamodb, DBItemNotFound

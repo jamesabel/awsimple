@@ -101,8 +101,8 @@ class AWSAccess:
             else:
                 from moto import mock_iam as moto_mock
 
-            mock = moto_mock()
-            mock.start()
+            self.mock = moto_mock()
+            self.mock.start()
             region = 'us-east-1'
             self.resource = boto3.resource(self.resource_name, region_name=region)
             self.client = boto3.client(self.resource_name, region_name=region)
