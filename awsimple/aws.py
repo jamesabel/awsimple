@@ -71,6 +71,8 @@ class AWSAccess:
         self.cache_max_of_free = cache_max_of_free  # max portion of the disk's free space this LRU cache will take
         self.mtime_abs_tol = mtime_abs_tol  # file modification times within this cache window (in seconds) are considered equivalent
         self.cache_retries = 10  # cache upload retries
+        self._moto_mock = None
+        self._aws_keys_save = {}
 
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
@@ -79,9 +81,6 @@ class AWSAccess:
             if getattr(self, k) is not None:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
-
-        self._mock = None
-        self._aws_keys_save = {}
 
         if is_mock():
 
@@ -101,8 +100,8 @@ class AWSAccess:
             else:
                 from moto import mock_iam as moto_mock
 
-            self._mock = moto_mock()
-            self._mock.start()
+            self._moto_mock = moto_mock()
+            self._moto_mock.start()
             region = 'us-east-1'
             self.resource = boto3.resource(self.resource_name, region_name=region)
             self.client = boto3.client(self.resource_name, region_name=region)
@@ -143,17 +142,13 @@ class AWSAccess:
         return True  # if we got here, we were successful
 
     def is_mocked(self) -> bool:
-        return self._mock is not None
+        return self._moto_mock is not None
 
     def __del__(self):
 
-        try:
-            m = self._mock
-        except AttributeError as e:
-            log.warning(f"self._mock {e}")
-            m = None
+        if self._moto_mock is not None:
 
-        if m is not None:
+            # if mocking, put everything back
 
             for aws_key, value in self._aws_keys_save.items():
                 if value is None:
@@ -161,5 +156,5 @@ class AWSAccess:
                 else:
                     os.environ[aws_key] = value
 
-            m.stop()
-            self._mock = None  # mock is "done"
+            self._moto_mock.stop()
+            self._moto_mock = None  # mock is "done"
