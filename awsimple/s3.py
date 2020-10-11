@@ -14,12 +14,22 @@ from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
 from balsa import get_logger
 
-from awsimple import AWSAccess, __application_name__, lru_cache_write
+from awsimple import AWSAccess, __application_name__, lru_cache_write, AWSimpleException
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
 
 log = get_logger(__application_name__)
+
+
+class BucketNotFound(AWSimpleException):
+    def __init__(self, bucket_name):
+        self.bucket_name = bucket_name
+        self.message = "Bucket not found"
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.bucket_name=} {self.message}"
 
 
 @dataclass
@@ -42,12 +52,21 @@ class S3ObjectMetadata:
 
 class S3Access(AWSAccess):
     @typechecked()
-    def __init__(self, bucket_name: str, **kwargs):
+    def __init__(self, bucket_name: str = None, **kwargs):
         self.bucket_name = bucket_name
         self.retry_sleep_time = 3.0  # seconds
         self.retry_count = 10
         self.download_status = S3DownloadStatus()
         super().__init__(resource_name="s3", **kwargs)
+
+    @typechecked()
+    def bucket_list(self) -> list:
+        """
+        list out all buckets
+        (not called list_buckets() since that's used in boto3 but this returns a list of bucket strings not a list of dicts)
+        :return: list of buckets
+        """
+        return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
 
     @typechecked()
     def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
@@ -267,13 +286,16 @@ class S3Access(AWSAccess):
 
     def dir(self) -> Dict[str, S3ObjectMetadata]:
         directory = {}
-        paginator = self.client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket_name):
-            for content in page["Contents"]:
-                s3_key = content.get("Key")
-                s3_size = content.get("Size")
-                s3_mtime = content.get("LastModified")
-                s3_etag = content.get("ETag")
-                metadata = self.get_s3_object_metadata(s3_key)
-                directory[s3_key] = S3ObjectMetadata(s3_key, s3_size, s3_mtime, s3_etag, metadata.sha512)
+        if self.bucket_exists():
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name):
+                for content in page["Contents"]:
+                    s3_key = content.get("Key")
+                    s3_size = content.get("Size")
+                    s3_mtime = content.get("LastModified")
+                    s3_etag = content.get("ETag")
+                    metadata = self.get_s3_object_metadata(s3_key)
+                    directory[s3_key] = S3ObjectMetadata(s3_key, s3_size, s3_mtime, s3_etag, metadata.sha512)
+        else:
+            raise BucketNotFound(self.bucket_name)
         return directory

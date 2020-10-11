@@ -1,6 +1,7 @@
 import time
 
-from awsimple import S3Access
+import pytest
+from awsimple import S3Access, BucketNotFound
 
 from test_awsimple import test_awsimple_str
 
@@ -30,3 +31,9 @@ def test_s3_bucket():
 
     assert not s3_access.bucket_exists()
     assert not s3_access.delete_bucket()  # was nothing to delete
+
+
+def test_s3_bucket_not_found():
+    with pytest.raises(BucketNotFound):
+        s3_access = S3Access("IDoNotExist")
+        s3_access.dir()
