@@ -284,6 +284,7 @@ class S3Access(AWSAccess):
             deleted = False
         return deleted
 
+    @typechecked()
     def dir(self) -> Dict[str, S3ObjectMetadata]:
         directory = {}
         if self.bucket_exists():
