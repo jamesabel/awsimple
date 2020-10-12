@@ -130,7 +130,7 @@ class S3Access(AWSAccess):
     @typechecked()
     def write_string(self, input_str: str, s3_key: str):
         log.debug(f"writing {self.bucket_name}/{s3_key}")
-        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str)
+        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, Metadata={sha512_string: get_string_sha512(input_str)})
 
     @typechecked()
     def write_lines(self, input_lines: list, s3_key: str):
