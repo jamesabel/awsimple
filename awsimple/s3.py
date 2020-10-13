@@ -290,7 +290,8 @@ class S3Access(AWSAccess):
         if self.bucket_exists():
             paginator = self.client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=self.bucket_name):
-                for content in page["Contents"]:
+                # deal with empty bucket
+                for content in page.get("Contents", []):
                     s3_key = content.get("Key")
                     s3_size = content.get("Size")
                     s3_mtime = content.get("LastModified")
