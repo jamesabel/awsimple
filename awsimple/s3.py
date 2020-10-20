@@ -94,15 +94,15 @@ class S3Access(AWSAccess):
             local_mtime = os.path.getmtime(cache_path)
 
             if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket_name}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
                 self.download_status.cache_hit = False
                 self.download_status.sizes_differ = True
             elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                log.info(f"{self.bucket_name}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
                 self.download_status.cache_hit = False
                 self.download_status.mtimes_differ = True
             else:
-                log.info(f"{self.bucket_name}:{s3_key} cache hit : copying {cache_path=} to {dest_path=}")
+                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
                 self.download_status.cache_hit = True
                 self.download_status.success = True
                 shutil.copy2(cache_path, dest_path)
@@ -110,7 +110,7 @@ class S3Access(AWSAccess):
             self.download_status.cache_hit = False
 
         if not self.download_status.cache_hit:
-            log.info(f"cache miss : {self.bucket_name=},{s3_key=},{dest_path=}")
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
             self.download(s3_key, dest_path)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
@@ -196,7 +196,7 @@ class S3Access(AWSAccess):
         if isinstance(dest_path, Path):
             dest_path = str(dest_path)
 
-        log.info(f'S3 download : {self.bucket_name}/{s3_key} to "{dest_path}"')
+        log.info(f'S3 download : {self.bucket_name}/{s3_key} to "{dest_path}" ({Path(dest_path).absolute()})')
 
         transfer_retry_count = 0
         success = False
@@ -209,7 +209,7 @@ class S3Access(AWSAccess):
                 success = True
             except (ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
                 # ProtocolError can happen for a broken connection
-                log.warning(f"{self.bucket_name}:{s3_key} to {dest_path} : {transfer_retry_count=} : {e}")
+                log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
                 time.sleep(self.retry_sleep_time)
         return success
