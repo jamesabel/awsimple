@@ -265,6 +265,7 @@ class S3Access(AWSAccess):
         if not self.bucket_exists():
             try:
                 self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
+                self.client.get_waiter('bucket_exists').wait(Bucket=self.bucket_name)
                 created = True
             except ClientError as e:
                 log.warning(f"{self.bucket_name=} {e=}")
