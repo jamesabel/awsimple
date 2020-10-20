@@ -72,7 +72,7 @@ class S3Access(AWSAccess):
     def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
-        :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
+        :param dest_path: destination full path
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
         """
