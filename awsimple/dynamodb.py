@@ -186,8 +186,8 @@ class DynamoDBAccess(AWSAccess):
     def scan_table_cached(self, invalidate_cache: bool = False) -> (list, None):
         """
 
-        Read data table(s) from AWS with caching.  This *requires* that the table not change during execution nor
-        from run to run without setting invalidate_cache.
+        Read data table(s) from AWS with caching.  This is meant for static or slowly changing tables, and *requires* that
+        the table not change during execution nor from run to run without setting invalidate_cache.
 
         :param invalidate_cache: True to initially invalidate the cache (forcing a table scan)
         :return: a list with the (possibly cached) table data
@@ -200,7 +200,7 @@ class DynamoDBAccess(AWSAccess):
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
 
         if invalidate_cache:
-            cache_file_path.unlink(missing_ok=True)
+            cache_file_path.unlink(missing_ok=True)  # invalidate by deleting the cache file
 
         table_data = None
         if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
@@ -210,9 +210,10 @@ class DynamoDBAccess(AWSAccess):
                 table_data = pickle.load(f)
                 log.debug(f"done reading {cache_file_path=}")
 
-                # AWS updates DynamoDB item count approximately every 6 hours
-                cache_age = time.time() - os.path.getmtime(cache_file_path)
-                item_count_mismatch = cache_age > datetime.timedelta(hours=6).total_seconds() and self.resource.Table(self.table_name).item_count != len(table_data)
+                # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
+                # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
+                # have in our cache, we need to update our cache even if we haven't had a timeout.
+                item_count_mismatch = self.resource.Table(self.table_name).item_count > len(table_data)
 
         if table_data is None or item_count_mismatch:
             log.info(f"getting {self.table_name} from DB")
