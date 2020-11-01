@@ -3,6 +3,7 @@ ismain
 balsa
 twine
 pytest
+moto
 boto3
 wheel
 coverage
