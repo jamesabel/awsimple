@@ -272,11 +272,7 @@ class DynamoDBAccess(AWSAccess):
                 key_schema.append(sort_schema)
             log.info(pformat(key_schema, indent=4))
 
-            kwargs = {"AttributeDefinitions": attribute_definitions,
-                      "KeySchema": key_schema,
-                      "BillingMode": "PAY_PER_REQUEST",  # on-demand
-                      "TableName": self.table_name
-                      }
+            kwargs = {"AttributeDefinitions": attribute_definitions, "KeySchema": key_schema, "BillingMode": "PAY_PER_REQUEST", "TableName": self.table_name}  # on-demand
 
             # add a secondary index, if requested
             if secondary_index is not None:

@@ -13,3 +13,4 @@ pillow
 typeguard
 dictim
 moto
+flake8

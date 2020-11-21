@@ -21,12 +21,9 @@ class AWSAccess:
         self,
         resource_name: str = None,
         profile_name: str = None,
-
-        aws_access_key_id : str = None,
-        aws_secret_access_key : str = None,
-
+        aws_access_key_id: str = None,
+        aws_secret_access_key: str = None,
         region_name: str = None,
-
         cache_dir: Path = None,
         cache_life: float = math.inf,
         cache_max_absolute: int = round(1e9),
@@ -85,11 +82,11 @@ class AWSAccess:
         if is_mock():
 
             # moto mock AWS
-            for aws_key in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SECURITY_TOKEN', 'AWS_SESSION_TOKEN']:
+            for aws_key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]:
                 self._aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
                 os.environ[aws_key] = "testing"
 
-            if self.resource_name == 's3':
+            if self.resource_name == "s3":
                 from moto import mock_s3 as moto_mock
             elif self.resource_name == "sns":
                 from moto import mock_sns as moto_mock
@@ -102,7 +99,7 @@ class AWSAccess:
 
             self._moto_mock = moto_mock()
             self._moto_mock.start()
-            region = 'us-east-1'
+            region = "us-east-1"
             self.resource = boto3.resource(self.resource_name, region_name=region)
             self.client = boto3.client(self.resource_name, region_name=region)
             if self.resource_name == "s3":
@@ -119,6 +116,7 @@ class AWSAccess:
 
     def _get_config(self):
         from botocore.config import Config  # import here to facilitate mocking
+
         timeout = 60 * 60  # AWS default is 60, which is too short for some uses and/or connections
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
