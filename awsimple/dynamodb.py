@@ -378,7 +378,9 @@ class DynamoDBAccess(AWSAccess):
     @typechecked()
     def delete_table(self) -> bool:
         """
-        deletes the current table
+        Deletes the current table.
+        (This is more like the SQL "DROP TABLE", *not* like a SQL "DELETE", which only deletes rows.  See DynamoDBAccess.delete_all_items() to delete all the items
+        but leave the table itself.)
         :return: True if actually deleted, False if it didn't exist in the first place
         """
         timeout_count = 10
@@ -459,3 +461,27 @@ class DynamoDBAccess(AWSAccess):
                 expression_attribute_values[f":{k}"] = v
 
             table.update_item(Key=key, UpdateExpression=update_expression, ExpressionAttributeValues=expression_attribute_values)
+
+    def delete_all_items(self) -> int:
+        """
+        Delete all the items in a table.
+
+        Caution: since DynamoDB doesn't have a built-in mechanism to delete all items, items are deleted one at a time (we don't do a
+        table delete/create since it's almost impossible to re-create all the indexes and potential references to other AWS resources).
+        Therefore, executing this on large tables will take time and potentially cost money.  You may want to do a delete/create you can
+        programmatically recreate the table and its references.
+
+        (This is similar to a SQL "DELETE" with no WHERE clause.)
+
+        :return: number of items deleted
+        """
+        table = self.resource.Table(self.table_name)
+        hash_key, sort_key = self.get_primary_keys()
+        count = 0
+        for item in self.scan_table():
+            key = {hash_key: item[hash_key]}
+            if sort_key is not None:
+                key[sort_key] = item[sort_key]
+            table.delete_item(Key=key)
+            count += 1
+        return count
