@@ -9,7 +9,9 @@ from os.path import getsize, getmtime
 from typing import List
 from pprint import pformat
 from itertools import islice
-import os
+import json
+from enum import Enum
+from decimal import Decimal
 
 from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
@@ -37,6 +39,46 @@ decimal_context.prec = 38  # Numbers can have 38 digits precision
 handle_inexact_error = True
 
 log = get_logger(__application_name__)
+
+
+def convert_serializable_special_cases(o):
+
+    """
+    Convert an object to a type that is fairly generally serializable (e.g. json serializable).
+    This only handles the cases that need converting.  The json module handles all the rest.
+    For JSON, with json.dump or json.dumps with argument default=convert_serializable.
+    Example:
+    json.dumps(my_animal, indent=4, default=convert_serializable)
+
+    :param o: object to be converted to a type that is serializable
+    :return: a serializable representation
+    """
+
+    if isinstance(o, Enum):
+        serializable_representation = o.value
+    elif isinstance(o, Decimal):
+        # decimal.Decimal (e.g. in AWS DynamoDB), both integer and floating point
+        if o % 1 == 0:
+            # if representable with an integer, use an integer
+            serializable_representation = int(o)
+        else:
+            # not representable with an integer so use a float
+            serializable_representation = float(o)
+    else:
+        raise NotImplementedError(f"can not serialize {o} since type={type(o)}")
+    return serializable_representation
+
+
+@typechecked()
+def dynamodb_to_json(o, indent=None) -> str:
+    # Convert a DynamoDB item to JSON
+    return json.dumps(o, default=convert_serializable_special_cases, sort_keys=True, indent=indent)
+
+
+@typechecked()
+def dynamodb_to_dict(o) -> dict:
+    # Convert a DynamoDB item to a serializable dict
+    return json.loads(dynamodb_to_json(o))
 
 
 @typechecked()
