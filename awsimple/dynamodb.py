@@ -55,7 +55,7 @@ def convert_serializable_special_cases(o):
     """
 
     if isinstance(o, Enum):
-        serializable_representation = o.value
+        serializable_representation = o.name
     elif isinstance(o, Decimal):
         # decimal.Decimal (e.g. in AWS DynamoDB), both integer and floating point
         if o % 1 == 0:

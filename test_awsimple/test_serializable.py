@@ -15,5 +15,5 @@ def test_make_serializable():
     assert serial_values["d"] == 1.0
     assert serial_values["s"] == "s"
     assert serial_values["bool"] is True
-    assert serial_values["a"] == 1
-    assert serial_values["b"] == 2
+    assert serial_values["a"] == "a"
+    assert serial_values["b"] == "b"
