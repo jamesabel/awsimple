@@ -1,6 +1,7 @@
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
+from math import pi, isclose
 
 from PIL import Image
 
@@ -20,7 +21,8 @@ def test_make_serializable():
               "b": TstClass.b,
               "binary": b"\0\1",
               "ni": -100,  # negative integer
-              "nbi": -100000000000000000000000000000000000  # negative big integer
+              "nbi": -100000000000000000000000000000000000,  # negative big integer
+              "pi": pi
               }
     values["image"] = Image.open(Path("test_awsimple", "280px-PNG_transparency_demonstration_1.png"))
     values = dict_to_dynamodb(values)
@@ -33,4 +35,5 @@ def test_make_serializable():
     assert len(serial_values["image"]) == 140065
     assert serial_values["binary"] == "b'\\x00\\x01'"
     assert isinstance(serial_values["ni"], int)
-    assert isinstance(serial_values["nbi"], int)
+    assert isinstance(serial_values["nbi"], float)  # ends up being a float, even though we'd prefer it as an int
+    assert isclose(serial_values["pi"], pi)
