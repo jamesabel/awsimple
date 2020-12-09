@@ -64,6 +64,11 @@ def convert_serializable_special_cases(o):
         else:
             # not representable with an integer so use a float
             serializable_representation = float(o)
+    elif isinstance(o, bytes) or isinstance(o, bytearray):
+        serializable_representation = str(o)
+    elif hasattr(o, "value"):
+        # e.g. PIL images
+        serializable_representation = str(o.value)
     else:
         raise NotImplementedError(f"can not serialize {o} since type={type(o)}")
     return serializable_representation
@@ -120,6 +125,10 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
             resp = decimal_context.create_decimal(input_value)
         else:
             resp = decimal.Decimal(input_value)
+    elif isinstance(input_value, Enum):
+        resp = input_value.name
+    elif isinstance(input_value, bytes):
+        resp = str(input_value)
     elif convert_images and pil_exists and isinstance(input_value, Image.Image):
         # save pillow (PIL) image as PNG binary
         image_byte_array = io.BytesIO()
