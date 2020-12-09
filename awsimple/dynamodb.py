@@ -58,11 +58,7 @@ def convert_serializable_special_cases(o):
         serializable_representation = o.name
     elif isinstance(o, Decimal):
         # decimal.Decimal (e.g. in AWS DynamoDB), both integer and floating point
-        try:
-            is_integer = abs(o) % 1 == 0
-        except decimal.InvalidOperation:
-            is_integer = False
-        if is_integer:
+        if int(o) % 1 == 0:
             # if representable with an integer, use an integer
             serializable_representation = int(o)
         else:
