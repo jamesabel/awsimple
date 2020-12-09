@@ -60,9 +60,9 @@ def convert_serializable_special_cases(o):
         # decimal.Decimal (e.g. in AWS DynamoDB), both integer and floating point
 
         try:
-            is_int = o % 1 == 0  # unfortunately doesn't work for all numbers :(
+            is_int = o % 1 == 0  # doesn't work for numbers greater than decimal.MAX_EMAX
         except decimal.InvalidOperation:
-            is_int = False  # some large numbers will get a decimal.DivisionImpossible, so we'll just have to represent those as a float
+            is_int = False  # numbers larger than decimal.MAX_EMAX will get a decimal.DivisionImpossible, so we'll just have to represent those as a float
 
         if is_int:
             # if representable with an integer, use an integer
