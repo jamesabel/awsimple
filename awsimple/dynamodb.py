@@ -41,6 +41,11 @@ handle_inexact_error = True
 log = get_logger(__application_name__)
 
 
+class QueryDirection(Enum):
+    lowest = 0
+    highest = 1
+
+
 def convert_serializable_special_cases(o):
 
     """
@@ -427,6 +432,48 @@ class DynamoDBAccess(AWSAccess):
         :return: a list of DB rows matching the query
         """
         return self._query("begins_with", *args)
+
+    @typechecked()
+    def query_one(self, partition_key: str, partition_value, direction: QueryDirection, secondary_index_name: str = None) -> (dict, None):
+        """
+        Query and return one or none items, optionally using the sort key to provide either the start or end of the ordered (sorted) set of items.
+
+        This is particularly useful when the table uses a sort key that orders the items and you want one value that is at one of the
+        ends of that sort. For example, if the sort key is an epoch timestamp (number) and query_range is QueryDirection.highest, the most recent item is returned.
+
+        :param partition_key: partition key
+        :param partition_value: partition value to match (exactly)
+        :param direction: the range extreme to retrieve (Range.lowest or Range.highest)
+        :param secondary_index_name: secondary index (if not using primary index)
+        :return: an item or None if not found
+        """
+        table = self.resource.Table(self.table_name)
+        element = None
+        if secondary_index_name is None:
+            resp = table.query(
+                KeyConditionExpression=Key(partition_key).eq(partition_value),
+                ScanIndexForward=direction == QueryDirection.lowest,  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
+                Limit=1  # we're just getting one of the ends
+            )
+        else:
+            resp = table.query(
+                IndexName=secondary_index_name,
+                KeyConditionExpression=Key(partition_key).eq(partition_value),
+                ScanIndexForward=direction == QueryDirection.lowest,
+                Limit=1
+            )
+        if resp is not None:
+            if (count := resp["Count"]) == 1:
+                items = resp["Items"]
+                if len(items) == 1:
+                    element = resp["Items"][0]
+                else:
+                    log.error(f"{partition_key=} {self.table_name=} {len(items)=} (1 expected)")
+            elif count > 1:
+                log.error(f"{partition_key=} {self.table_name=} query returned {count=}")
+            else:
+                log.warning(f'{partition_key=} not found in table "{self.table_name}"')
+        return element
 
     @typechecked()
     def delete_table(self) -> bool:
