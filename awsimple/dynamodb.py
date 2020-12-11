@@ -352,7 +352,7 @@ class DynamoDBAccess(AWSAccess):
     def get_primary_keys(self) -> tuple:
         """
         get the table's primary keys
-        :return: a 2-tuple of (primary_key, sort_key).  sort_key will be None if there is no sort key.
+        :return: a 2-tuple of (partition_key, sort_key).  sort_key will be None if there is no sort key.
         """
         keys = []
         for key_schema in self.resource.Table(self.table_name).key_schema:
@@ -371,8 +371,8 @@ class DynamoDBAccess(AWSAccess):
         Query the table with key, value pairs. The first parameter pairs should be the primary key's key/value pairs.  Also supports secondary indexes.
 
         Examples:
-            query(primary_key, primary_value)
-            query(primary_key, primary_value, sort_key, sort_value)
+            query(partition_key, partition_value)
+            query(partition_key, partition_value, sort_key, sort_value)
 
         :param comp: compare string (e.g. "eq", "begins_with", etc.)
         :return: a (possibly empty) list of rows matching the query
