@@ -41,7 +41,7 @@ handle_inexact_error = True
 log = get_logger(__application_name__)
 
 
-class QueryDirection(Enum):
+class QuerySelection(Enum):
     lowest = 0
     highest = 1
 
@@ -434,12 +434,12 @@ class DynamoDBAccess(AWSAccess):
         return self._query("begins_with", *args)
 
     @typechecked()
-    def query_one(self, partition_key: str, partition_value, direction: QueryDirection, secondary_index_name: str = None) -> (dict, None):
+    def query_one(self, partition_key: str, partition_value, direction: QuerySelection, secondary_index_name: str = None) -> (dict, None):
         """
         Query and return one or none items, optionally using the sort key to provide either the start or end of the ordered (sorted) set of items.
 
         This is particularly useful when the table uses a sort key that orders the items and you want one value that is at one of the
-        ends of that sort. For example, if the sort key is an epoch timestamp (number) and query_range is QueryDirection.highest, the most recent item is returned.
+        ends of that sort. For example, if the sort key is an epoch timestamp (number) and direction is QueryDirection.highest, the most recent item is returned.
 
         :param partition_key: partition key
         :param partition_value: partition value to match (exactly)
@@ -449,17 +449,19 @@ class DynamoDBAccess(AWSAccess):
         """
         table = self.resource.Table(self.table_name)
         element = None
+        scan_index_forward = direction == QuerySelection.lowest  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
+        key_condition_expression = Key(partition_key).eq(partition_value)
         if secondary_index_name is None:
             resp = table.query(
-                KeyConditionExpression=Key(partition_key).eq(partition_value),
-                ScanIndexForward=direction == QueryDirection.lowest,  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
+                KeyConditionExpression=key_condition_expression,
+                ScanIndexForward=scan_index_forward,
                 Limit=1  # we're just getting one of the ends
             )
         else:
             resp = table.query(
                 IndexName=secondary_index_name,
-                KeyConditionExpression=Key(partition_key).eq(partition_value),
-                ScanIndexForward=direction == QueryDirection.lowest,
+                KeyConditionExpression=key_condition_expression,
+                ScanIndexForward=scan_index_forward,
                 Limit=1
             )
         if resp is not None:

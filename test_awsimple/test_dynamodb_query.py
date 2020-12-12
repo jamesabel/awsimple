@@ -1,6 +1,6 @@
 from ismain import is_main
 
-from awsimple import DynamoDBAccess, QueryDirection
+from awsimple import DynamoDBAccess, QuerySelection
 
 from test_awsimple import test_awsimple_str
 
@@ -32,15 +32,15 @@ def test_dynamodb_query():
     response = dynamodb_access.query("id", "idonotexist")  # does not exist
     assert len(response) == 0
 
-    response = dynamodb_access.query_one("id", "me", QueryDirection.highest)
+    response = dynamodb_access.query_one("id", "me", QuerySelection.highest)
     assert response["answer"] == 99
     assert response["name"] == "zzz"  # the "last" entry, as sorted by sort key
 
-    response = dynamodb_access.query_one("id", "me", QueryDirection.lowest)
+    response = dynamodb_access.query_one("id", "me", QuerySelection.lowest)
     assert response["answer"] == 13
     assert response["name"] == "james"  # the "first" entry, as sorted by sort key
 
-    response = dynamodb_access.query_one("id", "idonotexist", QueryDirection.lowest)
+    response = dynamodb_access.query_one("id", "idonotexist", QuerySelection.lowest)
     assert response is None
 
 
