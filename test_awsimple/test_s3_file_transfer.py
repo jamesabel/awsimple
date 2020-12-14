@@ -156,7 +156,6 @@ def test_cache_eviction():
         s3_access.upload(source_file_path, file_name)
 
         dest_path = Path(eviction_dir, "dest", file_name)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
 
         # cold download
         status_cold = s3_access.download_cached(file_name, dest_path)

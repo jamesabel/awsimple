@@ -105,6 +105,7 @@ class S3Access(AWSAccess):
                 log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
                 self.download_status.cache_hit = True
                 self.download_status.success = True
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(cache_path, dest_path)
         else:
             self.download_status.cache_hit = False
@@ -197,6 +198,8 @@ class S3Access(AWSAccess):
             dest_path = str(dest_path)
 
         log.info(f'S3 download : {self.bucket_name}/{s3_key} to "{dest_path}" ({Path(dest_path).absolute()})')
+
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
 
         transfer_retry_count = 0
         success = False
