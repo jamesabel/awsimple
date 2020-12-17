@@ -470,11 +470,11 @@ class DynamoDBAccess(AWSAccess):
                 if len(items) == 1:
                     element = resp["Items"][0]
                 else:
-                    log.error(f"{partition_key=} {self.table_name=} {len(items)=} (1 expected)")
+                    log.error(f"{partition_key=} {partition_value=} {self.table_name=} {len(items)=} (1 expected)")
             elif count > 1:
-                log.error(f"{partition_key=} {self.table_name=} query returned {count=}")
+                log.error(f"{partition_key=} {partition_value=} {self.table_name=} query returned {count=}")
             else:
-                log.warning(f'{partition_key=} not found in table "{self.table_name}"')
+                log.warning(f'{partition_key=} {partition_value=} not found in table "{self.table_name}"')
         return element
 
     @typechecked()
