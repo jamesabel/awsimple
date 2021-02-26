@@ -1,6 +1,7 @@
 # awsimple
 
-Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (NoSQL datbase), and SQS (Simple Queuing Service).
+Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (a NoSQL database), SNS (Simple Notification Service), 
+and SQS (Simple Queuing Service).
 
 ### Features:
 
@@ -59,7 +60,7 @@ and generally have high performance and availability.
 While AWS has many varied services with extensive flexibility, using it for more straight-forward 
 applications is sometimes a daunting task. There are access modes that are probably not requried 
 and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
-level API to AWS services (such as S3, DynamoDB, and SQS) to improve programmer productivity.
+level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve programmer productivity.
 
 
 ## S3
