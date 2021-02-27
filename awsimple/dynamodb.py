@@ -12,13 +12,13 @@ from itertools import islice
 import json
 from enum import Enum
 from decimal import Decimal
+from logging import getLogger
 
 from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
-from balsa import get_logger
 from dictim import dictim
 
 from awsimple import AWSAccess, __application_name__, __author__, AWSimpleException
@@ -38,7 +38,7 @@ decimal_context = decimal.getcontext().copy()
 decimal_context.prec = 38  # Numbers can have 38 digits precision
 handle_inexact_error = True
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 class QuerySelection(Enum):
@@ -452,18 +452,9 @@ class DynamoDBAccess(AWSAccess):
         scan_index_forward = direction == QuerySelection.lowest  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
         key_condition_expression = Key(partition_key).eq(partition_value)
         if secondary_index_name is None:
-            resp = table.query(
-                KeyConditionExpression=key_condition_expression,
-                ScanIndexForward=scan_index_forward,
-                Limit=1  # we're just getting one of the ends
-            )
+            resp = table.query(KeyConditionExpression=key_condition_expression, ScanIndexForward=scan_index_forward, Limit=1)  # we're just getting one of the ends
         else:
-            resp = table.query(
-                IndexName=secondary_index_name,
-                KeyConditionExpression=key_condition_expression,
-                ScanIndexForward=scan_index_forward,
-                Limit=1
-            )
+            resp = table.query(IndexName=secondary_index_name, KeyConditionExpression=key_condition_expression, ScanIndexForward=scan_index_forward, Limit=1)
         if resp is not None:
             if (count := resp["Count"]) == 1:
                 items = resp["Items"]

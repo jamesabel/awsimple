@@ -7,19 +7,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict
 import urllib3
+from logging import getLogger
 
 from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
-from balsa import get_logger
 
 from awsimple import AWSAccess, __application_name__, lru_cache_write, AWSimpleException
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 class BucketNotFound(AWSimpleException):

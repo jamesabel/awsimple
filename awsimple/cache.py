@@ -1,13 +1,13 @@
 from pathlib import Path
 from shutil import disk_usage, copy2
 import os
+from logging import getLogger
 
 from typeguard import typechecked
-from balsa import get_logger
 
 from awsimple import __application_name__
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 @typechecked()
