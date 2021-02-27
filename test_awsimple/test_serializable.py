@@ -14,16 +14,17 @@ class TstClass(Enum):
 
 
 def test_make_serializable():
-    values = {"d": Decimal(1.0),
-              "s": "s",
-              "bool": True,
-              "a": TstClass.a,
-              "b": TstClass.b,
-              "binary": b"\0\1",
-              "ni": -100,  # negative integer
-              "nbi": -100000000000000000000000000000000000,  # negative big integer
-              "pi": pi
-              }
+    values = {
+        "d": Decimal(1.0),
+        "s": "s",
+        "bool": True,
+        "a": TstClass.a,
+        "b": TstClass.b,
+        "binary": b"\0\1",
+        "ni": -100,  # negative integer
+        "nbi": -100000000000000000000000000000000000,  # negative big integer
+        "pi": pi,
+    }
     values["image"] = Image.open(Path("test_awsimple", "280px-PNG_transparency_demonstration_1.png"))
     values = dict_to_dynamodb(values)
     serial_values = dynamodb_to_dict(values)
