@@ -9,5 +9,5 @@ python.exe setup.py bdist_wheel
 twine upload dist/*
 rmdir /S /Q awsimple.egg-info
 rmdir /S /Q build
-deactivate
+call deactivate
 popd
