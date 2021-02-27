@@ -1,3 +1,5 @@
+pushd .
+cd ..
 del doc\flake8_report.txt
 call venv\Scripts\activate.bat
 REM
@@ -8,3 +10,4 @@ REM E203 whitespace before ':' (black puts this in and may be controversial)
 REM E501 line too long
 flake8 --output-file doc\flake8_report.txt --ignore=E402,F401,W503,E203,E501 --tee awsimple
 deactivate
+popd

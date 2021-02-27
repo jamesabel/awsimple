@@ -1,3 +1,5 @@
+pushd .
+cd ..
 rmdir /S /Q awsimple.egg-info
 rmdir /S /Q build
 rmdir /S /Q dist
@@ -8,3 +10,4 @@ twine upload dist/*
 rmdir /S /Q awsimple.egg-info
 rmdir /S /Q build
 deactivate
+popd
