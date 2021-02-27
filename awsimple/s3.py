@@ -5,70 +5,85 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Dict
+import urllib3
+from logging import getLogger
 
-from appdirs import user_cache_dir
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
 
-from awsimple import AWSAccess, __application_name__, __author__, lru_cache_write
-from awsimple.aws import log
+from awsimple import AWSAccess, __application_name__, lru_cache_write, AWSimpleException
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
 
+log = getLogger(__application_name__)
+
+
+class BucketNotFound(AWSimpleException):
+    def __init__(self, bucket_name):
+        self.bucket_name = bucket_name
+        self.message = "Bucket not found"
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.bucket_name=} {self.message}"
+
 
 @dataclass
-class AWSS3DownloadStatus:
+class S3DownloadStatus:
     success: bool = False
-    cached: bool = None
-    wrote_to_cache: bool = None
+    cache_hit: bool = None
+    cache_write: bool = None
     sizes_differ: bool = None
     mtimes_differ: bool = None
 
 
 @dataclass
-class AWSS3ObjectMetadata:
+class S3ObjectMetadata:
+    key: str
     size: int
     mtime: datetime
-    etag: str
+    etag: str  # generally not used
     sha512: (str, None)  # hex string - only entries written with awsimple will have this
 
 
-@dataclass
 class S3Access(AWSAccess):
-    bucket: str = None  # required
+    @typechecked()
+    def __init__(self, bucket_name: str = None, **kwargs):
+        self.bucket_name = bucket_name
+        self.retry_sleep_time = 3.0  # seconds
+        self.retry_count = 10
+        self.download_status = S3DownloadStatus()
+        super().__init__(resource_name="s3", **kwargs)
 
-    def __post_init__(self):
-        if self.bucket is None:
-            log.warning(f"{self.bucket=}")
+    @typechecked()
+    def bucket_list(self) -> list:
+        """
+        list out all buckets
+        (not called list_buckets() since that's used in boto3 but this returns a list of bucket strings not a list of dicts)
+        :return: list of buckets
+        """
+        return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
 
-    def get_s3_resource(self):
-        return self.get_resource("s3")
-
-    def get_s3_client(self):
-        return self.get_client("s3")
-
-    @typechecked(always=True)
-    def download_cached(self, dest_path: Path, s3_key: str) -> AWSS3DownloadStatus:
+    @typechecked()
+    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
-        :param dest_path: destination full path.  If this is used, do not pass in dest_dir.
+        :param dest_path: destination full path
         :param s3_key: S3 key of source
-        :param cache_dir: cache dir
-        :param retries: number of times to retry the AWS S3 access
-        :return: AWSS3DownloadStatus instance
+        :return: S3DownloadStatus instance
         """
-        status = AWSS3DownloadStatus()
+
+        self.download_status = S3DownloadStatus()  # init
 
         # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
         # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
         # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
-        cache_file_name = get_string_sha512(f"{self.bucket}/{s3_key}")
+        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
 
-        if self.cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "s3")
         cache_path = Path(self.cache_dir, cache_file_name)
         log.debug(f"{cache_path}")
 
@@ -79,68 +94,58 @@ class S3Access(AWSAccess):
             local_mtime = os.path.getmtime(cache_path)
 
             if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket}:{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                status.cached = False
-                status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.abs_tol):
-                log.info(f"{self.bucket}:{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                status.cached = False
-                status.mtimes_differ = True
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
+                self.download_status.cache_hit = False
+                self.download_status.sizes_differ = True
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
+                self.download_status.cache_hit = False
+                self.download_status.mtimes_differ = True
             else:
-                status.cached = True
-                status.success = True
+                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+                self.download_status.cache_hit = True
+                self.download_status.success = True
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(cache_path, dest_path)
         else:
-            status.cached = False
+            self.download_status.cache_hit = False
 
-        if not status.cached:
-            log.info(f"S3 download : {self.bucket=},{s3_key=},{dest_path=}")
+        if not self.download_status.cache_hit:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
+            self.download(s3_key, dest_path)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
 
-            transfer_retry_count = 0
+        return self.download_status
 
-            while not status.success and transfer_retry_count < self.cache_retries:
-                try:
-                    self.download(dest_path, s3_key)
-                    self.cache_dir.mkdir(parents=True, exist_ok=True)
-                    status.wrote_to_cache = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
-                    status.success = True
-                except ClientError as e:
-                    log.warning(f"{self.bucket}:{s3_key} to {dest_path=} : {transfer_retry_count=} : {e}")
-                    transfer_retry_count += 1
-                    time.sleep(3.0)
-
-        return status
-
-    @typechecked(always=True)
+    @typechecked()
     def read_string(self, s3_key: str) -> str:
-        log.debug(f"reading {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        return s3.Object(self.bucket, s3_key).get()["Body"].read().decode()
+        log.debug(f"reading {self.bucket_name}/{s3_key}")
+        return self.resource.Object(self.bucket_name, s3_key).get()["Body"].read().decode()
 
-    @typechecked(always=True)
+    @typechecked()
     def read_lines(self, s3_key: str) -> list:
         return self.read_string(s3_key).splitlines()
 
-    @typechecked(always=True)
+    @typechecked()
     def write_string(self, input_str: str, s3_key: str):
-        log.debug(f"writing {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        s3.Object(self.bucket, s3_key).put(Body=input_str)
+        log.debug(f"writing {self.bucket_name}/{s3_key}")
+        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, Metadata={sha512_string: get_string_sha512(input_str)})
 
-    @typechecked(always=True)
+    @typechecked()
     def write_lines(self, input_lines: list, s3_key: str):
         self.write_string("\n".join(input_lines), s3_key)
 
-    @typechecked(always=True)
+    @typechecked()
     def delete_object(self, s3_key: str):
-        log.info(f"deleting {self.bucket}:{s3_key}")
-        s3 = self.get_s3_resource()
-        s3.Object(self.bucket, s3_key).delete()
+        log.info(f"deleting {self.bucket_name}/{s3_key}")
+        self.resource.Object(self.bucket_name, s3_key).delete()
 
-    @typechecked(always=True)
+    @typechecked()
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
 
-        log.info(f"S3 upload : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
+        log.info(f'S3 upload : "{file_path}" to {self.bucket_name}/{s3_key}')
 
         uploaded_flag = False
 
@@ -154,74 +159,78 @@ class S3Access(AWSAccess):
 
         upload_flag = force
         if not upload_flag:
-            if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+            if s3_object_metadata is None:
+                upload_flag = True
+            elif s3_object_metadata.sha512 is not None and file_sha512 is not None:
                 # use the hash provided by awsimple, if it exists
                 upload_flag = file_sha512 != s3_object_metadata.sha512
             else:
                 # if not, use mtime
-                upload_flag = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.abs_tol)
+                upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
 
         if upload_flag:
-            log.info(f"local file : {file_sha512=},{s3_object_metadata.sha512=},force={force} - uploading")
-            s3_client = self.get_client("s3")
+            log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
 
             transfer_retry_count = 0
-            while not uploaded_flag and transfer_retry_count < 10:
+            while not uploaded_flag and transfer_retry_count < self.retry_count:
                 metadata = {sha512_string: file_sha512}
                 log.info(f"{metadata=}")
                 try:
-                    s3_client.upload_file(str(file_path), self.bucket, s3_key, ExtraArgs={'Metadata': metadata})
+                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={"Metadata": metadata})
                     uploaded_flag = True
-                except S3UploadFailedError as e:
-                    log.warning(f"{file_path} to {self.bucket}:{s3_key} : {transfer_retry_count=} : {e}")
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                    log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
                     transfer_retry_count += 1
-                    time.sleep(1.0)
+                    time.sleep(self.retry_sleep_time)
 
         else:
             log.info(f"file hash of {file_md5} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
-    @typechecked(always=True)
-    def download(self, file_path: (str, Path), s3_key: str) -> bool:
+    @typechecked()
+    def download(self, s3_key: str, dest_path: (str, Path)) -> bool:
 
-        if isinstance(file_path, str):
-            log.info(f"{file_path} is not Path object.  Non-Path objects will be deprecated in the future")
+        if isinstance(dest_path, str):
+            log.info(f"{dest_path} is not Path object.  Non-Path objects will be deprecated in the future")
 
-        if isinstance(file_path, Path):
-            file_path = str(file_path)
+        if isinstance(dest_path, Path):
+            dest_path = str(dest_path)
 
-        log.info(f"S3 download : file_path={file_path} : bucket={self.bucket} : key={s3_key}")
-        s3_client = self.get_client("s3")
+        log.info(f'S3 download : {self.bucket_name}/{s3_key} to "{dest_path}" ({Path(dest_path).absolute()})')
+
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
 
         transfer_retry_count = 0
         success = False
-        while not success and transfer_retry_count < 10:
+        while not success and transfer_retry_count < self.retry_count:
             try:
-                s3_client.download_file(self.bucket, s3_key, file_path)
+                self.client.download_file(self.bucket_name, s3_key, dest_path)
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 mtime_ts = s3_object_metadata.mtime.timestamp()
-                os.utime(file_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
+                os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
-            except ClientError as e:
-                log.warning(f"{self.bucket}:{s3_key} to {file_path} : {transfer_retry_count=} : {e}")
+            except (ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                # ProtocolError can happen for a broken connection
+                log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
-                time.sleep(1.0)
+                time.sleep(self.retry_sleep_time)
         return success
 
-    @typechecked(always=True)
-    def get_s3_object_metadata(self, s3_key: str) -> (AWSS3ObjectMetadata, None):
-        s3_resource = self.get_s3_resource()
-        bucket_resource = s3_resource.Bucket(self.bucket)
+    @typechecked()
+    def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
+        bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = AWSS3ObjectMetadata(bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string))
+            s3_object_metadata = S3ObjectMetadata(
+                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string)
+            )
         else:
             s3_object_metadata = None
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
 
-    @typechecked(always=True)
+    @typechecked()
     def object_exists(self, s3_key: str) -> bool:
         """
         determine if an s3 object exists
@@ -229,31 +238,28 @@ class S3Access(AWSAccess):
         :param s3_key: the S3 object key
         :return: True if object exists
         """
-        s3_resource = self.get_s3_resource()
-        bucket_resource = s3_resource.Bucket(self.bucket)
+        bucket_resource = self.resource.Bucket(self.bucket_name)
         objs = list(bucket_resource.objects.filter(Prefix=s3_key))
         object_exists = len(objs) > 0 and objs[0].key == s3_key
-        log.debug(f"{self.bucket}:{s3_key} : {object_exists=}")
+        log.debug(f"{self.bucket_name}:{s3_key} : {object_exists=}")
         return object_exists
 
-    @typechecked(always=True)
+    @typechecked()
     def bucket_exists(self) -> bool:
-        s3_client = self.get_s3_client()
         try:
-            s3_client.head_bucket(Bucket=self.bucket)
+            self.client.head_bucket(Bucket=self.bucket_name)
             exists = True
         except ClientError as e:
-            log.info(f"{self.bucket=}{e=}")
+            log.info(f"{self.bucket_name=}{e=}")
             exists = False
         return exists
 
-    @typechecked(always=True)
+    @typechecked()
     def create_bucket(self) -> bool:
         """
         create S3 bucket
         :return: True if bucket created
         """
-        s3_client = self.get_s3_client()
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
         location = {"LocationConstraint": self.get_region()}
@@ -261,23 +267,41 @@ class S3Access(AWSAccess):
         created = False
         if not self.bucket_exists():
             try:
-                s3_client.create_bucket(Bucket=self.bucket, CreateBucketConfiguration=location)
+                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
+                self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
                 created = True
             except ClientError as e:
-                log.warning(f"{self.bucket=} {e=}")
+                log.warning(f"{self.bucket_name=} {e=}")
         return created
 
-    @typechecked(always=True)
+    @typechecked()
     def delete_bucket(self) -> bool:
         """
         delete S3 bucket
         :return: True if bucket deleted (False if didn't exist in the first place)
         """
         try:
-            s3_client = self.get_s3_client()
-            s3_client.delete_bucket(Bucket=self.bucket)
+            self.client.delete_bucket(Bucket=self.bucket_name)
             deleted = True
         except ClientError as e:
-            log.info(f"{self.bucket=}{e=}")  # does not exist
+            log.info(f"{self.bucket_name=}{e=}")  # does not exist
             deleted = False
         return deleted
+
+    @typechecked()
+    def dir(self) -> Dict[str, S3ObjectMetadata]:
+        directory = {}
+        if self.bucket_exists():
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name):
+                # deal with empty bucket
+                for content in page.get("Contents", []):
+                    s3_key = content.get("Key")
+                    s3_size = content.get("Size")
+                    s3_mtime = content.get("LastModified")
+                    s3_etag = content.get("ETag")
+                    metadata = self.get_s3_object_metadata(s3_key)
+                    directory[s3_key] = S3ObjectMetadata(s3_key, s3_size, s3_mtime, s3_etag, metadata.sha512)
+        else:
+            raise BucketNotFound(self.bucket_name)
+        return directory

@@ -1,12 +1,27 @@
+#
+# awsimple requirements
 hashy
 ismain
-balsa
-twine
-pytest
 boto3
+typeguard
+dictim
+#
+# packaging
+twine
 wheel
+#
+# testing
+pytest
+moto
+# moto apparently requires docker
+docker
 coverage
 pytest-cov
-black
 pillow
-typeguard
+#
+# formatting and linting
+black
+flake8
+#
+# documentation
+sphinx

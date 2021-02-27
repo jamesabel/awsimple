@@ -1,6 +1,27 @@
 # awsimple
 
-Simple API for basic AWS services
+Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (a NoSQL database), SNS (Simple Notification Service), 
+and SQS (Simple Queuing Service).
+
+### Features:
+
+- Simple Object Oriented API on top of boto3
+
+- One-line S3 file write, read, and delete
+
+- Automatic S3 retries
+
+- Locally cached S3 accesses
+
+- True file hashing (SHA512) for S3 files (S3's etag is not a true file hash)
+
+- DynamoDB full table scans (with local cache option)
+
+- DynamoDB secondary indexes
+
+- Built-in pagination (e.g. for DynamoDB table scans and queries).  Always get everything you asked for.
+
+- Can automatically set SQS timeouts based on runtime data (can also be user-specified)
 
 ## Usage
 
@@ -33,10 +54,14 @@ that should cover many basic usage models.
 
 ## Discussion
 
+AWS's "serverless" resources offer many benefits.  You only pay for what you use, easily scale, 
+and generally have high performance and availability.
+
 While AWS has many varied services with extensive flexibility, using it for more straight-forward 
 applications is sometimes a daunting task. There are access modes that are probably not requried 
 and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
-level API to AWS services (such as S3 and DynamoDB) to improve programmer productivity.
+level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve programmer productivity.
+
 
 ## S3
 
@@ -50,7 +75,7 @@ and potentially offer a speedup.
 
 ## What`awsimple` Is Not
 
-- `awsimple` is not necessarily memory and CPU efficient
+- `awsimple` is not necessarily the most memory and CPU efficient
 
 - `awsimple` does not provide cost monitoring hooks
 

@@ -9,13 +9,11 @@ import pickle
 
 from PIL import Image
 from ismain import is_main
+from dictim import dictim
 
-from botocore.exceptions import ProfileNotFound
+from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock
+from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
-from awsimple import dict_to_dynamodb, DynamoDBAccess
-from test_awsimple import dict_is_close, test_awsimple_str
-
-id_str = "id"
 dict_id = "test"
 
 # source:
@@ -51,6 +49,7 @@ sample_input = {
     "image": png_image,
     "test_date_time": datetime.datetime.fromtimestamp(1559679535),  # 2019-06-04T13:18:55
     "zero_len_string": "",
+    "dictim": dictim({"HI": dictim({"there": 1})}),  # nested
 }
 
 
@@ -58,6 +57,18 @@ def check_table_contents(contents):
     with open(os.path.join("cache", f"{test_awsimple_str}.pickle"), "rb") as f:
         assert dict_is_close(sample_input, contents[0])
         assert dict_is_close(sample_input, pickle.load(f)[0])
+
+
+def test_get_table_names():
+    if is_mock():
+        dynamodb_access = DynamoDBAccess(test_awsimple_str, profile_name=test_awsimple_str)  # for mock we have to make the table
+        dynamodb_access.create_table(id_str)  # have to create the table on the fly for mocking
+    else:
+        dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str)  # since we're only going to get the existing table names, we don't have to provide a table name
+    dynamodb_tables = dynamodb_access.get_table_names()
+    print(dynamodb_tables)
+    assert len(dynamodb_tables) > 0
+    assert test_awsimple_str in dynamodb_tables
 
 
 def test_dynamodb():
@@ -78,24 +89,30 @@ def test_dynamodb():
     assert dynamodb_dict["test_date_time"] == "2019-06-04T13:18:55"
     assert dynamodb_dict["zero_len_string"] is None
 
+    # while dictim is case insensitive, when we convert to dict for DynamoDB it becomes case sensitive
+    assert list(dynamodb_dict["dictim"]["HI"])[0] == "there"
+    assert dynamodb_dict["dictim"]["HI"]["there"] == 1  # actually Decimal(1)
+    assert dynamodb_dict["dictim"].get("hi") is None  # we're back to case sensitivity
+
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_life=timedelta(seconds=1).total_seconds())
-    dynamodb_access.create_table("id")
+    dynamodb_access.create_table(id_str)
     dynamodb_access.put_item(dynamodb_dict)
 
     sample_from_db = dynamodb_access.get_item(id_str, dict_id)
     assert sample_from_db == dynamodb_dict  # make sure we get back exactly what we wrote
 
     table_contents = dynamodb_access.scan_table_cached()
-    check_table_contents(table_contents)
-    table_contents = dynamodb_access.scan_table()
-    check_table_contents(table_contents)
-    table_contents = dynamodb_access.scan_table_cached()
+    assert not dynamodb_access.cache_hit
     check_table_contents(table_contents)
 
-    dynamodb_tables = dynamodb_access.get_table_names()
-    print(dynamodb_tables)
-    assert len(dynamodb_tables) > 0
-    assert test_awsimple_str in dynamodb_tables
+    table_contents = dynamodb_access.scan_table()
+    check_table_contents(table_contents)
+
+    table_contents = dynamodb_access.scan_table_cached()
+    assert dynamodb_access.cache_hit
+    check_table_contents(table_contents)
+
+    assert dynamodb_access.get_primary_keys() == (id_str, None)  # no sort key
 
 
 if is_main():

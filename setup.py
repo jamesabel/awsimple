@@ -23,6 +23,6 @@ setup(
     keywords=["aws", "cloud", "storage", "database", "dynamodb", "s3"],
     packages=[__title__],
     package_data={__title__: [readme_file_path]},
-    install_requires=["ismain", "balsa", "boto3", "typeguard", "hashy"],
+    install_requires=["ismain", "boto3", "typeguard", "hashy", "dictim"],
     classifiers=[],
 )
