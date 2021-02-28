@@ -4,6 +4,7 @@ hashy
 boto3
 typeguard
 dictim
+appdirs
 #
 # examples
 ismain
