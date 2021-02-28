@@ -1,3 +1,7 @@
+"""
+SNS Access
+"""
+
 from typeguard import typechecked
 
 from awsimple import AWSAccess, SQSAccess
