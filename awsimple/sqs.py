@@ -48,10 +48,11 @@ class SQSAccess(AWSAccess):
     def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: int = None, minimum_visibility_timeout: int = 0, **kwargs):
         """
         SQS access
+
         :param queue_name: queue name
         :param immediate_delete: True to immediately delete read message(s) upon receipt, False to require the user to call delete_message()
         :param visibility_timeout: visibility timeout (if explicitly given) - set to None to automatically attempt to determine the timeout
-        :param minimum_visibility_timeout: visibility timeout will be at least this long (do not set if timeout set)
+        :param minimum_visibility_timeout: visibility timeout will be at least this long (do not set if visibility_timeout set)
         :param kwargs: kwargs to send to base class
         """
         super().__init__(resource_name="sqs", **kwargs)

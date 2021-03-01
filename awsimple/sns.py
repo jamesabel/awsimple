@@ -10,6 +10,12 @@ from awsimple import AWSAccess, SQSAccess
 class SNSAccess(AWSAccess):
     @typechecked()
     def __init__(self, topic_name: str, **kwargs):
+        """
+        SNS Access
+
+        :param topic_name: SNS topic
+        :param kwargs: kwargs
+        """
         super().__init__(resource_name="sns", **kwargs)
         self.topic_name = topic_name
 
