@@ -1,1 +1,6 @@
+boto3
 typeguard
+hashy
+dictim
+appdirs
+ismain
