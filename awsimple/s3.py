@@ -18,7 +18,7 @@ from s3transfer import S3UploadFailedError
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_file_md5
 
-from awsimple import AWSAccess, __application_name__, lru_cache_write, AWSimpleException
+from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
@@ -54,10 +54,15 @@ class S3ObjectMetadata:
     sha512: (str, None)  # hex string - only entries written with awsimple will have this
 
 
-class S3Access(AWSAccess):
-
+class S3Access(CacheAccess):
     @typechecked()
     def __init__(self, bucket_name: str = None, **kwargs):
+        """
+        S3 Access
+
+        :param bucket_name: S3 bucket name
+        :param kwargs: kwargs
+        """
         self.bucket_name = bucket_name
         self.retry_sleep_time = 3.0  # seconds
         self.retry_count = 10

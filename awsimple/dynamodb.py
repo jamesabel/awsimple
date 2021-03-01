@@ -25,7 +25,7 @@ from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim
 
-from awsimple import AWSAccess, __application_name__, __author__, AWSimpleException
+from awsimple import CacheAccess, __application_name__, __author__, AWSimpleException
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -90,15 +90,28 @@ def convert_serializable_special_cases(o):
 
 
 @typechecked()
-def dynamodb_to_json(o, indent=None) -> str:
-    # Convert a DynamoDB item to JSON
-    return json.dumps(o, default=convert_serializable_special_cases, sort_keys=True, indent=indent)
+def dynamodb_to_json(item, indent=None) -> str:
+    """
+    Convert a DynamoDB item to JSON
+
+    :param item: DynamoDB item
+    :param indent: JSON indent
+    :return: JSON encoded string
+    """
+    return json.dumps(item, default=convert_serializable_special_cases, sort_keys=True, indent=indent)
 
 
 @typechecked()
-def dynamodb_to_dict(o) -> dict:
-    # Convert a DynamoDB item to a serializable dict
-    return json.loads(dynamodb_to_json(o))
+def dynamodb_to_dict(item) -> dict:
+    """
+
+    Convert a DynamoDB item to a serializable dict
+
+    :param item: DynamoDB item
+    :return: serializable dict
+    """
+
+    return json.loads(dynamodb_to_json(item))
 
 
 @typechecked()
@@ -175,10 +188,15 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
     return is_valid
 
 
-class DynamoDBAccess(AWSAccess):
-
+class DynamoDBAccess(CacheAccess):
     @typechecked()
     def __init__(self, table_name: str = None, **kwargs):
+        """
+        AWS DynamoDB access
+
+        :param table_name: DynamoDB table name
+        :param kwargs: kwargs
+        """
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
         self.cache_hit = False
         self.secondary_index_postfix = "-index"

@@ -2,10 +2,12 @@ from pathlib import Path
 from shutil import disk_usage, copy2
 import os
 from logging import getLogger
+import math
 
 from typeguard import typechecked
+from appdirs import user_cache_dir
 
-from awsimple import __application_name__
+from awsimple import __application_name__, __author__, AWSAccess
 
 log = getLogger(__application_name__)
 
@@ -102,3 +104,41 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
         log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}")
 
     return wrote_to_cache
+
+
+class CacheAccess(AWSAccess):
+    def __init__(
+        self,
+        resource_name: str = None,
+        cache_dir: Path = None,
+        cache_life: float = math.inf,
+        cache_max_absolute: int = round(1e9),
+        cache_max_of_free: float = 0.05,
+        mtime_abs_tol: float = 10.0,
+        **kwargs,
+    ):
+        """
+        AWS Access for cacheables
+
+        :param cache_dir: dir for cache
+        :param cache_life: life of cache (in seconds)
+        :param cache_max_absolute: max size of cache
+        :param cache_max_of_free: max portion of disk free space the cache will consume
+        :param mtime_abs_tol: window in seconds where a modification time will be considered equal
+        """
+
+        if cache_dir is None:
+            if resource_name is None:
+                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws")
+            else:
+                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
+        else:
+            self.cache_dir = cache_dir
+
+        self.cache_life = cache_life  # seconds
+        self.cache_max_absolute = cache_max_absolute  # max absolute cache size
+        self.cache_max_of_free = cache_max_of_free  # max portion of the disk's free space this LRU cache will take
+        self.cache_retries = 10  # cache upload retries
+        self.mtime_abs_tol = mtime_abs_tol  # file modification times within this cache window (in seconds) are considered equivalent
+
+        super().__init__(resource_name, **kwargs)
