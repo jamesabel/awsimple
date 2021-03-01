@@ -9,6 +9,7 @@ class MyS3Access(S3Access):
     """
     MyS3Access class takes care of IAM via a profile name
     """
+
     def __init__(self, bucket: str, **kwargs):
         # define the profile name, but pass all other optional arguments to the base class
         super().__init__(bucket, profile_name=profile_name, **kwargs)
