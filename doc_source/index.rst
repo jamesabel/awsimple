@@ -13,7 +13,8 @@ AWSimple - a simple AWS API
 
 Indices and tables
 ==================
-
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+The `AWSimple documentation <https://awsimple.readthedocs.io/>`_ is hosted on `Read the Docs <https://www.readthedocs.org/>`_ .
