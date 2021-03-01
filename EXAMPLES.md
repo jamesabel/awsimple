@@ -24,7 +24,7 @@ make_venv.bat
 
 ### 2. Check your AWS profile and create a test user name "testawsimple" with read/write access to s3.
 
-Your default aws profile should be setup before you run the examples. The examples use a test user named "testawsimple".
+Your default aws profile should be setup before you run the examples. The examples use a test user named "testawsimple". You should create this user before running the examples.
 
 ```
 aws config

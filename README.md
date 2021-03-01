@@ -29,7 +29,7 @@ and SQS (Simple Queuing Service).
 
 ## Examples
 
-The example folder has several examples you can customize and run. Instructions are available in [examples](examples.EXAMPLES.md)
+The example folder has several examples you can customize and run. Instructions are available in [examples](EXAMPLES.md)
 
 ### S3
 

@@ -25,16 +25,20 @@ Requirements:
 
 - Python 3.8 or higher
 
-Once you have those two, install project dependencies with:
+Fork the repo, to make your own personal copy, and then git clone your fork onto your computer.
+
+Once you have that, install project dependencies with:
 
 #### Mac / Linux
 ```
 source make_venv_dev.sh
+./venv/bin/activate
 ```
 
 #### Windows
 ```
 make_venv_dev.bat
+.\venv\Scripts\activate.bat
 ```
 
 At this point you should be able to make changes to the codebase and run things.
