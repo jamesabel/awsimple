@@ -95,9 +95,7 @@ def test_dynamodb():
     assert dynamodb_dict["dictim"]["HI"]["there"] == 1  # actually Decimal(1)
     assert dynamodb_dict["dictim"].get("hi") is None  # we're back to case sensitivity
 
-    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str,
-                                     cache_dir=Path("cache"),
-                                     cache_life=timedelta(seconds=1).total_seconds())
+    dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_dir=Path("cache"), cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table(id_str)
     dynamodb_access.put_item(dynamodb_dict)
 
