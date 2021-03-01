@@ -24,5 +24,6 @@ setup(
     packages=[__title__],
     package_data={__title__: [readme_file_path]},
     install_requires=["boto3", "typeguard", "hashy", "dictim", "appdirs"],
+    project_urls={"Documentation": "https://awsimple.readthedocs.io/"},
     classifiers=[],
 )
