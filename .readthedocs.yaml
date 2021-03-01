@@ -14,7 +14,7 @@ formats:
    - pdf
 
 # Optionally set the version of Python and requirements required to build your docs
-#python:
+python:
 #   version: 3.7
-#   install:
-#   - requirements: docs/requirements.txt
+   install:
+   - requirements: doc_source/requirements.txt
