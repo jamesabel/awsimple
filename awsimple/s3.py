@@ -1,3 +1,7 @@
+"""
+S3 Access
+"""
+
 import os
 import shutil
 import time
@@ -51,6 +55,7 @@ class S3ObjectMetadata:
 
 
 class S3Access(AWSAccess):
+
     @typechecked()
     def __init__(self, bucket_name: str = None, **kwargs):
         self.bucket_name = bucket_name
@@ -64,6 +69,7 @@ class S3Access(AWSAccess):
         """
         list out all buckets
         (not called list_buckets() since that's used in boto3 but this returns a list of bucket strings not a list of dicts)
+
         :return: list of buckets
         """
         return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
@@ -72,6 +78,7 @@ class S3Access(AWSAccess):
     def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
         """
         download from AWS S3 with caching
+
         :param dest_path: destination full path
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
@@ -234,6 +241,7 @@ class S3Access(AWSAccess):
     def object_exists(self, s3_key: str) -> bool:
         """
         determine if an s3 object exists
+
         :param s3_bucket: the S3 bucket
         :param s3_key: the S3 object key
         :return: True if object exists
@@ -258,6 +266,7 @@ class S3Access(AWSAccess):
     def create_bucket(self) -> bool:
         """
         create S3 bucket
+
         :return: True if bucket created
         """
 
@@ -278,6 +287,7 @@ class S3Access(AWSAccess):
     def delete_bucket(self) -> bool:
         """
         delete S3 bucket
+
         :return: True if bucket deleted (False if didn't exist in the first place)
         """
         try:

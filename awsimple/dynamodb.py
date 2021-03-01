@@ -1,3 +1,7 @@
+"""
+DynamoDB access
+"""
+
 import io
 import decimal
 import pickle
@@ -172,6 +176,7 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -
 
 
 class DynamoDBAccess(AWSAccess):
+
     @typechecked()
     def __init__(self, table_name: str = None, **kwargs):
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
@@ -183,6 +188,7 @@ class DynamoDBAccess(AWSAccess):
     def get_table_names(self) -> List[str]:
         """
         get all DynamoDB tables
+
         :return: a list of DynamoDB table names
         """
 
@@ -208,6 +214,7 @@ class DynamoDBAccess(AWSAccess):
     def scan_table(self) -> (list, None):
         """
         returns entire lookup table
+
         :param table_name: DynamoDB table name
         :param profile_name: AWS IAM profile name
         :return: table contents
@@ -357,6 +364,7 @@ class DynamoDBAccess(AWSAccess):
     def get_primary_keys(self) -> tuple:
         """
         get the table's primary keys
+
         :return: a 2-tuple of (partition_key, sort_key).  sort_key will be None if there is no sort key.
         """
         keys = []
@@ -420,6 +428,7 @@ class DynamoDBAccess(AWSAccess):
     def query(self, *args) -> List[dict]:
         """
         query exact match
+
         :param args: key, value pairs
         :return: a list of DB rows matching the query
         """
@@ -428,6 +437,7 @@ class DynamoDBAccess(AWSAccess):
     def query_begins_with(self, *args) -> List[dict]:
         """
         query if begins with
+
         :param args: key, value pairs
         :return: a list of DB rows matching the query
         """
@@ -474,6 +484,7 @@ class DynamoDBAccess(AWSAccess):
         Deletes the current table.
         (This is more like the SQL "DROP TABLE", *not* like a SQL "DELETE", which only deletes rows.  See DynamoDBAccess.delete_all_items() to delete all the items
         but leave the table itself.)
+
         :return: True if actually deleted, False if it didn't exist in the first place
         """
         timeout_count = 10
@@ -511,6 +522,7 @@ class DynamoDBAccess(AWSAccess):
     def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
         """
         get a DB item
+
         :param partition_key: partition key
         :param partition_value: partition value (str or int)
         :param sort_key: sort key (optional)

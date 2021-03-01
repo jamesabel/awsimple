@@ -1,3 +1,7 @@
+"""
+SQS Access
+"""
+
 from dataclasses import dataclass
 from typing import List
 import time

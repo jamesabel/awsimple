@@ -4,7 +4,7 @@ from awsimple import S3Access
 
 
 def read_s3_object():
-    s3_access = S3Access("testawsimple", profile_name="testawsimple")
+    s3_access = S3Access("testawsimple")
     print(s3_access.read_string("helloworld.txt"))
 
 

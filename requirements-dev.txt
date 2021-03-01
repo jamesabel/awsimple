@@ -1,16 +1,20 @@
 #
 # awsimple requirements
 hashy
-ismain
 boto3
 typeguard
 dictim
+appdirs
+#
+# examples
+ismain
 #
 # packaging
 twine
 wheel
 #
 # testing
+balsa
 pytest
 moto
 # moto apparently requires docker
