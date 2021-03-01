@@ -1,9 +1,9 @@
 # Running the examples for awsimple
 
-There are four examples in this folder. When run, these examples should
+There are four examples in the example folder. When run, these examples should
  - check that you have access to aws through the aws cli
  - write a file called "hello.txt" to the S3 bucket awsimple-test-bucket-{random_number}
-     - strongly recommend changing this before you run this, but it will work without it
+     - Note: It is strongly recommended to change the bucket name before you run this, but it will work without it
  - read the file from the S3 bucket awsimple-test-bucket-{random_number}
 
 
