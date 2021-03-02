@@ -1,14 +1,11 @@
 from awsimple import S3Access
-from random import randint
-
-# bucket names are globally unique, so change this bucket name to something unique to you
-BUCKET_NAME = f"awsimple-test-bucket-{str(randint(1,100000)).zfill(5)}"
+from os import getlogin
 
 # the S3 key is the name of the object in the S3 bucket, somewhat analogous to a file name
 s3_key = "hello.txt"
 
 # setup the s3_access object
-s3_access = S3Access(BUCKET_NAME)
+s3_access = S3Access(f"awsimple-test-bucket-{getlogin()}")  # bucket names are globally unique, so change this bucket name to something unique to you
 
 
 # let's first make sure the bucket exists

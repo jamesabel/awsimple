@@ -1,7 +1,7 @@
 from ismain import is_main
+from os import getlogin
 
 from awsimple import S3Access
-from .write_read_s3_object import BUCKET_NAME
 
 profile_name = "testawsimple"  # all of my derived classes use this AWS profile name
 
@@ -18,7 +18,8 @@ class MyS3Access(S3Access):
 
 def read_s3_object():
     # profile_name provided by MyStorageAccess
-    s3_access = MyS3Access(BUCKET_NAME)  # bucket name (for this example we assume it already exists)
+    # bucket names are globally unique, so change this bucket name to something unique to you
+    s3_access = MyS3Access(f"awsimple-test-bucket-{getlogin()}")  # bucket name (for this example we assume it already exists)
     print(s3_access.read_string("hello.txt"))  # hello.txt is the S3 object key
 
 
