@@ -9,7 +9,7 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 import urllib3
 from logging import getLogger
 
@@ -133,29 +133,66 @@ class S3Access(CacheAccess):
 
     @typechecked()
     def read_string(self, s3_key: str) -> str:
+        """
+        Read contents of an S3 object as a string
+
+        :param s3_key: S3 key
+        :return: S3 object as a string
+        """
         log.debug(f"reading {self.bucket_name}/{s3_key}")
         return self.resource.Object(self.bucket_name, s3_key).get()["Body"].read().decode()
 
     @typechecked()
-    def read_lines(self, s3_key: str) -> list:
+    def read_lines(self, s3_key: str) -> List[str]:
+        """
+        Read contents of an S3 object as a list of strings
+
+        :param s3_key: S3 key
+        :return: a list of strings
+        """
         return self.read_string(s3_key).splitlines()
 
     @typechecked()
     def write_string(self, input_str: str, s3_key: str):
+        """
+        Write a string to an S3 object
+
+        :param input_str: input string
+        :param s3_key: S3 key
+        """
         log.debug(f"writing {self.bucket_name}/{s3_key}")
         self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, Metadata={sha512_string: get_string_sha512(input_str)})
 
     @typechecked()
-    def write_lines(self, input_lines: list, s3_key: str):
+    def write_lines(self, input_lines: List[str], s3_key: str):
+        """
+        Write a list of strings to an S3 bucket
+
+        :param input_lines: a list of  strings
+        :param s3_key: S3 key
+        """
         self.write_string("\n".join(input_lines), s3_key)
 
     @typechecked()
     def delete_object(self, s3_key: str):
+        """
+        Delete an S3 object
+
+        :param s3_key: S3 key
+        """
         log.info(f"deleting {self.bucket_name}/{s3_key}")
         self.resource.Object(self.bucket_name, s3_key).delete()
 
     @typechecked()
     def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
+        """
+        Upload a file to an S3 object
+
+        :param file_path: path to file to upload
+        :param s3_key: S3 key
+        :param force: True to force the upload, even if the file hash matches the S3 contents
+        :return: True if uploaded
+        """
 
         log.info(f'S3 upload : "{file_path}" to {self.bucket_name}/{s3_key}')
 
@@ -165,7 +202,6 @@ class S3Access(CacheAccess):
             file_path = Path(file_path)
 
         file_mtime = os.path.getmtime(file_path)
-        file_md5 = get_file_md5(file_path)
         file_sha512 = get_file_sha512(file_path)
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
 
@@ -196,12 +232,19 @@ class S3Access(CacheAccess):
                     time.sleep(self.retry_sleep_time)
 
         else:
-            log.info(f"file hash of {file_md5} is the same as is already on S3 and force={force} - not uploading")
+            log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
     @typechecked()
     def download(self, s3_key: str, dest_path: (str, Path)) -> bool:
+        """
+        Download an S3 object
+
+        :param s3_key: S3 key
+        :param dest_path: destination file path
+        :return: True if downloaded successfully
+        """
 
         if isinstance(dest_path, str):
             log.info(f"{dest_path} is not Path object.  Non-Path objects will be deprecated in the future")
@@ -231,6 +274,12 @@ class S3Access(CacheAccess):
 
     @typechecked()
     def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
+        """
+        Get S3 object metadata
+
+        :param s3_key: S3 key
+        :return: S3ObjectMetadata or None if object does not exist
+        """
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
             bucket_object = bucket_resource.Object(s3_key)
@@ -259,6 +308,11 @@ class S3Access(CacheAccess):
 
     @typechecked()
     def bucket_exists(self) -> bool:
+        """
+        Test if S3 bucket exists
+
+        :return: True if bucket exists
+        """
         try:
             self.client.head_bucket(Bucket=self.bucket_name)
             exists = True
@@ -305,6 +359,11 @@ class S3Access(CacheAccess):
 
     @typechecked()
     def dir(self) -> Dict[str, S3ObjectMetadata]:
+        """
+        Do a "directory" of an S3 bucket where the returned dict key is the S3 key and the value is an S3ObjectMetadata object
+
+        :return: a dict where key is the S3 key and the value is S3ObjectMetadata
+        """
         directory = {}
         if self.bucket_exists():
             paginator = self.client.get_paginator("list_objects_v2")

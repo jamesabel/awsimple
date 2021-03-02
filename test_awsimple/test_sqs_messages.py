@@ -55,7 +55,7 @@ def test_sqs_poll_user_delete():
     # populate the run time history
     queue = SQSAccess(test_awsimple_str, immediate_delete=False, profile_name=test_awsimple_str)
     queue.create_queue()
-    queue.get_response_history_file_path().unlink(missing_ok=True)
+    queue._get_response_history_file_path().unlink(missing_ok=True)
     queue.max_history = 5  # test that we can delete old history values by using a very small history
     for value in range(0, queue.max_history):
         print(value)

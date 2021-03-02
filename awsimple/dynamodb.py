@@ -326,6 +326,14 @@ class DynamoDBAccess(CacheAccess):
 
     @typechecked()
     def create_table(self, partition_key: str, sort_key: str = None, secondary_index: str = None) -> bool:
+        """
+        Create a DynamoDB table.
+
+        :param partition_key: DynamoDB partition key (AKA hash key)
+        :param sort_key: DynamoDB sort key
+        :param secondary_index: secondary index key
+        :return: True if table created
+        """
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
             assert kt in ("HASH", "RANGE")
@@ -523,6 +531,11 @@ class DynamoDBAccess(CacheAccess):
 
     @typechecked()
     def table_exists(self) -> bool:
+        """
+        Test if table exists
+
+        :return: True if table exists
+        """
         assert self.table_name is not None
         try:
             self.client.describe_table(TableName=self.table_name)
@@ -533,6 +546,11 @@ class DynamoDBAccess(CacheAccess):
 
     @typechecked()
     def put_item(self, item: dict):
+        """
+        Put (write) a DynamoDB table item
+
+        :param item: item
+        """
         table = self.resource.Table(self.table_name)
         table.put_item(Item=item)
 
@@ -558,6 +576,14 @@ class DynamoDBAccess(CacheAccess):
 
     # cant' do a @typechecked() since optional item requires a single type
     def delete_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None):
+        """
+        Delete table item
+
+        :param partition_key: item partition (aka hash) key
+        :param partition_value: item partition (aka hash) value
+        :param sort_key: item sort key (if exists)
+        :param sort_value: item sort value (if sort key exists)
+        """
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}
         if sort_key is not None:
@@ -566,6 +592,16 @@ class DynamoDBAccess(CacheAccess):
 
     # cant' do a @typechecked() since optional item requires a single type
     def upsert_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None, item: dict = None):
+
+        """
+        Upsert (update or insert) table item
+
+        :param partition_key: item partition (aka hash) key
+        :param partition_value: item partition (aka hash) value
+        :param sort_key: item sort key (if exists)
+        :param sort_value: item sort value (if sort key exists)
+        :param item: item data
+        """
 
         if item is None:
             log.warning(f"{item=} : nothing to do")

@@ -22,13 +22,16 @@ log = getLogger(__application_name__)
 
 @dataclass
 class SQSMessage:
+    """
+    SQS Message
+    """
     message: str  # payload
     _m: any  # AWS message itself (from boto3)
     _q: any  # SQSAccess instance
 
     def delete(self):
         self._m.delete()  # boto3
-        self._q.update_response_history(self.get_id())
+        self._q._update_response_history(self.get_id())
 
     def get_id(self):
         return self._m.message_id
@@ -81,20 +84,38 @@ class SQSAccess(AWSAccess):
         return self.queue
 
     @typechecked()
-    def get_response_history_file_path(self) -> Path:
+    def _get_response_history_file_path(self) -> Path:
+        """
+        get response history file path
+
+        :return:
+        """
         p = Path(appdirs.user_data_dir(__application_name__, __author__), "response", f"{self.queue_name}.json")
         log.debug(f'response history file path : "{p}"')
         return p
 
     @typechecked()
     def create_queue(self) -> str:
+        """
+        create SQS queue
+
+        :return: queue URL
+        """
         return self.client.create_queue(QueueName=self.queue_name)["QueueUrl"]
 
     def delete_queue(self):
+        """
+        delete queue
+        """
         self.resource.get_queue_by_name(QueueName=self.queue_name).delete()
 
     @typechecked()
     def exists(self) -> bool:
+        """
+        test if SQS queue exists
+
+        :return: True if exists
+        """
         try:
             self.resource.get_queue_by_name(QueueName=self.queue_name)
             queue_exists = True
@@ -135,14 +156,14 @@ class SQSAccess(AWSAccess):
         if self.user_provided_timeout is None and not self.immediate_delete:
             # read in response history (and initialize it if it doesn't exist)
             try:
-                with open(self.get_response_history_file_path()) as f:
+                with open(self._get_response_history_file_path()) as f:
                     self.response_history = json.load(f)
             except FileNotFoundError:
                 pass
             except IOError as e:
-                log.warning(f'IOError : "{self.get_response_history_file_path()}" : {e}')
+                log.warning(f'IOError : "{self._get_response_history_file_path()}" : {e}')
             except json.JSONDecodeError as e:
-                log.warning(f'JSONDecodeError : "{self.get_response_history_file_path()}" : {e}')
+                log.warning(f'JSONDecodeError : "{self._get_response_history_file_path()}" : {e}')
             if len(self.response_history) == 0:
                 now = time.time()
                 self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
@@ -198,6 +219,10 @@ class SQSAccess(AWSAccess):
 
     @typechecked()
     def receive_message(self) -> (SQSMessage, None):
+        """
+        receive SQS message from this queue
+        :return: one SQSMessage if one available, else None
+        """
 
         messages = self._receive(1)
         message_count = len(messages)
@@ -212,32 +237,48 @@ class SQSAccess(AWSAccess):
     @typechecked()
     def receive_messages(self, max_messages: int = None) -> List[SQSMessage]:
         """
-        receive messages
+        receive a (possibly empty) list of SQS messages from this queue
+
         :param max_messages: maximum number of messages to receive (None for all available messages)
         :return: list of messages
         """
         return self._receive(max_messages)
 
-    def update_response_history(self, message_id: str):
+    def _update_response_history(self, message_id: str):
+        """
+        update response history
+
+        :param message_id: message ID
+        """
         # update response history
         if not self.immediate_delete and self.user_provided_timeout is None and message_id in self.response_history:
             self.response_history[message_id][1] = time.time()  # set finish time
 
             # save to file
-            file_path = self.get_response_history_file_path()
+            file_path = self._get_response_history_file_path()
             file_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                with open(self.get_response_history_file_path(), "w") as f:
+                with open(self._get_response_history_file_path(), "w") as f:
                     json.dump(self.response_history, f, indent=4)
             except IOError as e:
                 log.info(f'"{file_path}" : {e}')
 
     @typechecked()
     def send(self, message: str):
+        """
+        send SQS message
+
+        :param message: message string
+        """
         self._get_queue().send_message(MessageBody=message)
 
     @typechecked()
     def get_arn(self) -> str:
+        """
+        get SQS ARN
+
+        :return: ARN string
+        """
         return self._get_queue().attributes["QueueArn"]
 
     @typechecked()

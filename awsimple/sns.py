@@ -21,7 +21,8 @@ class SNSAccess(AWSAccess):
 
     def get_topic(self):
         """
-        gets our associated SNS Topic instance
+        gets the associated SNS Topic instance
+
         :param topic_name: topic name
         :return: sns.Topic instance
         """
@@ -35,6 +36,7 @@ class SNSAccess(AWSAccess):
     def get_arn(self) -> str:
         """
         get topic ARN from topic name
+
         :param topic_name: topic name string
         :return: topic ARN
         """
@@ -44,6 +46,7 @@ class SNSAccess(AWSAccess):
     def create_topic(self) -> str:
         """
         create an SNS topic
+
         :return: the SNS topic's arn
         """
         response = self.client.create_topic(Name=self.topic_name, Attributes={"DisplayName": self.topic_name})
@@ -52,10 +55,20 @@ class SNSAccess(AWSAccess):
         return response["TopicArn"]
 
     def delete_topic(self):
+        """
+        delete SNS topic
+
+        """
         self.client.delete_topic(TopicArn=self.get_arn())
 
     @typechecked()
     def subscribe(self, subscriber: (str, SQSAccess)) -> str:
+        """
+        Subscribe to an SNS topic
+
+        :param subscriber: email or SQS queue
+        :return: subscription ARN
+        """
         if isinstance(subscriber, str) and "@" in subscriber:
             # email
             endpoint = subscriber
@@ -72,6 +85,14 @@ class SNSAccess(AWSAccess):
 
     @typechecked()
     def publish(self, message: str, subject: str = None, attributes: dict = None) -> str:
+        """
+        publish to an existing SNS topic
+
+        :param message: message string
+        :param subject: subject string
+        :param attributes: message attributes (see AWS SNS documentation on SNS MessageAttributes)
+        :return: message ID
+        """
         topic = self.get_topic()
         kwargs = {"Message": message}
         if subject is not None:
