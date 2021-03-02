@@ -29,6 +29,8 @@ and SQS (Simple Queuing Service).
 
 ## Examples
 
+The example folder has several examples you can customize and run. Instructions are available in [examples](EXAMPLES.md)
+
 ### S3
 
     # print string contents of an existing S3 object
@@ -80,3 +82,8 @@ and potentially offer a speedup.
 - `awsimple` does not provide cost monitoring hooks
 
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
+
+
+## Contributing
+
+Contributions are welcome, and more information is available in the [contributing guide](CONTRIBUTING.md).
