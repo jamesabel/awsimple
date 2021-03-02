@@ -3,6 +3,8 @@
 Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (a NoSQL database), SNS (Simple Notification Service), 
 and SQS (Simple Queuing Service).
 
+Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/) .
+
 ### Features:
 
 - Simple Object Oriented API on top of boto3
