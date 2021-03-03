@@ -2,8 +2,6 @@
 AWSimple User Guide
 ===================
 
-*Work In Progress ...*
-
 AWSimple provides a high level and object oriented access to common AWS "serverless" services such as
 :ref:`S3`, :ref:`DynamoDB`, :ref:`SNS`, and :ref:`SQS`. AWSimple uses AWS'
 `boto3 <https://boto3.amazonaws.com/v1/documentation/api/latest/index.html>`_ "under the hood" for AWS access.
@@ -60,6 +58,39 @@ knowledge of S3, but refer to the `S3 documentation <https://aws.amazon.com/s3/>
 
 AWSimple provides the ability to create and delete S3 buckets, and write and read S3 bucket objects. In addition a few helper methods exist
 such as listing buckets and bucket objects.
+
+S3 create bucket
+~~~~~~~~~~~~~~~~~~
+Before you can use a bucket, it needs to be created. A bucket can be created with the AWS console, but here we'll do it programmatically with AWSimple:
+
+.. code:: python
+
+    from awsimple import S3Access
+
+    # bucket names are globally unique, so change this bucket name to something unique to you
+    s3_access = S3Access("james-abel-awsimple-test-bucket")
+    s3_access.create_bucket()
+
+S3 write
+~~~~~~~~
+Now let's write an object to the bucket we just created:
+
+.. code:: python
+
+    # the S3 key is the name of the object in the S3 bucket, somewhat analogous to a file name
+    s3_key = "hello.txt"
+
+    # write our "hello world" message to S3
+    s3_access.write_string("hello world", s3_key)
+
+S3 read
+~~~~~~~
+And finally let's read the object back:
+
+.. code:: python
+
+    # will print "hello world"
+    print(s3_access.read_string(s3_key))
 
 S3 Caching
 ~~~~~~~~~~
