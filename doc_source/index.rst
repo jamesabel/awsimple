@@ -3,7 +3,10 @@ AWSimple - a simple AWS API
 
 
 .. toctree::
+    :maxdepth: 2
+
     quick_start_guide
+    user_guide
     aws_access
     s3_access
     dynamodb_access
