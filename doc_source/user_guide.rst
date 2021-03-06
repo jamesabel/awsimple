@@ -71,6 +71,8 @@ Before you can use a bucket, it needs to be created. A bucket can be created wit
     s3_access = S3Access("james-abel-awsimple-test-bucket")
     s3_access.create_bucket()
 
+Each S3Access instance is associated with a specific bucket.
+
 S3 write
 ~~~~~~~~
 Now let's write an object to the bucket we just created:
