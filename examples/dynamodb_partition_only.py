@@ -40,7 +40,7 @@ def users_example():
 
     # look up user info for one of our users
     start = time.time()
-    item = dynamodb_access.get_item("email", "john@ledzeppelin.com")  # this is a "get" since we're using key and will always get back exactly one item
+    item = dynamodb_access.get_item("email", "john@ledzeppelin.com")  # this is a "get" since we're using a key and will always get back exactly one item
     end = time.time()
 
     pprint(item)
