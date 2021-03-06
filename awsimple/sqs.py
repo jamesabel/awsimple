@@ -25,6 +25,7 @@ class SQSMessage:
     """
     SQS Message
     """
+
     message: str  # payload
     _m: any  # AWS message itself (from boto3)
     _q: any  # SQSAccess instance

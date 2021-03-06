@@ -334,6 +334,7 @@ class DynamoDBAccess(CacheAccess):
         :param secondary_index: secondary index key
         :return: True if table created
         """
+
         def add_key(k, t, kt):
             assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
             assert kt in ("HASH", "RANGE")
