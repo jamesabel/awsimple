@@ -104,8 +104,84 @@ DynamoDB
 DynamoDB is a "NoSQL" (AKA document based) database. It is a "serverless" service, and if you use the `On Demand` option you only pay for what
 you use. Probably the trickiest part is selecting the `primary key`. See `AWS docs on primary key design
 <https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html>`_ . The basic idea is that the primary key must be
-unique and composed of either a single `partition` (or hash) key or a combination of a `partition` and `sort` key. Those keys are often either
+unique and composed of either a single `partition` (or hash) key or a combination of a `partition` and `sort` (or range) key. Those keys are often either
 strings or numbers, although other types are possible. Secondary keys and indexes are also possible and can be used for queries.
+
+The default type for partition and sort keys is a string (`str`), but numbers (using `int`) and booleans (using `bool`) can also be specified.
+
+DynamoDB - Partition Key
+~~~~~~~~~~~~~~~~~~~~~~~~
+The code below shows how you can use the simple primary key (no sort key) in a table to put and get items. This also illustrates the
+flexibility of a NoSQL database. Fields can be added after the table creation, as long as the primary key does not change.
+
+.. code:: python
+
+    dynamodb_access = DynamoDBAccess("users_example", profile_name="testawsimple")
+
+    # we're only using email as a partition key in our primary key (no sort key). emails are unique to each user.
+    dynamodb_access.create_table("email")
+
+    # add our first user using email, first and last name. Initially, we may think that's all we need.
+    dynamodb_access.put_item({"email": "victor@victorwooten.com", "first_name": "Victor", "last_name": "Wooten"})
+
+    # oh no. No one knows who "John Jones" is, they only know "John Paul Jones", so we need to add a middle name.
+    # Luckily we are using a NoSQL database, so we just add "middle_name" in a new key/value pair. No database migration needed.
+    dynamodb_access.put_item({"email": "john@ledzeppelin.com", "first_name": "John", "middle_name": "Paul", "last_name": "Jones"})
+
+    # oh no again. No one knows who "Gordon Matthew Thomas Sumner" is either, even with 2 middle names! All they know is "Sting".
+    # We need to add a nickname.  No problem since we're using a NoSQL database.
+    dynamodb_access.put_item(
+        {
+            "email": "sting@thepolice.com",
+            "first_name": "Gordon",
+            "middle_name": "Matthew",
+            "middle_name_2": "Thomas",
+            "last_name": "Sumner",
+            "nickname": "Sting",
+        }
+    )
+
+    # look up user info for one of our users
+    item = dynamodb_access.get_item("email", "john@ledzeppelin.com")  # this is a "get" since we're using a key and will always get back exactly one item
+
+DynamoDB - Partition and Sort Keys
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Below is an example of using a `composite` primary key, which is comprised of a `partition` key and a `sort` key.
+
+.. code:: python
+
+    dynamodb_access = DynamoDBAccess("musical_instruments_example", profile_name="testawsimple")
+
+    # Our primary key is a composite of partition (manufacturer) and sort (serial_number).
+    # For a particular manufacturer, serial numbers define exactly one instrument (for this example we are assuming a serial number can be represented as an
+    # integer and doesn't have to be a string).
+    dynamodb_access.create_table("manufacturer", "serial_number", sort_key_type=int)
+
+    # we have to convert float to a Decimal for DynamoDB
+    dynamodb_access.put_item(dict_to_dynamodb({"manufacturer": "Gibson", "serial_number": 1234, "model": "Ripper", "year": 1983, "price": 1299.50}))
+    dynamodb_access.put_item(dict_to_dynamodb({"manufacturer": "Gibson", "serial_number": 5678, "model": "Thunderbird", "year": 1977, "price": 2399.50}))
+    dynamodb_access.put_item(
+        dict_to_dynamodb(
+            {
+                "manufacturer": "Fender",
+                "serial_number": 1234,
+                "model": "Precision",
+                "year": 2008,
+                "price": 1800.0,
+            }  # same serial number as the Gibson Ripper, but that's OK since this is Fender
+        )
+    )
+
+    # get all the Gibson instruments
+    item = dynamodb_access.query("manufacturer", "Gibson")  # this can (and will in this case) be multiple items
+    pprint(item)
+
+DynamoDB Secondary Indexes
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+You can add `secondary` indexes to a DynamoDB table in order to do a query on fields you didn't put in the original primary keys.
+This is very similar to adding indexes in a relational database, which is often done to speed up queries.  Adding a secondary index
+can also be done after table creation to facilitate new data, which is very handy when not all data is known at table
+creation time.
 
 DynamoDB Caching
 ~~~~~~~~~~~~~~~~
