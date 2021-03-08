@@ -22,8 +22,8 @@ For development, the profile method is recommended. This way your secrets are ke
 application. In fact, if you put your secrets in a `default` profile, you don't have to tell AWSimple anything about your
 credentials at all since they will be used from the default location and profile.
 
-For applications, you usually don't want to use an `.aws` directory with profiles. Rather, you pass in keys in some
-secure mechanism defined by your particular application.
+For applications, you may not want to use an `.aws` directory with profiles. Rather, you pass in keys in some secure mechanism defined by
+your particular application.
 
 Note that **AWS credentials must be properly managed and kept secret**, just as you would do for any other site where money is concerned.
 There are little to no mechanisms in AWS to stop improper use of AWS resources. While billing alerts can and should be used, these are "after the fact" and
