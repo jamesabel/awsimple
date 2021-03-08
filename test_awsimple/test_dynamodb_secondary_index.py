@@ -28,3 +28,21 @@ def test_dynamodb_secondary_index():
     assert table.query(secondary_index, "je") == [item2]  # with (only) the secondary index (in DynamoDB you can't mix primary and secondary indexes)
 
     table.delete_table()
+
+
+def test_dynamodb_secondary_index_int():
+
+    table_name = f"{test_awsimple_str}3"
+    table = DynamoDBAccess(table_name)
+
+    sort_key = "id2"
+    secondary_index = "num"
+    table.create_table(id_str, sort_key, secondary_index, secondary_key_type=int)  # secondary index as an int
+
+    table.put_item({id_str: "me", sort_key: "myself", secondary_index: 1})
+    table.put_item({id_str: "me", sort_key: "moi", secondary_index: 2})
+
+    query_results = table.query(id_str, "me")
+    print(f"{query_results=}")
+    assert len(query_results) == 2  # just the partition key should provide us with both rows
+    table.delete_table()
