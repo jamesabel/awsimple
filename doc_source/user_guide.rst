@@ -101,11 +101,17 @@ used to ensure file content equivalency.
 
 DynamoDB
 --------
-DynamoDB is a "NoSQL" (AKA document based) database. It is a "serverless" service, and if you use the `On Demand` option you only pay for what
-you use. Probably the trickiest part is selecting the `primary key`. See `AWS docs on primary key design
-<https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html>`_ . The basic idea is that the primary key must be
-unique and composed of either a single `partition` (or hash) key or a combination of a `partition` and `sort` (or range) key. Those keys are often either
-strings or numbers, although other types are possible. Secondary keys and indexes are also possible and can be used for queries.
+DynamoDB is a "NoSQL" (AKA document based) database. It is a "serverless" service that offers an `On Demand` option. DynamoDB is made up
+of `tables`, and each table can store a collection `items`. These `items` are similar to JSON objects, and can
+be created from Python dictionaries, with similar restrictions in converting Python dictionaries serializable to JSON. For these Python dicts,
+DynamoDB allow you to store and retrieve those dicts to and from the cloud simply, quickly, and there is a
+`free tier <https://aws.amazon.com/dynamodb/pricing/on-demand/>`_.
+
+Probably the trickiest part is selecting the `primary key`. The `primary key` is what defines the uniqueness of an item.
+See `AWS docs on primary key design <https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-partition-key-design.html>`_ for details.
+The basic idea is that the primary key must be unique to that item and is composed of either a single `partition` (or hash) key or a combination of
+a `partition` and `sort` (or range) keys. Those keys are often either strings or numbers, although boolean is also allowed. Secondary
+keys and indexes are also supported and can be used for queries.
 
 The default type for partition and sort keys is a string (`str`), but numbers (using `int`) and booleans (using `bool`) can also be specified.
 
