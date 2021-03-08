@@ -325,33 +325,44 @@ class DynamoDBAccess(CacheAccess):
         return table_data
 
     @typechecked()
-    def create_table(self, partition_key: str, sort_key: str = None, secondary_index: str = None) -> bool:
+    def create_table(
+        self,
+        partition_key: str,
+        sort_key: str = None,
+        secondary_index: str = None,
+        partition_key_type: (str, int, bool) = str,
+        sort_key_type: (str, int, bool) = str,
+        secondary_key_type: (str, int, bool) = str,
+    ) -> bool:
         """
         Create a DynamoDB table.
 
         :param partition_key: DynamoDB partition key (AKA hash key)
         :param sort_key: DynamoDB sort key
         :param secondary_index: secondary index key
+        :param partition_key_type: partition key type of str, int, bool (str default)
+        :param sort_key_type: sort key type of str, int, bool (str default)
+        :param secondary_key_type: secondary key type of str, int, bool (str default)
         :return: True if table created
         """
 
         def add_key(k, t, kt):
-            assert t in ("S", "N", "B")  # DynamoDB key types (string, number, byte)
+            assert t in ("S", "N", "B")  # DynamoDB key types (string, number, bool)
             assert kt in ("HASH", "RANGE")
             definition = {"AttributeName": k, "AttributeType": t}
             schema = {"AttributeName": k, "KeyType": kt}
             return definition, schema
 
-        def type_to_attribute_type(v):
-            if isinstance(v, str):
-                t = "S"
-            elif isinstance(v, int):
-                t = "N"
-            elif isinstance(v, bytes):
-                t = "B"
+        def type_to_attribute_type(t):
+            if t is str:
+                ts = "S"
+            elif t is int:
+                ts = "N"
+            elif t is bool:
+                ts = "B"
             else:
-                raise ValueError(type(v), v)
-            return t
+                raise ValueError(t)
+            return ts
 
         created = False
         if not self.table_exists():
@@ -359,11 +370,11 @@ class DynamoDBAccess(CacheAccess):
 
             # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html#HowItWorks.CoreComponents.PrimaryKey
 
-            partition_definition, partition_schema = add_key(partition_key, type_to_attribute_type(partition_key), "HASH")  # required
+            partition_definition, partition_schema = add_key(partition_key, type_to_attribute_type(partition_key_type), "HASH")  # required
             attribute_definitions = [partition_definition]
             key_schema = [partition_schema]
             if sort_key is not None:
-                sort_definition, sort_schema = add_key(sort_key, type_to_attribute_type(sort_key), "RANGE")  # optional
+                sort_definition, sort_schema = add_key(sort_key, type_to_attribute_type(sort_key_type), "RANGE")  # optional
                 attribute_definitions.append(sort_definition)
                 key_schema.append(sort_schema)
             log.info(pformat(key_schema, indent=4))
@@ -374,8 +385,8 @@ class DynamoDBAccess(CacheAccess):
             if secondary_index is not None:
                 index_name = f"{secondary_index}{self.secondary_index_postfix}"
                 # currently we only support a single index key (thus the HASH type)
-                secondary_definition, secondary_schema = add_key(secondary_index, type_to_attribute_type(sort_key), "HASH")
-                # global secondary index does not required the secondary index to be of the same form as the primary
+                secondary_definition, secondary_schema = add_key(secondary_index, type_to_attribute_type(secondary_key_type), "HASH")
+                # global secondary index does not require the secondary index to be of the same form as the primary
                 kwargs["GlobalSecondaryIndexes"] = [{"IndexName": index_name, "KeySchema": [secondary_schema], "Projection": {"ProjectionType": "ALL"}}]
                 kwargs["AttributeDefinitions"].append(secondary_definition)
 
