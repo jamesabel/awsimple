@@ -183,12 +183,20 @@ This is very similar to adding indexes in a relational database, which is often 
 can also be done after table creation to facilitate new data, which is very handy when not all data is known at table
 creation time.
 
-DynamoDB Caching
-~~~~~~~~~~~~~~~~
-Sometimes you want an entire table to do some sort of search or data-mining on. While AWS provides a `scan` capability, this reads the
-entire table for each scan which can be slow and/or costly. In order to reduce cost and increase speed, AWSimple offers a cached table
-scan for tables that the user knows are static or at least verify slowly changing. AWSimple looks at the table count to determine if
-the cached scan needs to invalidate the cache. As of this writing, the table count is updated roughly every 6 hours.
+DynamoDB Scanning and Caching
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sometimes you want an entire table to do some sort of search or data-mining on. While AWS provides a `scan` capability which is available
+in awsimple's `DynamoDBAccess.scan_table()` method, this reads the entire table for each scan. However, this can be slow and/or costly. In order
+to reduce cost and increase speed, AWSimple offers a cached table scan via `DynamoDBAccess.scan_table_cached()` for tables that the
+user *knows* are static or at least verify slowly changing. If course, it's up to the user of awsimple to determine which method to use - the
+regular or cached version.
+
+For convenience, AWSimple also looks at the table's item count to determine if the cached scan needs to invalidate the cache. This can be
+useful if you know a table is only added to (thus the item count will change when it's updated) and you only try to access the table some time
+after the update. As of this writing the table item count is updated roughly every 6 hours. For example, you may use DynamoDB to store
+clinical trial data that is updated in a human time frame - e.g. weekly or even monthly, and once the trial is closed the data may never change.
+These sorts of situations may be appropriate for cached table scans. Of course it's up to the programmer to ensure this caching is appropriate
+for their use case. If not, use the regular `scan_table()` (albeit with the cost and performance implications).
 
 SNS
 ---
