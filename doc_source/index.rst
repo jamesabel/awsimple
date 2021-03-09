@@ -30,10 +30,16 @@ If you're new to `AWSimple`, check out the :ref:`Quick Start Guide`. Also check 
     sqs_access
 
 
+Testing
+-------
+.. include:: coverage.txt
+
+
 Indices and tables
 ==================
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
 
 The `AWSimple documentation <https://awsimple.readthedocs.io/>`_ is hosted on `Read the Docs <https://www.readthedocs.org/>`_ .
