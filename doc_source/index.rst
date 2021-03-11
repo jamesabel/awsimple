@@ -1,6 +1,8 @@
 AWSimple - a simple AWS API
 ===========================
 
+*(pronounced A-W-Simple)*
+
 AWSimple provides a simple, object-oriented interface into four AWS "serverless" cloud services:
 
 - S3 - Binary object storage. Analogous to storing files in the cloud.
@@ -28,6 +30,7 @@ If you're new to `AWSimple`, check out the :ref:`Quick Start Guide`. Also check 
     dynamodb_access
     sns_access
     sqs_access
+    thank_you
 
 
 Testing

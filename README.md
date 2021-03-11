@@ -1,4 +1,6 @@
-# awsimple
+# AWSimple
+
+*(pronounced A-W-Simple)*
 
 Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (a NoSQL database), SNS (Simple Notification Service), 
 and SQS (Simple Queuing Service).
