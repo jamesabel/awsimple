@@ -1,3 +1,4 @@
+import os
 import pytest
 from pathlib import Path
 import logging
@@ -5,7 +6,12 @@ import logging
 
 from balsa import Balsa
 
-from awsimple import __application_name__, __author__, is_mock
+from awsimple import __application_name__, __author__, is_mock, use_moto_mock_env_var
+
+mock_env_var = os.environ.get(use_moto_mock_env_var)
+
+if mock_env_var is None:
+    os.environ[use_moto_mock_env_var] = "1"
 
 
 class TestAWSimpleLoggingHandler(logging.Handler):
