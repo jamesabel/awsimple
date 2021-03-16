@@ -20,6 +20,8 @@ aws_credentials_and_config_dir = Path(Path.home(), ".aws")
 aws_credentials_file = Path(aws_credentials_and_config_dir, "credentials")
 aws_config_file = Path(aws_credentials_and_config_dir, "config")
 if is_mock():
+    if not aws_credentials_and_config_dir.exists():
+        aws_credentials_and_config_dir.mkdir(parents=True, exist_ok=True)
     if not aws_credentials_file.exists():
         credential_strings = ["[default]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
                               f"[{test_awsimple_str}]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
