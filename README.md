@@ -1,3 +1,28 @@
+<p align="center">
+    <!--
+    <a href="https://app.circleci.com/pipelines/github/jamesabel/awsimple" alt="build">
+        <img src="https://img.shields.io/circleci/build/gh/jamesabel/awsimple" />
+    </a>
+    -->
+    <a href="https://codecov.io/gh/jamesabel/awsimple" alt="codecov">
+        <img src="https://img.shields.io/codecov/c/github/jamesabel/awsimple/master" />
+    </a>
+    <a href="https://pypi.org/project/awsimple/" alt="pypi">
+        <img src="https://img.shields.io/pypi/v/awsimple" />
+    </a>
+    <a href="https://pypi.org/project/awsimple/" alt="downloads">
+        <img src="https://img.shields.io/pypi/dm/awsimple" />
+    </a>
+    <!--
+    <a alt="python">
+        <img src="https://img.shields.io/pypi/pyversions/awsimple" />
+    </a>
+    -->
+    <a alt="license">
+        <img src="https://img.shields.io/github/license/jamesabel/awsimple" />
+    </a>
+</p>
+
 # AWSimple
 
 *(pronounced A-W-Simple)*
