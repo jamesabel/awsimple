@@ -30,6 +30,8 @@
 Simple API for basic AWS services such as S3 (Simple Storage Service), DynamoDB (a NoSQL database), SNS (Simple Notification Service), 
 and SQS (Simple Queuing Service).
 
+Project featured on [PythonBytes Podcast Episode #224](https://pythonbytes.fm/episodes/show/224/join-us-on-a-python-adventure-back-to-1977).
+
 Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/) .
 
 ### Features:
