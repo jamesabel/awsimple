@@ -96,7 +96,7 @@ class AWSAccess:
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
     @typechecked()
-    def get_region(self) -> str:
+    def get_region(self) -> (str, None):
         """
         Get current selected AWS region
 

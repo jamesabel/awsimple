@@ -330,7 +330,10 @@ class S3Access(CacheAccess):
         """
 
         # this is ugly, but create_bucket needs to be told the region explicitly (it doesn't just take it from the config)
-        location = {"LocationConstraint": self.get_region()}
+        if (region := self.get_region()) is None:
+            raise RuntimeError("no region given (check ~.aws/config")
+        else:
+            location = {"LocationConstraint": region}
 
         created = False
         if not self.bucket_exists():
