@@ -23,12 +23,13 @@ if is_mock():
     if not aws_credentials_and_config_dir.exists():
         aws_credentials_and_config_dir.mkdir(parents=True, exist_ok=True)
     if not aws_credentials_file.exists():
-        credential_strings = ["[default]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                              f"[{test_awsimple_str}]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        credential_strings = [
+            "[default]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            f"[{test_awsimple_str}]\naws_access_key_id=AAAAAAAAAAAAAAAAAAAA\naws_secret_access_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ]
         aws_credentials_file.write_text("\n".join(credential_strings))
     if not aws_config_file.exists():
-        config_strings = ["[profile default]\nregion=us-west-2",
-                          f"[profile {test_awsimple_str}]\nregion=us-west-2"]
+        config_strings = ["[profile default]\nregion=us-west-2", f"[profile {test_awsimple_str}]\nregion=us-west-2"]
         aws_config_file.write_text("\n".join(config_strings))
 
 

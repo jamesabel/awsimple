@@ -2,6 +2,8 @@
 SNS Access
 """
 
+from typing import Union, Dict
+
 from typeguard import typechecked
 
 from awsimple import AWSAccess, SQSAccess
@@ -62,7 +64,7 @@ class SNSAccess(AWSAccess):
         self.client.delete_topic(TopicArn=self.get_arn())
 
     @typechecked()
-    def subscribe(self, subscriber: (str, SQSAccess)) -> str:
+    def subscribe(self, subscriber: Union[str, SQSAccess]) -> str:
         """
         Subscribe to an SNS topic
 
@@ -94,7 +96,7 @@ class SNSAccess(AWSAccess):
         :return: message ID
         """
         topic = self.get_topic()
-        kwargs = {"Message": message}
+        kwargs = {"Message": message}  # type: Dict[str, Union[str, dict]]
         if subject is not None:
             kwargs["Subject"] = subject
         if attributes is not None:

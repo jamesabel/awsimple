@@ -3,7 +3,7 @@ SQS Access
 """
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Any, Dict, Union
 import time
 import statistics
 from datetime import timedelta
@@ -27,8 +27,8 @@ class SQSMessage:
     """
 
     message: str  # payload
-    _m: any  # AWS message itself (from boto3)
-    _q: any  # SQSAccess instance
+    _m: Any  # AWS message itself (from boto3)
+    _q: Any  # SQSAccess instance
 
     def delete(self):
         self._m.delete()  # boto3
@@ -74,7 +74,8 @@ class SQSAccess(AWSAccess):
         self.immediate_delete_timeout: int = 30  # seconds
         self.minimum_nominal_work_time = 1.0  # minimum work time in seconds so we don't timeout too quickly, e.g. in case the user doesn't actually do any work
 
-        self.response_history = {}  # receive/delete times for messages (auto_delete set to False)
+        # receive/delete times for messages (auto_delete set to False)
+        self.response_history = {}  # type: Dict[Any, Any]
 
         # We write the history out as a file so don't make this too big. We take the median (for the nominal run time) so make this big enough to tolerate a fair number of outliers.
         self.max_history = 20
@@ -170,7 +171,7 @@ class SQSAccess(AWSAccess):
                 self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
 
         # receive the message(s)
-        messages = []
+        messages = []  # type: List[Any]
         continue_to_receive = True
         call_wait_time = self.sqs_call_wait_time  # first time through may be long poll, but after that it's a short poll
 
@@ -219,7 +220,7 @@ class SQSAccess(AWSAccess):
         return messages
 
     @typechecked()
-    def receive_message(self) -> (SQSMessage, None):
+    def receive_message(self) -> Union[SQSMessage, None]:
         """
         receive SQS message from this queue
         :return: one SQSMessage if one available, else None

@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Union
 
 from typeguard import typechecked
 
@@ -75,8 +76,8 @@ class AWSAccess:
             self._moto_mock = moto_mock()
             self._moto_mock.start()
             region = "us-east-1"
-            self.resource = boto3.resource(self.resource_name, region_name=region)
-            self.client = boto3.client(self.resource_name, region_name=region)
+            self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
+            self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
             if self.resource_name == "s3":
                 self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
 
@@ -86,8 +87,8 @@ class AWSAccess:
             self.resource = None
         else:
             # real AWS (no mock)
-            self.client = self.session.client(self.resource_name, config=self._get_config())
-            self.resource = self.session.resource(self.resource_name, config=self._get_config())
+            self.client = self.session.client(self.resource_name, config=self._get_config())  # type: ignore
+            self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
 
     def _get_config(self):
         from botocore.config import Config  # import here to facilitate mocking
@@ -96,7 +97,7 @@ class AWSAccess:
         return Config(connect_timeout=timeout, read_timeout=timeout)
 
     @typechecked()
-    def get_region(self) -> (str, None):
+    def get_region(self) -> Union[str, None]:
         """
         Get current selected AWS region
 
@@ -104,7 +105,7 @@ class AWSAccess:
         """
         return self.session.region_name
 
-    def get_access_key(self) -> (str, None):
+    def get_access_key(self) -> Union[str, None]:
         """
         Get current access key string
 
