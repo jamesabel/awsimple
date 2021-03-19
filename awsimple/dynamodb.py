@@ -10,7 +10,7 @@ from collections import OrderedDict, defaultdict
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
-from typing import List
+from typing import List, Union, Any, Type, Dict
 from pprint import pformat
 from itertools import islice
 import json
@@ -115,7 +115,7 @@ def dynamodb_to_dict(item) -> dict:
 
 
 @typechecked()
-def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: bool = True):
+def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_exception: bool = True) -> Any:
     """
     makes a dictionary follow boto3 item standards
 
@@ -126,7 +126,7 @@ def dict_to_dynamodb(input_value, convert_images: bool = True, raise_exception: 
     :return: converted version of the original dictionary
 
     """
-    resp = None
+    resp = None  # type: Any
     if type(input_value) is dict or type(input_value) is OrderedDict or type(input_value) is defaultdict or type(input_value) is dictim:
         if type(input_value) is dictim:
             resp = dict(input_value)
@@ -181,7 +181,7 @@ class DBItemNotFound(AWSimpleException):
 
 
 @typechecked()
-def _is_valid_db_pickled_file(file_path: Path, cache_life: (float, int, None)) -> bool:
+def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, None]) -> bool:
     is_valid = file_path.exists() and getsize(str(file_path)) > 0
     if is_valid and cache_life is not None:
         is_valid = time.time() <= getmtime(str(file_path)) + cache_life
@@ -229,7 +229,7 @@ class DynamoDBAccess(CacheAccess):
         return table_names
 
     @typechecked()
-    def scan_table(self) -> (list, None):
+    def scan_table(self) -> list:
         """
         returns entire lookup table
 
@@ -255,7 +255,6 @@ class DynamoDBAccess(CacheAccess):
                 log.warning(e)
                 response = None
                 more_to_evaluate = False
-                items = None
 
             if response is not None:
                 items.extend(response["Items"])
@@ -264,13 +263,12 @@ class DynamoDBAccess(CacheAccess):
                 else:
                     exclusive_start_key = response["LastEvaluatedKey"]
 
-        if items is not None:
-            log.info(f"read {len(items)} items from {self.table_name}")
+        log.info(f"read {len(items)} items from {self.table_name}")
 
         return items
 
     @typechecked()
-    def scan_table_cached(self, invalidate_cache: bool = False) -> (list, None):
+    def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
         Read data table(s) from AWS with caching.  This is meant for static or slowly changing tables, and *requires* that
@@ -280,8 +278,6 @@ class DynamoDBAccess(CacheAccess):
         :return: a list with the (possibly cached) table data
         """
 
-        if self.cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", "dynamodb")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
@@ -289,12 +285,14 @@ class DynamoDBAccess(CacheAccess):
         if invalidate_cache:
             cache_file_path.unlink(missing_ok=True)  # invalidate by deleting the cache file
 
-        table_data = None
+        table_data_valid = False
+        table_data = []
         if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             with open(cache_file_path, "rb") as f:
 
                 log.info(f"{self.table_name=} : reading {cache_file_path=}")
                 table_data = pickle.load(f)
+                table_data_valid = True
                 log.debug(f"done reading {cache_file_path=}")
 
                 # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
@@ -302,15 +300,16 @@ class DynamoDBAccess(CacheAccess):
                 # have in our cache, we need to update our cache even if we haven't had a timeout.
                 item_count_mismatch = self.resource.Table(self.table_name).item_count > len(table_data)
 
-        if table_data is None or item_count_mismatch:
+        if not table_data_valid or item_count_mismatch:
             log.info(f"getting {self.table_name} from DB")
 
             try:
                 table_data = self.scan_table()
+                table_data_valid = True
             except RetriesExceededError:
-                table_data = None
+                pass
 
-            if table_data is not None and len(table_data) > 0:
+            if table_data_valid:
                 # update data cache
                 with open(cache_file_path, "wb") as f:
                     pickle.dump(table_data, f)
@@ -319,8 +318,8 @@ class DynamoDBAccess(CacheAccess):
         else:
             self.cache_hit = True
 
-        if table_data is None:
-            log.error(f'table "{self.table_name}" not accessible')
+        if not table_data_valid:
+            AWSimpleException(f'table "{self.table_name}" not accessible')
 
         return table_data
 
@@ -330,9 +329,9 @@ class DynamoDBAccess(CacheAccess):
         partition_key: str,
         sort_key: str = None,
         secondary_index: str = None,
-        partition_key_type: (str, int, bool) = str,
-        sort_key_type: (str, int, bool) = str,
-        secondary_key_type: (str, int, bool) = str,
+        partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
+        sort_key_type: Union[Type[str], Type[int], Type[bool]] = str,
+        secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
     ) -> bool:
         """
         Create a DynamoDB table.
@@ -379,7 +378,12 @@ class DynamoDBAccess(CacheAccess):
                 key_schema.append(sort_schema)
             log.info(pformat(key_schema, indent=4))
 
-            kwargs = {"AttributeDefinitions": attribute_definitions, "KeySchema": key_schema, "BillingMode": "PAY_PER_REQUEST", "TableName": self.table_name}  # on-demand
+            kwargs = {
+                "AttributeDefinitions": attribute_definitions,
+                "KeySchema": key_schema,
+                "BillingMode": "PAY_PER_REQUEST",  # on-demand
+                "TableName": self.table_name,
+            }  # type: Dict[str, Any]
 
             # add a secondary index, if requested
             if secondary_index is not None:
@@ -441,7 +445,7 @@ class DynamoDBAccess(CacheAccess):
             if key not in primary_keys:
                 secondary_index_name = f"{key}{self.secondary_index_postfix}"
 
-        kwargs = {"KeyConditionExpression": key_condition_expression}
+        kwargs = {"KeyConditionExpression": key_condition_expression}  # type: Dict[str, Any]
         if secondary_index_name is not None:
             kwargs["IndexName"] = secondary_index_name
 
@@ -482,7 +486,7 @@ class DynamoDBAccess(CacheAccess):
         return self._query("begins_with", *args)
 
     @typechecked()
-    def query_one(self, partition_key: str, partition_value, direction: QuerySelection, secondary_index_name: str = None) -> (dict, None):
+    def query_one(self, partition_key: str, partition_value, direction: QuerySelection, secondary_index_name: str = None) -> Union[dict, None]:
         """
         Query and return one or none items, optionally using the sort key to provide either the start or end of the ordered (sorted) set of items.
 
@@ -567,7 +571,7 @@ class DynamoDBAccess(CacheAccess):
         table.put_item(Item=item)
 
     # cant' do a @typechecked() since optional item requires a single type
-    def get_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None) -> dict:
+    def get_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
         """
         get a DB item
 
@@ -578,7 +582,7 @@ class DynamoDBAccess(CacheAccess):
         :return: item dict or raises DBItemNotFound if does not exist
         """
         table = self.resource.Table(self.table_name)
-        key = {partition_key: partition_value}
+        key = {partition_key: partition_value}  # type: Dict[str, Any]
         if sort_key is not None:
             key[sort_key] = sort_value
         response = table.get_item(Key=key)
@@ -587,7 +591,7 @@ class DynamoDBAccess(CacheAccess):
         return item
 
     # cant' do a @typechecked() since optional item requires a single type
-    def delete_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None):
+    def delete_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None):
         """
         Delete table item
 
@@ -597,13 +601,13 @@ class DynamoDBAccess(CacheAccess):
         :param sort_value: item sort value (if sort key exists)
         """
         table = self.resource.Table(self.table_name)
-        key = {partition_key: partition_value}
+        key = {partition_key: partition_value}  # type: dict[str, Any]
         if sort_key is not None:
             key[sort_key] = sort_value
         table.delete_item(Key=key)
 
     # cant' do a @typechecked() since optional item requires a single type
-    def upsert_item(self, partition_key: str, partition_value: (str, int), sort_key: str = None, sort_value: (str, int) = None, item: dict = None):
+    def upsert_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None, item: Union[dict, None] = None):
 
         """
         Upsert (update or insert) table item
@@ -616,11 +620,10 @@ class DynamoDBAccess(CacheAccess):
         """
 
         if item is None:
-            log.warning(f"{item=} : nothing to do")
+            AWSimpleException(f"{item=}")
         else:
-
             table = self.resource.Table(self.table_name)
-            key = {partition_key: partition_value}
+            key = {partition_key: partition_value}  # type: dict[str, Any]
             if sort_key is not None:
                 key[sort_key] = sort_value
 

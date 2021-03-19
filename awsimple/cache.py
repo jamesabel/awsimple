@@ -3,11 +3,12 @@ from shutil import disk_usage, copy2
 import os
 from logging import getLogger
 import math
+from typing import Union
 
 from typeguard import typechecked
 from appdirs import user_cache_dir
 
-from awsimple import __application_name__, __author__, AWSAccess
+from awsimple import __application_name__, __author__, AWSAccess, AWSimpleException
 
 log = getLogger(__application_name__)
 
@@ -83,7 +84,10 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
                 if least_recently_used_path is not None:
                     log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=}")
                     least_recently_used_path.unlink()
-                    overage -= least_recently_used_size
+                    if least_recently_used_size is None:
+                        AWSimpleException(f"{least_recently_used_size=}")
+                    else:
+                        overage -= least_recently_used_size
 
                 if overage == starting_overage:
                     # tried to free up space but were unsuccessful, so give up
@@ -109,8 +113,8 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
 class CacheAccess(AWSAccess):
     def __init__(
         self,
-        resource_name: str = None,
-        cache_dir: Path = None,
+        resource_name: str,
+        cache_dir: Union[Path, None] = None,
         cache_life: float = math.inf,
         cache_max_absolute: int = round(1e9),
         cache_max_of_free: float = 0.05,
@@ -128,10 +132,7 @@ class CacheAccess(AWSAccess):
         """
 
         if cache_dir is None:
-            if resource_name is None:
-                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws")
-            else:
-                self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
+            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
         else:
             self.cache_dir = cache_dir
 

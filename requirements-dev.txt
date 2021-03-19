@@ -26,6 +26,8 @@ pillow
 # formatting and linting
 black
 flake8
+mypy
+boto3-stubs[s3,dynamodb,sqs,sns]
 #
 # documentation
 sphinx

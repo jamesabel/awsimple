@@ -9,14 +9,14 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Union
 import urllib3
 from logging import getLogger
 
 from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512, get_file_md5
+from hashy import get_string_sha512, get_file_sha512  # type: ignore
 
 from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException
 
@@ -39,10 +39,10 @@ class BucketNotFound(AWSimpleException):
 @dataclass
 class S3DownloadStatus:
     success: bool = False
-    cache_hit: bool = None
-    cache_write: bool = None
-    sizes_differ: bool = None
-    mtimes_differ: bool = None
+    cache_hit: Union[bool, None] = None
+    cache_write: Union[bool, None] = None
+    sizes_differ: Union[bool, None] = None
+    mtimes_differ: Union[bool, None] = None
 
 
 @dataclass
@@ -51,7 +51,7 @@ class S3ObjectMetadata:
     size: int
     mtime: datetime
     etag: str  # generally not used
-    sha512: (str, None)  # hex string - only entries written with awsimple will have this
+    sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
 
 
 class S3Access(CacheAccess):
@@ -184,7 +184,7 @@ class S3Access(CacheAccess):
         self.resource.Object(self.bucket_name, s3_key).delete()
 
     @typechecked()
-    def upload(self, file_path: (str, Path), s3_key: str, force=False) -> bool:
+    def upload(self, file_path: Union[str, Path], s3_key: str, force=False) -> bool:
         """
         Upload a file to an S3 object
 
@@ -196,28 +196,29 @@ class S3Access(CacheAccess):
 
         log.info(f'S3 upload : "{file_path}" to {self.bucket_name}/{s3_key}')
 
-        uploaded_flag = False
-
         if isinstance(file_path, str):
             file_path = Path(file_path)
 
         file_mtime = os.path.getmtime(file_path)
         file_sha512 = get_file_sha512(file_path)
-        s3_object_metadata = self.get_s3_object_metadata(s3_key)
-
-        upload_flag = force
-        if not upload_flag:
-            if s3_object_metadata is None:
-                upload_flag = True
-            elif s3_object_metadata.sha512 is not None and file_sha512 is not None:
-                # use the hash provided by awsimple, if it exists
-                upload_flag = file_sha512 != s3_object_metadata.sha512
+        if force:
+            upload_flag = True
+        else:
+            if self.object_exists(s3_key):
+                s3_object_metadata = self.get_s3_object_metadata(s3_key)
+                log.info(f"{s3_object_metadata=}")
+                if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+                    # use the hash provided by awsimple, if it exists
+                    upload_flag = file_sha512 != s3_object_metadata.sha512
+                else:
+                    # if not, use mtime
+                    upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
             else:
-                # if not, use mtime
-                upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
+                upload_flag = True
 
+        uploaded_flag = False
         if upload_flag:
-            log.info(f"local file : {file_sha512=},{s3_object_metadata=},force={force} - uploading")
+            log.info(f"local file : {file_sha512=},force={force} - uploading")
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
@@ -237,7 +238,7 @@ class S3Access(CacheAccess):
         return uploaded_flag
 
     @typechecked()
-    def download(self, s3_key: str, dest_path: (str, Path)) -> bool:
+    def download(self, s3_key: str, dest_path: Union[str, Path]) -> bool:
         """
         Download an S3 object
 
@@ -273,7 +274,7 @@ class S3Access(CacheAccess):
         return success
 
     @typechecked()
-    def get_s3_object_metadata(self, s3_key: str) -> (S3ObjectMetadata, None):
+    def get_s3_object_metadata(self, s3_key: str) -> S3ObjectMetadata:
         """
         Get S3 object metadata
 
@@ -287,7 +288,7 @@ class S3Access(CacheAccess):
                 s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string)
             )
         else:
-            s3_object_metadata = None
+            raise AWSimpleException(f"{s3_key} does not exist")
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
 
