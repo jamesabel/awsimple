@@ -22,6 +22,7 @@ docker
 coverage
 pytest-cov
 pillow
+requests
 #
 # formatting and linting
 black

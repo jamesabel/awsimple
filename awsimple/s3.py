@@ -52,6 +52,7 @@ class S3ObjectMetadata:
     mtime: datetime
     etag: str  # generally not used
     sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
+    url: str  # URL of S3 object
 
 
 class S3Access(CacheAccess):
@@ -66,8 +67,13 @@ class S3Access(CacheAccess):
         self.bucket_name = bucket_name
         self.retry_sleep_time = 3.0  # seconds
         self.retry_count = 10
+        self.public_readable = False
         self.download_status = S3DownloadStatus()
         super().__init__(resource_name="s3", **kwargs)
+
+    @typechecked()
+    def set_public_readable(self, public_readable: bool):
+        self.public_readable = public_readable
 
     @typechecked()
     def bucket_list(self) -> list:
@@ -222,10 +228,12 @@ class S3Access(CacheAccess):
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
-                metadata = {sha512_string: file_sha512}
-                log.info(f"{metadata=}")
+                extra_args = {"Metadata": {sha512_string: file_sha512}}
+                if self.public_readable:
+                    extra_args['ACL'] = 'public-read'
+                log.info(f"{extra_args=}")
                 try:
-                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs={"Metadata": metadata})
+                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
                     uploaded_flag = True
                 except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -274,6 +282,19 @@ class S3Access(CacheAccess):
         return success
 
     @typechecked()
+    def get_s3_object_url(self, s3_key: str) -> str:
+        """
+        Get S3 object URL
+
+        :param s3_key: S3 key
+        :return: object URL
+        """
+        bucket_location = self.client.get_bucket_location(Bucket=self.bucket_name)
+        location = bucket_location['LocationConstraint']
+        url = f"https://{self.bucket_name}.s3-{location}.amazonaws.com/{s3_key}"
+        return url
+
+    @typechecked()
     def get_s3_object_metadata(self, s3_key: str) -> S3ObjectMetadata:
         """
         Get S3 object metadata
@@ -283,10 +304,13 @@ class S3Access(CacheAccess):
         """
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
+
             bucket_object = bucket_resource.Object(s3_key)
             s3_object_metadata = S3ObjectMetadata(
-                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string)
+                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string),
+                self.get_s3_object_url(s3_key)
             )
+
         else:
             raise AWSimpleException(f"{s3_key} does not exist")
         log.debug(f"{s3_object_metadata=}")
@@ -339,7 +363,10 @@ class S3Access(CacheAccess):
         created = False
         if not self.bucket_exists():
             try:
-                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
+                if self.public_readable:
+                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL='public-read')
+                else:
+                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
                 self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
                 created = True
             except ClientError as e:
@@ -375,11 +402,7 @@ class S3Access(CacheAccess):
                 # deal with empty bucket
                 for content in page.get("Contents", []):
                     s3_key = content.get("Key")
-                    s3_size = content.get("Size")
-                    s3_mtime = content.get("LastModified")
-                    s3_etag = content.get("ETag")
-                    metadata = self.get_s3_object_metadata(s3_key)
-                    directory[s3_key] = S3ObjectMetadata(s3_key, s3_size, s3_mtime, s3_etag, metadata.sha512)
+                    directory[s3_key] = self.get_s3_object_metadata(s3_key)
         else:
             raise BucketNotFound(self.bucket_name)
         return directory
