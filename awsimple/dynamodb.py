@@ -6,11 +6,11 @@ import io
 import decimal
 import pickle
 import time
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, namedtuple
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
-from typing import List, Union, Any, Type, Dict
+from typing import List, Union, Any, Type, Dict, Callable
 from pprint import pformat
 from itertools import islice
 import json
@@ -18,7 +18,6 @@ from enum import Enum
 from decimal import Decimal
 from logging import getLogger
 
-from appdirs import user_cache_dir
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
@@ -36,11 +35,13 @@ try:
 except ImportError:
     pass
 
-
 # Handles Inexact error.
 decimal_context = decimal.getcontext().copy()
 decimal_context.prec = 38  # Numbers can have 38 digits precision
 handle_inexact_error = True
+
+# for scan to dict
+DictKey = namedtuple("Key", ["partition", "sort"])  # only for Primary Key with both partition and sort keys
 
 log = getLogger(__application_name__)
 
@@ -51,7 +52,6 @@ class QuerySelection(Enum):
 
 
 def convert_serializable_special_cases(o):
-
     """
     Convert an object to a type that is fairly generally serializable (e.g. json serializable).
     This only handles the cases that need converting.  The json module handles all the rest.
@@ -228,6 +228,37 @@ class DynamoDBAccess(CacheAccess):
 
         return table_names
 
+    def rows_to_dict(self, rows: list, sort_key: Union[Callable, None] = None) -> dict:
+        """
+        Get table rows as a sorted dict. dict key is the DynamoDB primary key, either as a single value (if only Partition Key used) or a 2 element named tuple (if Partition and Sort key used).
+        Input row ends up being sorted.
+
+        :param rows: table rows (sorted after call)
+        :param sort_key: function to use to get the sort key from the row or omit to sort based on DynamoDB Primary Key
+        :return: dict of data with Primary Key used as key
+        """
+
+        db_partition_key, db_sort_key = self.get_primary_keys()  # DynamoDB Primary Keys
+
+        if sort_key is None:
+            # if a sort key for the output isn't provided by the caller, use the DynamoDB Primary Key
+            if db_sort_key is None:
+                rows.sort(key=lambda x: x[db_partition_key])
+            else:
+                rows.sort(key=lambda x: (x[db_partition_key], x[db_sort_key]))
+        else:
+            rows.sort(key=sort_key)  # caller provided sort
+
+        table_as_dict = {}
+        if db_sort_key is None:
+            for row in rows:
+                table_as_dict[row[db_partition_key]] = row
+        else:
+            for row in rows:
+                table_as_dict[DictKey(row[db_partition_key], row[db_sort_key])] = row
+
+        return table_as_dict
+
     @typechecked()
     def scan_table(self) -> list:
         """
@@ -268,6 +299,17 @@ class DynamoDBAccess(CacheAccess):
         return items
 
     @typechecked()
+    def scan_table_as_dict(self, sort_key: Union[Callable, None] = None) -> dict:
+        """
+        Scan table and return result as a dict with the key being the table's Primary Key.
+
+        :param sort_key:
+        :param sort_key: function to use to get the sort key from the row or omit to sort based on DynamoDB Primary Key
+        :return: dict of data with Primary Key used as key
+        """
+        return self.rows_to_dict(self.scan_table(), sort_key)
+
+    @typechecked()
     def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
@@ -289,7 +331,6 @@ class DynamoDBAccess(CacheAccess):
         table_data = []
         if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             with open(cache_file_path, "rb") as f:
-
                 log.info(f"{self.table_name=} : reading {cache_file_path=}")
                 table_data = pickle.load(f)
                 table_data_valid = True
@@ -322,6 +363,17 @@ class DynamoDBAccess(CacheAccess):
             AWSimpleException(f'table "{self.table_name}" not accessible')
 
         return table_data
+
+    @typechecked()
+    def scan_table_cached_as_dict(self, invalidate_cache: bool = False, sort_key: Union[Callable, None] = None) -> dict:
+        """
+        Scan table and return result as a dict with the key being the table's Primary Key.
+
+        :param invalidate_cache: True to initially invalidate the cache (forcing a table scan)
+        :param sort_key: function to use to get the sort key from the row or omit to sort based on DynamoDB Primary Key
+        :return: dict of data with Primary Key used as key
+        """
+        return self.rows_to_dict(self.scan_table_cached(invalidate_cache), sort_key)
 
     @typechecked()
     def create_table(

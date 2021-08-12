@@ -1,4 +1,4 @@
-from awsimple import DynamoDBAccess
+from awsimple import DynamoDBAccess, DictKey
 from copy import deepcopy
 
 from test_awsimple import test_awsimple_str, id_str
@@ -26,6 +26,14 @@ def test_dynamodb_secondary_index():
     assert len(query_results) == 2  # just the partition key should provide us with both rows
 
     assert table.query(secondary_index, "je") == [item2]  # with (only) the secondary index (in DynamoDB you can't mix primary and secondary indexes)
+
+    expected_contents = {
+        DictKey(partition="me", sort="moi même"): {"id": "me", "id2": "moi même", "id3": "je"},
+        DictKey(partition="me", sort="myself"): {"id": "me", "id2": "myself", "id3": "i"},
+    }
+    contents = table.scan_table_cached_as_dict()
+    assert contents == expected_contents
+    assert list(contents.keys()) == [DictKey(partition="me", sort="moi même"), DictKey(partition="me", sort="myself")]
 
     table.delete_table()
 

@@ -230,7 +230,7 @@ class S3Access(CacheAccess):
             while not uploaded_flag and transfer_retry_count < self.retry_count:
                 extra_args = {"Metadata": {sha512_string: file_sha512}}
                 if self.public_readable:
-                    extra_args['ACL'] = 'public-read'
+                    extra_args["ACL"] = "public-read"
                 log.info(f"{extra_args=}")
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
@@ -290,7 +290,7 @@ class S3Access(CacheAccess):
         :return: object URL
         """
         bucket_location = self.client.get_bucket_location(Bucket=self.bucket_name)
-        location = bucket_location['LocationConstraint']
+        location = bucket_location["LocationConstraint"]
         url = f"https://{self.bucket_name}.s3-{location}.amazonaws.com/{s3_key}"
         return url
 
@@ -307,8 +307,7 @@ class S3Access(CacheAccess):
 
             bucket_object = bucket_resource.Object(s3_key)
             s3_object_metadata = S3ObjectMetadata(
-                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string),
-                self.get_s3_object_url(s3_key)
+                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string), self.get_s3_object_url(s3_key)
             )
 
         else:
@@ -364,7 +363,7 @@ class S3Access(CacheAccess):
         if not self.bucket_exists():
             try:
                 if self.public_readable:
-                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL='public-read')
+                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL="public-read")
                 else:
                     self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
                 self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
