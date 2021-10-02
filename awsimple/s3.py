@@ -411,7 +411,7 @@ class S3Access(CacheAccess):
 
     def keys(self, prefix: str = "") -> List[str]:
         """
-        List all the keys on this S3 Bucket.
+        List all the keys in this S3 Bucket.
 
         Note that this should be faster than .dir() if all you need are the keys and not the metadata.
 
