@@ -230,7 +230,7 @@ class S3Access(CacheAccess):
             while not uploaded_flag and transfer_retry_count < self.retry_count:
                 extra_args = {"Metadata": {sha512_string: file_sha512}}
                 if self.public_readable:
-                    extra_args["ACL"] = "public-read"
+                    extra_args["ACL"] = "public-read"  # type: ignore
                 log.info(f"{extra_args=}")
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
