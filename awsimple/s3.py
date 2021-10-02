@@ -390,7 +390,9 @@ class S3Access(CacheAccess):
     @typechecked()
     def dir(self) -> Dict[str, S3ObjectMetadata]:
         """
-        Do a "directory" of an S3 bucket where the returned dict key is the S3 key and the value is an S3ObjectMetadata object
+        Do a "directory" of an S3 bucket where the returned dict key is the S3 key and the value is an S3ObjectMetadata object.
+
+        Use the faster .keys() method if all you need are the keys.
 
         :return: a dict where key is the S3 key and the value is S3ObjectMetadata
         """
@@ -405,3 +407,24 @@ class S3Access(CacheAccess):
         else:
             raise BucketNotFound(self.bucket_name)
         return directory
+
+    def keys(self) -> List[str]:
+        """
+        List all the keys on this S3 Bucket.
+
+        Note that this should be faster than .dir() if all you need are the keys and not the metadata.
+
+        :return: a sorted list of all the keys in this S3 Bucket (sorted for consistency)
+        """
+        keys = []
+        if self.bucket_exists():
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name):
+                # deal with empty bucket
+                for content in page.get("Contents", []):
+                    s3_key = content.get("Key")
+                    keys.append(s3_key)
+        else:
+            raise BucketNotFound(self.bucket_name)
+        keys.sort()
+        return keys
