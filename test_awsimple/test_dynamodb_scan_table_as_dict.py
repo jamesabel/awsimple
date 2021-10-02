@@ -14,7 +14,7 @@ def check_scan_table(table_contents: dict, expected_contents: dict):
     assert "c" in keys
     # check sort
     for key_index in range(0, len(keys) - 1):
-        assert keys[key_index+1] > keys[key_index]
+        assert keys[key_index + 1] > keys[key_index]
     # only test for what we just put in - there may be other rows in the table in the real AWS
     for k, v in expected_contents.items():
         assert table_contents[k] == v
