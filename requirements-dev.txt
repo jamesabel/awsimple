@@ -21,6 +21,7 @@ moto
 docker
 coverage
 pytest-cov
+pytest-pycharm
 pillow
 requests
 #

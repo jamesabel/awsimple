@@ -22,4 +22,6 @@ def test_s3_keys():
 
     s3_keys = s3_access.keys()
     pprint(s3_keys)
-    assert s3_keys == [test_file_name, test_file_name_2]
+    # for real AWS I may have other objects in the test bucket
+    assert test_file_name in s3_keys
+    assert test_file_name_2 in s3_keys
