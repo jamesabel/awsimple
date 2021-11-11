@@ -9,16 +9,17 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Union
+from typing import Dict, List, Set, Union
 import urllib3
 from logging import getLogger
+import json
 
 from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512  # type: ignore
+from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512  # type: ignore
 
-from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException
+from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
@@ -53,6 +54,11 @@ class S3ObjectMetadata:
     etag: str  # generally not used
     sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
     url: str  # URL of S3 object
+
+
+@typechecked()
+def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict, Set]) -> bytes:
+    return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode('UTF-8'))
 
 
 class S3Access(CacheAccess):
@@ -242,6 +248,62 @@ class S3Access(CacheAccess):
 
         else:
             log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
+
+        return uploaded_flag
+
+    @typechecked()
+    def upload_object_as_json(self, json_serializable_object: Union[List, Dict, Set], s3_key: str, force=False) -> bool:
+        """
+        Upload a serializable Python object to an S3 object
+
+        :param json_serializable_object: serializable object
+        :param s3_key: S3 key
+        :param force: True to force the upload, even if the file hash matches the S3 contents
+        :return: True if uploaded
+        """
+
+        json_extension = ".json"
+        if not s3_key.endswith(json_extension):
+            s3_key = f"{s3_key}{json_extension}"
+        json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
+        json_sha512 = get_bytes_sha512(json_as_bytes)
+        object_mtime = time.time()
+        if force:
+            upload_flag = True
+        else:
+            if self.object_exists(s3_key):
+                s3_object_metadata = self.get_s3_object_metadata(s3_key)
+                log.info(f"{s3_object_metadata=}")
+                if s3_object_metadata.sha512 is not None and json_sha512 is not None:
+                    # use the hash provided by awsimple, if it exists
+                    upload_flag = json_sha512 != s3_object_metadata.sha512
+                else:
+                    # if not, use mtime
+                    upload_flag = not isclose(object_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
+            else:
+                upload_flag = True
+
+        uploaded_flag = False
+        if upload_flag:
+            log.info(f"local file : {json_sha512=},force={force} - uploading")
+
+            transfer_retry_count = 0
+            while not uploaded_flag and transfer_retry_count < self.retry_count:
+                extra_args = {"Metadata": {sha512_string: json_sha512}}
+                if self.public_readable:
+                    extra_args["ACL"] = "public-read"  # type: ignore
+                log.info(f"{extra_args=}")
+                try:
+                    s3_object = self.resource.Object(self.bucket_name, s3_key)
+                    s3_object.put(Body=json_as_bytes, ExtraArgs=extra_args)
+                    uploaded_flag = True
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                    log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
+                    transfer_retry_count += 1
+                    time.sleep(self.retry_sleep_time)
+
+        else:
+            log.info(f"file hash of {json_sha512} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
