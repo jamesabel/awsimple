@@ -24,6 +24,8 @@ from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpl
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
 
+json_extension = ".json"
+
 log = getLogger(__application_name__)
 
 
@@ -262,7 +264,6 @@ class S3Access(CacheAccess):
         :return: True if uploaded
         """
 
-        json_extension = ".json"
         if not s3_key.endswith(json_extension):
             s3_key = f"{s3_key}{json_extension}"
         json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
@@ -289,13 +290,14 @@ class S3Access(CacheAccess):
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
-                extra_args = {"Metadata": {sha512_string: json_sha512}}
-                if self.public_readable:
-                    extra_args["ACL"] = "public-read"  # type: ignore
-                log.info(f"{extra_args=}")
+                meta_data = {sha512_string: json_sha512}
+                log.info(f"{meta_data=}")
                 try:
                     s3_object = self.resource.Object(self.bucket_name, s3_key)
-                    s3_object.put(Body=json_as_bytes, ExtraArgs=extra_args)
+                    if self.public_readable:
+                        s3_object.put(Body=json_as_bytes, Metadata=meta_data, ACL="public-read")
+                    else:
+                        s3_object.put(Body=json_as_bytes, Metadata=meta_data)
                     uploaded_flag = True
                 except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -342,6 +344,15 @@ class S3Access(CacheAccess):
                 transfer_retry_count += 1
                 time.sleep(self.retry_sleep_time)
         return success
+
+    @typechecked()
+    def download_object_as_json(self, s3_key: str) -> Union[List, Dict, Set]:
+        if not s3_key.endswith(json_extension):
+            s3_key = f"{s3_key}{json_extension}"
+        s3_object = self.resource.Object(self.bucket_name, s3_key)
+        body = s3_object.get()["Body"].read().decode('utf-8')
+        obj = json.loads(body)
+        return obj
 
     @typechecked()
     def get_s3_object_url(self, s3_key: str) -> str:
