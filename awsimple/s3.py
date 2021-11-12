@@ -63,6 +63,17 @@ def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, D
     return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode('UTF-8'))
 
 
+def _get_json_key(s3_key: str):
+    """
+    get JSON key given an s3_key that may not have the .json extension
+    :param s3_key: s3 key, potentially without the extension
+    :return: JSON S3 key
+    """
+    if not s3_key.endswith(json_extension):
+        s3_key = f"{s3_key}{json_extension}"
+    return s3_key
+
+
 class S3Access(CacheAccess):
     @typechecked()
     def __init__(self, bucket_name: str = None, **kwargs):
@@ -92,58 +103,6 @@ class S3Access(CacheAccess):
         :return: list of buckets
         """
         return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
-
-    @typechecked()
-    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
-        """
-        download from AWS S3 with caching
-
-        :param dest_path: destination full path
-        :param s3_key: S3 key of source
-        :return: S3DownloadStatus instance
-        """
-
-        self.download_status = S3DownloadStatus()  # init
-
-        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
-        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
-        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
-
-        cache_path = Path(self.cache_dir, cache_file_name)
-        log.debug(f"{cache_path}")
-
-        if cache_path.exists():
-            s3_object_metadata = self.get_s3_object_metadata(s3_key)
-            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
-            local_size = os.path.getsize(cache_path)
-            local_mtime = os.path.getmtime(cache_path)
-
-            if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                self.download_status.cache_hit = False
-                self.download_status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                self.download_status.cache_hit = False
-                self.download_status.mtimes_differ = True
-            else:
-                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-                self.download_status.cache_hit = True
-                self.download_status.success = True
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(cache_path, dest_path)
-        else:
-            self.download_status.cache_hit = False
-
-        if not self.download_status.cache_hit:
-            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
-            self.download(s3_key, dest_path)
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
-            self.download_status.success = True
-
-        return self.download_status
 
     @typechecked()
     def read_string(self, s3_key: str) -> str:
@@ -264,8 +223,7 @@ class S3Access(CacheAccess):
         :return: True if uploaded
         """
 
-        if not s3_key.endswith(json_extension):
-            s3_key = f"{s3_key}{json_extension}"
+        s3_key = _get_json_key(s3_key)
         json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
         json_sha512 = get_bytes_sha512(json_as_bytes)
         object_mtime = time.time()
@@ -286,7 +244,7 @@ class S3Access(CacheAccess):
 
         uploaded_flag = False
         if upload_flag:
-            log.info(f"local file : {json_sha512=},force={force} - uploading")
+            log.info(f"{json_sha512=},force={force} - uploading")
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
@@ -346,13 +304,123 @@ class S3Access(CacheAccess):
         return success
 
     @typechecked()
+    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
+        """
+        download from AWS S3 with caching
+
+        :param dest_path: destination full path
+        :param s3_key: S3 key of source
+        :return: S3DownloadStatus instance
+        """
+
+        self.download_status = S3DownloadStatus()  # init
+
+        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
+        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
+        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
+        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
+
+        cache_path = Path(self.cache_dir, cache_file_name)
+        log.debug(f"{cache_path}")
+
+        if cache_path.exists():
+            s3_object_metadata = self.get_s3_object_metadata(s3_key)
+            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
+            local_size = os.path.getsize(cache_path)
+            local_mtime = os.path.getmtime(cache_path)
+
+            if local_size != s3_object_metadata.size:
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
+                self.download_status.cache_hit = False
+                self.download_status.sizes_differ = True
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
+                self.download_status.cache_hit = False
+                self.download_status.mtimes_differ = True
+            else:
+                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+                self.download_status.cache_hit = True
+                self.download_status.success = True
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(cache_path, dest_path)
+        else:
+            self.download_status.cache_hit = False
+
+        if not self.download_status.cache_hit:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
+            self.download(s3_key, dest_path)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
+
+        return self.download_status
+
+    @typechecked()
     def download_object_as_json(self, s3_key: str) -> Union[List, Dict, Set]:
-        if not s3_key.endswith(json_extension):
-            s3_key = f"{s3_key}{json_extension}"
+        s3_key = _get_json_key(s3_key)
         s3_object = self.resource.Object(self.bucket_name, s3_key)
         body = s3_object.get()["Body"].read().decode('utf-8')
         obj = json.loads(body)
         return obj
+
+    @typechecked()
+    def download_object_as_json_cached(self, s3_key: str) -> Union[List, Dict, Set]:
+        """
+        download object from AWS S3 with caching
+
+        :param dest_path: destination full path
+        :param s3_key: S3 key of source
+        :return: S3DownloadStatus instance
+        """
+        object_from_json = None
+
+        s3_key = _get_json_key(s3_key)
+
+        self.download_status = S3DownloadStatus()  # init
+
+        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
+        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
+        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
+        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
+
+        cache_path = Path(self.cache_dir, cache_file_name)
+        log.debug(f"{cache_path}")
+
+        if cache_path.exists():
+            s3_object_metadata = self.get_s3_object_metadata(s3_key)
+            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
+            local_size = os.path.getsize(cache_path)
+            local_mtime = os.path.getmtime(cache_path)
+
+            if local_size != s3_object_metadata.size:
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
+                self.download_status.cache_hit = False
+                self.download_status.sizes_differ = True
+            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
+                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
+                self.download_status.cache_hit = False
+                self.download_status.mtimes_differ = True
+            else:
+                log.info(f"{self.bucket_name}/{s3_key} cache hit : using {cache_path=}")
+                self.download_status.cache_hit = True
+                self.download_status.success = True
+                with cache_path.open("rb") as f:
+                    object_from_json = json.loads(f.read())
+        else:
+            self.download_status.cache_hit = False
+
+        if not self.download_status.cache_hit:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss)")
+            s3_object = self.resource.Object(self.bucket_name, s3_key)
+            body = s3_object.get()["Body"].read()
+            object_from_json = json.loads(body)
+            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
+
+        if object_from_json is None:
+            raise RuntimeError(s3_key)
+
+        return object_from_json
 
     @typechecked()
     def get_s3_object_url(self, s3_key: str) -> str:

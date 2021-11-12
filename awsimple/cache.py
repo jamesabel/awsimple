@@ -32,10 +32,10 @@ def get_directory_size(path: Path) -> int:
 
 
 @typechecked()
-def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
+def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
     """
     free up space in the LRU cache to make room for the new file
-    :param new_file: path to new file we want to put in the cache
+    :param new_data: path to new file or a bytes object we want to put in the cache
     :param cache_dir: cache directory
     :param cache_file_name: file name to write in cache
     :param max_absolute_cache_size: max absolute cache size (or None if not specified)
@@ -54,17 +54,22 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
         max_cache_size = min(values) if len(values) > 0 else None
         log.info(f"{max_cache_size=}")
 
-        new_file_size = os.path.getsize(new_file)
+        if isinstance(new_data, Path):
+            new_size = os.path.getsize(new_data)
+        elif isinstance(new_data, bytes):
+            new_size = len(new_data)
+        else:
+            raise RuntimeError
 
         if max_cache_size is None:
             is_room = True  # no limit
-        elif new_file_size > max_cache_size:
-            log.info(f"{new_file=} {new_file_size=} is larger than the cache itself {max_cache_size=}")
+        elif new_size > max_cache_size:
+            log.info(f"{new_data=} {new_size=} is larger than the cache itself {max_cache_size=}")
             is_room = False  # new file will never fit so don't try to evict to make room for it
         else:
 
             cache_size = get_directory_size(cache_dir)
-            overage = (cache_size + new_file_size) - max_cache_size
+            overage = (cache_size + new_size) - max_cache_size
 
             # cache eviction
             while overage > 0:
@@ -94,18 +99,26 @@ def lru_cache_write(new_file: Path, cache_dir: Path, cache_file_name: str, max_a
                     overage = 0
 
             # determine if we have room for the new file
-            is_room = get_directory_size(cache_dir) + new_file_size <= max_cache_size
+            is_room = get_directory_size(cache_dir) + new_size <= max_cache_size
 
         if is_room:
             cache_dest = Path(cache_dir, cache_file_name)
-            log.info(f"caching {new_file=} to {cache_dest=}")
-            copy2(new_file, cache_dest)
-            wrote_to_cache = True
+            if isinstance(new_data, Path):
+                log.info(f"caching {new_data=} to {cache_dest=}")
+                copy2(new_data, cache_dest)
+                wrote_to_cache = True
+            elif isinstance(new_data, bytes):
+                log.info(f"caching {new_data=} to {cache_dest=}")
+                with cache_dest.open("wb") as f:
+                    f.write(new_data)
+                wrote_to_cache = True
+            else:
+                raise RuntimeError
         else:
-            log.info(f"no room for {new_file=}")
+            log.info(f"no room for {new_data=}")
 
     except (FileNotFoundError, IOError, PermissionError) as e:
-        log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}")
+        log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}", stack_info=True, exc_info=True)
 
     return wrote_to_cache
 
