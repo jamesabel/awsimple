@@ -9,7 +9,7 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Union
 import urllib3
 from logging import getLogger
 import json
@@ -59,7 +59,7 @@ class S3ObjectMetadata:
 
 
 @typechecked()
-def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict, Set]) -> bytes:
+def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict]) -> bytes:
     return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode('UTF-8'))
 
 
@@ -213,7 +213,7 @@ class S3Access(CacheAccess):
         return uploaded_flag
 
     @typechecked()
-    def upload_object_as_json(self, json_serializable_object: Union[List, Dict, Set], s3_key: str, force=False) -> bool:
+    def upload_object_as_json(self, json_serializable_object: Union[List, Dict], s3_key: str, force=False) -> bool:
         """
         Upload a serializable Python object to an S3 object
 
@@ -323,24 +323,11 @@ class S3Access(CacheAccess):
             log.debug(f"{cache_path}")
 
             if cache_path.exists():
-
-                local_size = os.path.getsize(cache_path)
-                local_mtime = os.path.getmtime(cache_path)
-
-                if local_size != s3_object_metadata.size:
-                    log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                    self.download_status.cache_hit = False
-                    self.download_status.sizes_differ = True
-                elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                    log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                    self.download_status.cache_hit = False
-                    self.download_status.mtimes_differ = True
-                else:
-                    log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-                    self.download_status.cache_hit = True
-                    self.download_status.success = True
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(cache_path, dest_path)
+                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+                self.download_status.cache_hit = True
+                self.download_status.success = True
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(cache_path, dest_path)
             else:
                 self.download_status.cache_hit = False
 
@@ -354,7 +341,7 @@ class S3Access(CacheAccess):
         return self.download_status
 
     @typechecked()
-    def download_object_as_json(self, s3_key: str) -> Union[List, Dict, Set]:
+    def download_object_as_json(self, s3_key: str) -> Union[List, Dict]:
         s3_key = _get_json_key(s3_key)
         s3_object = self.resource.Object(self.bucket_name, s3_key)
         body = s3_object.get()["Body"].read().decode('utf-8')
@@ -362,7 +349,7 @@ class S3Access(CacheAccess):
         return obj
 
     @typechecked()
-    def download_object_as_json_cached(self, s3_key: str) -> Union[List, Dict, Set]:
+    def download_object_as_json_cached(self, s3_key: str) -> Union[List, Dict]:
         """
         download object from AWS S3 with caching
 
@@ -383,24 +370,11 @@ class S3Access(CacheAccess):
         log.debug(f"{cache_path}")
 
         if cache_path.exists():
-
-            local_size = os.path.getsize(cache_path)
-            local_mtime = os.path.getmtime(cache_path)
-
-            if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                self.download_status.cache_hit = False
-                self.download_status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                self.download_status.cache_hit = False
-                self.download_status.mtimes_differ = True
-            else:
-                log.info(f"{self.bucket_name}/{s3_key} cache hit : using {cache_path=}")
-                self.download_status.cache_hit = True
-                self.download_status.success = True
-                with cache_path.open("rb") as f:
-                    object_from_json = json.loads(f.read())
+            log.info(f"{self.bucket_name}/{s3_key} cache hit : using {cache_path=}")
+            self.download_status.cache_hit = True
+            self.download_status.success = True
+            with cache_path.open("rb") as f:
+                object_from_json = json.loads(f.read())
         else:
             self.download_status.cache_hit = False
 
