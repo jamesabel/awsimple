@@ -315,42 +315,40 @@ class S3Access(CacheAccess):
 
         self.download_status = S3DownloadStatus()  # init
 
-        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
-        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
-        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+        s3_mtime_ts = s3_object_metadata.mtime.timestamp()
 
-        cache_path = Path(self.cache_dir, cache_file_name)
-        log.debug(f"{cache_path}")
+        if s3_object_metadata.sha512 is not None:
+            cache_path = Path(self.cache_dir, s3_object_metadata.sha512)
+            log.debug(f"{cache_path}")
 
-        if cache_path.exists():
-            s3_object_metadata = self.get_s3_object_metadata(s3_key)
-            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
-            local_size = os.path.getsize(cache_path)
-            local_mtime = os.path.getmtime(cache_path)
+            if cache_path.exists():
 
-            if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                self.download_status.cache_hit = False
-                self.download_status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                self.download_status.cache_hit = False
-                self.download_status.mtimes_differ = True
+                local_size = os.path.getsize(cache_path)
+                local_mtime = os.path.getmtime(cache_path)
+
+                if local_size != s3_object_metadata.size:
+                    log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
+                    self.download_status.cache_hit = False
+                    self.download_status.sizes_differ = True
+                elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
+                    log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
+                    self.download_status.cache_hit = False
+                    self.download_status.mtimes_differ = True
+                else:
+                    log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+                    self.download_status.cache_hit = True
+                    self.download_status.success = True
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(cache_path, dest_path)
             else:
-                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-                self.download_status.cache_hit = True
-                self.download_status.success = True
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(cache_path, dest_path)
-        else:
-            self.download_status.cache_hit = False
+                self.download_status.cache_hit = False
 
         if not self.download_status.cache_hit:
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
             self.download(s3_key, dest_path)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, s3_object_metadata.sha512, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
 
         return self.download_status
@@ -378,17 +376,14 @@ class S3Access(CacheAccess):
 
         self.download_status = S3DownloadStatus()  # init
 
-        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
-        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
-        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+        s3_mtime_ts = s3_object_metadata.mtime.timestamp()
 
-        cache_path = Path(self.cache_dir, cache_file_name)
+        cache_path = Path(self.cache_dir, s3_object_metadata.sha512)
         log.debug(f"{cache_path}")
 
         if cache_path.exists():
-            s3_object_metadata = self.get_s3_object_metadata(s3_key)
-            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
+
             local_size = os.path.getsize(cache_path)
             local_mtime = os.path.getmtime(cache_path)
 
@@ -414,7 +409,7 @@ class S3Access(CacheAccess):
             s3_object = self.resource.Object(self.bucket_name, s3_key)
             body = s3_object.get()["Body"].read()
             object_from_json = json.loads(body)
-            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, s3_object_metadata.sha512, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
 
         if object_from_json is None:
