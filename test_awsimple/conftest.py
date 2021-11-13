@@ -6,7 +6,7 @@ import logging
 
 from balsa import Balsa
 
-from awsimple import __application_name__, __author__, is_mock, use_moto_mock_env_var
+from awsimple import __application_name__, __author__, is_mock, use_moto_mock_env_var, S3Access
 
 from test_awsimple import test_awsimple_str
 
@@ -42,7 +42,7 @@ class TestAWSimpleLoggingHandler(logging.Handler):
 @pytest.fixture(scope="session", autouse=True)
 def session_fixture():
 
-    balsa = Balsa(__application_name__, __author__, log_directory=Path("log"), delete_existing_log_files=True, verbose=True)
+    balsa = Balsa(__application_name__, __author__, log_directory=Path("log"), delete_existing_log_files=True, verbose=False)
 
     # add handler that will throw an assert on ERROR or greater
     test_handler = TestAWSimpleLoggingHandler()
@@ -52,3 +52,15 @@ def session_fixture():
     balsa.init_logger()
 
     print(f"{is_mock()=}")
+
+
+@pytest.fixture(scope="module")
+def s3_access():
+    temp_dir = Path("temp")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_dir = Path(temp_dir, "cache")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    _s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=cache_dir)
+    return _s3_access
