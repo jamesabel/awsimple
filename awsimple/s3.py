@@ -17,7 +17,7 @@ import json
 from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512  # type: ignore
+from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
 
 from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
 
@@ -50,12 +50,28 @@ class S3DownloadStatus:
 
 @dataclass
 class S3ObjectMetadata:
+    bucket: str
     key: str
     size: int
     mtime: datetime
     etag: str  # generally not used
     sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
     url: str  # URL of S3 object
+
+    def get_sha512(self) -> str:
+        """
+        Hash used to compare S3 objects. If the SHA512 is used (recommended), then use that. If not, create a "substitute" SHA512 hash that should change if the object contents change.
+        :return: SHA512 hash (as string)
+        """
+        if (sha512_value := self.sha512) is None:
+            # round timestamp to seconds to avoid possible small deltas when dealing with time and floats
+            mtime_as_int = int(round(self.mtime.timestamp()))
+            metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
+            if self.etag is not None and len(self.etag) > 0:
+                metadata_list.append(self.etag)
+            sha512_value = get_dls_sha512(metadata_list)
+
+        return sha512_value
 
 
 @typechecked()
@@ -180,9 +196,9 @@ class S3Access(CacheAccess):
             if self.object_exists(s3_key):
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+                if s3_object_metadata.get_sha512() is not None and file_sha512 is not None:
                     # use the hash provided by awsimple, if it exists
-                    upload_flag = file_sha512 != s3_object_metadata.sha512
+                    upload_flag = file_sha512 != s3_object_metadata.get_sha512()
                 else:
                     # if not, use mtime
                     upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
@@ -226,21 +242,13 @@ class S3Access(CacheAccess):
         s3_key = _get_json_key(s3_key)
         json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
         json_sha512 = get_bytes_sha512(json_as_bytes)
-        object_mtime = time.time()
-        if force:
-            upload_flag = True
-        else:
-            if self.object_exists(s3_key):
-                s3_object_metadata = self.get_s3_object_metadata(s3_key)
-                log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.sha512 is not None and json_sha512 is not None:
-                    # use the hash provided by awsimple, if it exists
-                    upload_flag = json_sha512 != s3_object_metadata.sha512
-                else:
-                    # if not, use mtime
-                    upload_flag = not isclose(object_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
-            else:
-                upload_flag = True
+        upload_flag = True
+        if not force and self.object_exists(s3_key):
+            s3_object_metadata = self.get_s3_object_metadata(s3_key)
+            log.info(f"{s3_object_metadata=}")
+            if s3_object_metadata.get_sha512() is not None and json_sha512 is not None:
+                # use the hash provided by awsimple, if it exists
+                upload_flag = json_sha512 != s3_object_metadata.get_sha512()
 
         uploaded_flag = False
         if upload_flag:
@@ -318,24 +326,24 @@ class S3Access(CacheAccess):
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
         s3_mtime_ts = s3_object_metadata.mtime.timestamp()
 
-        if s3_object_metadata.sha512 is not None:
-            cache_path = Path(self.cache_dir, s3_object_metadata.sha512)
-            log.debug(f"{cache_path}")
+        sha512 = s3_object_metadata.get_sha512()
+        cache_path = Path(self.cache_dir, sha512)
+        log.debug(f"{cache_path}")
 
-            if cache_path.exists():
-                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-                self.download_status.cache_hit = True
-                self.download_status.success = True
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(cache_path, dest_path)
-            else:
-                self.download_status.cache_hit = False
+        if cache_path.exists():
+            log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+            self.download_status.cache_hit = True
+            self.download_status.success = True
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache_path, dest_path)
+        else:
+            self.download_status.cache_hit = False
 
         if not self.download_status.cache_hit:
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
             self.download(s3_key, dest_path)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, s3_object_metadata.sha512, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
 
         return self.download_status
@@ -364,9 +372,9 @@ class S3Access(CacheAccess):
         self.download_status = S3DownloadStatus()  # init
 
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
-        s3_mtime_ts = s3_object_metadata.mtime.timestamp()
 
-        cache_path = Path(self.cache_dir, s3_object_metadata.sha512)
+        sha512 = s3_object_metadata.get_sha512()
+        cache_path = Path(self.cache_dir, sha512)
         log.debug(f"{cache_path}")
 
         if cache_path.exists():
@@ -383,7 +391,7 @@ class S3Access(CacheAccess):
             s3_object = self.resource.Object(self.bucket_name, s3_key)
             body = s3_object.get()["Body"].read()
             object_from_json = json.loads(body)
-            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, s3_object_metadata.sha512, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
 
         if object_from_json is None:
@@ -416,9 +424,10 @@ class S3Access(CacheAccess):
         if self.object_exists(s3_key):
 
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = S3ObjectMetadata(
-                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string), self.get_s3_object_url(s3_key)
-            )
+            s3_object_metadata = S3ObjectMetadata(self.bucket_name,
+                                                  s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(),
+                                                  bucket_object.metadata.get(sha512_string), self.get_s3_object_url(s3_key)
+                                                  )
 
         else:
             raise AWSimpleException(f"{s3_key} does not exist")
