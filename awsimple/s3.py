@@ -325,7 +325,6 @@ class S3Access(CacheAccess):
         self.download_status = S3DownloadStatus()  # init
 
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
-        s3_mtime_ts = s3_object_metadata.mtime.timestamp()
 
         sha512 = s3_object_metadata.get_sha512()
         cache_path = Path(self.cache_dir, sha512)
