@@ -60,11 +60,12 @@ class S3ObjectMetadata:
 
     def get_sha512(self) -> str:
         """
-        Hash used to compare S3 objects. If the SHA512 is used (recommended), then use that. If not, create a "substitute" SHA512 hash that should change if the object contents change.
+        Get hash used to compare S3 objects. If the SHA512 is available (recommended), then use that. If not (e.g. an S3 object wasn't written with AWSimple), create a "substitute"
+        SHA512 hash that should change if the object contents change.
         :return: SHA512 hash (as string)
         """
         if (sha512_value := self.sha512) is None:
-            # round timestamp to seconds to avoid possible small deltas when dealing with time and floats
+            # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
             mtime_as_int = int(round(self.mtime.timestamp()))
             metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
             if self.etag is not None and len(self.etag) > 0:
