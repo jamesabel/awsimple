@@ -35,7 +35,7 @@ def test_get_never_change_metadata(s3_access) -> (int, float, str):
         test_file_path.open("w").write(never_change_file_contents)
         s3_access.client.upload_file(str(test_file_path), test_awsimple_str, never_change_file_name)  # no awsimple SHA512
 
-        keys = [obj['Key'] for obj in s3_access.client.list_objects_v2(Bucket=test_awsimple_str)["Contents"]]
+        keys = [obj["Key"] for obj in s3_access.client.list_objects_v2(Bucket=test_awsimple_str)["Contents"]]
         assert never_change_file_name in keys
 
         metadata = s3_access.get_s3_object_metadata(never_change_file_name)
@@ -135,18 +135,28 @@ def test_s3_metadata_not_uploaded_with_awsimple(s3_access):
 
 def test_s3_download_cached(s3_access):
 
-    dest_path = Path(temp_dir, never_change_file_name)  # small file
+    dest_path = Path(temp_dir, never_change_file_name)  # small file with no AWSimple SHA512
 
     # start with empty cache
     rmtree(cache_dir, ignore_errors=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     dest_path.unlink(missing_ok=True)
-    s3_access.download_cached(never_change_file_name, dest_path)
+    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    assert download_status.success
+    assert not download_status.cache_hit
+    assert download_status.cache_write
+    assert dest_path.exists()
+    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    assert download_status.success
+    assert download_status.cache_hit
+    assert not download_status.cache_write
     assert dest_path.exists()
 
     # with warm cache
     dest_path.unlink()
-    s3_access.download_cached(never_change_file_name, dest_path)
+    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    assert download_status.success
+    assert download_status.cache_hit
     assert dest_path.exists()
 
     # download big file with normal cache size
@@ -154,7 +164,10 @@ def test_s3_download_cached(s3_access):
     print(f"{cache_size=}")
     assert cache_size < 1000  # big file not in cache
     big_file_path = Path(temp_dir, big_file_name)
-    s3_access.download_cached(big_file_name, big_file_path)
+    download_status = s3_access.download_cached(big_file_name, big_file_path)
+    assert download_status.success
+    assert not download_status.cache_hit
+    assert download_status.cache_write
     assert big_file_path.exists()
     cache_size = get_directory_size(cache_dir)
     print(f"{cache_size=}")
