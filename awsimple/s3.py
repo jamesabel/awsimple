@@ -77,7 +77,7 @@ class S3ObjectMetadata:
 
 @typechecked()
 def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict]) -> bytes:
-    return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode('UTF-8'))
+    return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode("UTF-8"))
 
 
 def _get_json_key(s3_key: str):
@@ -353,7 +353,7 @@ class S3Access(CacheAccess):
     def download_object_as_json(self, s3_key: str) -> Union[List, Dict]:
         s3_key = _get_json_key(s3_key)
         s3_object = self.resource.Object(self.bucket_name, s3_key)
-        body = s3_object.get()["Body"].read().decode('utf-8')
+        body = s3_object.get()["Body"].read().decode("utf-8")
         obj = json.loads(body)
         return obj
 
@@ -425,10 +425,15 @@ class S3Access(CacheAccess):
         if self.object_exists(s3_key):
 
             bucket_object = bucket_resource.Object(s3_key)
-            s3_object_metadata = S3ObjectMetadata(self.bucket_name,
-                                                  s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(),
-                                                  bucket_object.metadata.get(sha512_string), self.get_s3_object_url(s3_key)
-                                                  )
+            s3_object_metadata = S3ObjectMetadata(
+                self.bucket_name,
+                s3_key,
+                bucket_object.content_length,
+                bucket_object.last_modified,
+                bucket_object.e_tag[1:-1].lower(),
+                bucket_object.metadata.get(sha512_string),
+                self.get_s3_object_url(s3_key),
+            )
 
         else:
             raise AWSimpleException(f"{s3_key} does not exist")
