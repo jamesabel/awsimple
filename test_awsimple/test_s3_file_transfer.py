@@ -11,9 +11,10 @@ from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, c
 big_file_name = "big.txt"
 big_file_max_size = round(100e6)  # should be large enough to do a multi-part upload and would timeout with default AWS timeouts (we use longer timeouts than the defaults)
 
-never_change_size = 0
-never_change_mtime = 0.0
-never_change_etag = ""
+# real AWS
+never_change_size = 67
+never_change_mtime = 1636830116.0
+never_change_etag = "e3cb2ac8d7d4a8339ea3653f4f155ab4"
 
 
 def test_get_never_change_metadata(s3_access) -> (int, float, str):
@@ -36,11 +37,6 @@ def test_get_never_change_metadata(s3_access) -> (int, float, str):
         never_change_mtime = metadata.mtime.timestamp()
         never_change_etag = metadata.etag
         never_change_size = metadata.size
-    else:
-        # real AWS
-        never_change_mtime = 1598046722.0
-        never_change_etag = "0b344cb999fb3d07bffc558c0cdf33d5"
-        never_change_size = 65
 
 
 def test_s3_read_string(s3_access):
@@ -57,7 +53,8 @@ def test_s3_big_file_upload(s3_access):
     # this is run before the cache tests (hence the function name)
 
     last_run = 0.0
-    big_last_run_file_path = Path(temp_dir, "big_last_run.txt")
+    big_last_run_file_path = Path("big_last_run.txt")
+    big_last_run_file_path.parent.mkdir(exist_ok=True, parents=True)
     if not is_mock():
         try:
             last_run = float(big_last_run_file_path.open().read().strip())

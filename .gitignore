@@ -138,3 +138,4 @@ temp/
 # the real one is just LICENSE but some systems want both
 LICENSE.txt
 cov/
+test_awsimple/big_last_run.txt

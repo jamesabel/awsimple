@@ -2,7 +2,7 @@ from pathlib import Path
 import pytest
 from shutil import rmtree
 
-from awsimple import AWSimpleException
+from awsimple import AWSimpleException, is_mock
 
 from test_awsimple import temp_dir, cache_dir
 
@@ -27,8 +27,9 @@ def test_s3_multiple_transfers(s3_access):
                     f.write(test_string)
             s3_paths[test_string][mode] = p
 
-    with pytest.raises(AWSimpleException):
-        s3_access.download_cached("a", s3_paths["a"]["out"])  # won't exist
+    if is_mock():
+        with pytest.raises(AWSimpleException):
+            s3_access.download_cached("a", s3_paths["a"]["out"])  # won't exist at first if mocked
 
     # upload and download file
     s3_access.upload(s3_paths["a"]["in"], "a")
