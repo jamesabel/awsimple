@@ -12,16 +12,19 @@ from datetime import datetime
 from typing import Dict, List, Union
 import urllib3
 from logging import getLogger
+import json
 
 from botocore.exceptions import ClientError, EndpointConnectionError
 from s3transfer import S3UploadFailedError
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512  # type: ignore
+from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
 
-from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException
+from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
+
+json_extension = ".json"
 
 log = getLogger(__application_name__)
 
@@ -41,18 +44,49 @@ class S3DownloadStatus:
     success: bool = False
     cache_hit: Union[bool, None] = None
     cache_write: Union[bool, None] = None
-    sizes_differ: Union[bool, None] = None
-    mtimes_differ: Union[bool, None] = None
 
 
 @dataclass
 class S3ObjectMetadata:
+    bucket: str
     key: str
     size: int
     mtime: datetime
     etag: str  # generally not used
     sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
     url: str  # URL of S3 object
+
+    def get_sha512(self) -> str:
+        """
+        Get hash used to compare S3 objects. If the SHA512 is available (recommended), then use that. If not (e.g. an S3 object wasn't written with AWSimple), create a "substitute"
+        SHA512 hash that should change if the object contents change.
+        :return: SHA512 hash (as string)
+        """
+        if (sha512_value := self.sha512) is None:
+            # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
+            mtime_as_int = int(round(self.mtime.timestamp()))
+            metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
+            if self.etag is not None and len(self.etag) > 0:
+                metadata_list.append(self.etag)
+            sha512_value = get_dls_sha512(metadata_list)
+
+        return sha512_value
+
+
+@typechecked()
+def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict]) -> bytes:
+    return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode("UTF-8"))
+
+
+def _get_json_key(s3_key: str):
+    """
+    get JSON key given an s3_key that may not have the .json extension
+    :param s3_key: s3 key, potentially without the extension
+    :return: JSON S3 key
+    """
+    if not s3_key.endswith(json_extension):
+        s3_key = f"{s3_key}{json_extension}"
+    return s3_key
 
 
 class S3Access(CacheAccess):
@@ -84,58 +118,6 @@ class S3Access(CacheAccess):
         :return: list of buckets
         """
         return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
-
-    @typechecked()
-    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
-        """
-        download from AWS S3 with caching
-
-        :param dest_path: destination full path
-        :param s3_key: S3 key of source
-        :return: S3DownloadStatus instance
-        """
-
-        self.download_status = S3DownloadStatus()  # init
-
-        # use a hash of the S3 address so we don't have to try to store the local object (file) in a hierarchical directory tree
-        # use the slash to distinguish between bucket and key, since that's most like the actual URL AWS uses
-        # https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingBucket.html
-        cache_file_name = get_string_sha512(f"{self.bucket_name}/{s3_key}")
-
-        cache_path = Path(self.cache_dir, cache_file_name)
-        log.debug(f"{cache_path}")
-
-        if cache_path.exists():
-            s3_object_metadata = self.get_s3_object_metadata(s3_key)
-            s3_mtime_ts = s3_object_metadata.mtime.timestamp()
-            local_size = os.path.getsize(cache_path)
-            local_mtime = os.path.getmtime(cache_path)
-
-            if local_size != s3_object_metadata.size:
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: sizes differ {local_size=} {s3_object_metadata.size=}")
-                self.download_status.cache_hit = False
-                self.download_status.sizes_differ = True
-            elif not isclose(local_mtime, s3_mtime_ts, abs_tol=self.mtime_abs_tol):
-                log.info(f"{self.bucket_name}/{s3_key} cache miss: mtimes differ {local_mtime=} {s3_object_metadata.mtime=}")
-                self.download_status.cache_hit = False
-                self.download_status.mtimes_differ = True
-            else:
-                log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-                self.download_status.cache_hit = True
-                self.download_status.success = True
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(cache_path, dest_path)
-        else:
-            self.download_status.cache_hit = False
-
-        if not self.download_status.cache_hit:
-            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
-            self.download(s3_key, dest_path)
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, cache_file_name, self.cache_max_absolute, self.cache_max_of_free)
-            self.download_status.success = True
-
-        return self.download_status
 
     @typechecked()
     def read_string(self, s3_key: str) -> str:
@@ -213,9 +195,9 @@ class S3Access(CacheAccess):
             if self.object_exists(s3_key):
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.sha512 is not None and file_sha512 is not None:
+                if s3_object_metadata.get_sha512() is not None and file_sha512 is not None:
                     # use the hash provided by awsimple, if it exists
-                    upload_flag = file_sha512 != s3_object_metadata.sha512
+                    upload_flag = file_sha512 != s3_object_metadata.get_sha512()
                 else:
                     # if not, use mtime
                     upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
@@ -242,6 +224,53 @@ class S3Access(CacheAccess):
 
         else:
             log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
+
+        return uploaded_flag
+
+    @typechecked()
+    def upload_object_as_json(self, json_serializable_object: Union[List, Dict], s3_key: str, force=False) -> bool:
+        """
+        Upload a serializable Python object to an S3 object
+
+        :param json_serializable_object: serializable object
+        :param s3_key: S3 key
+        :param force: True to force the upload, even if the file hash matches the S3 contents
+        :return: True if uploaded
+        """
+
+        s3_key = _get_json_key(s3_key)
+        json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
+        json_sha512 = get_bytes_sha512(json_as_bytes)
+        upload_flag = True
+        if not force and self.object_exists(s3_key):
+            s3_object_metadata = self.get_s3_object_metadata(s3_key)
+            log.info(f"{s3_object_metadata=}")
+            if s3_object_metadata.get_sha512() is not None and json_sha512 is not None:
+                # use the hash provided by awsimple, if it exists
+                upload_flag = json_sha512 != s3_object_metadata.get_sha512()
+
+        uploaded_flag = False
+        if upload_flag:
+            log.info(f"{json_sha512=},force={force} - uploading")
+
+            transfer_retry_count = 0
+            while not uploaded_flag and transfer_retry_count < self.retry_count:
+                meta_data = {sha512_string: json_sha512}
+                log.info(f"{meta_data=}")
+                try:
+                    s3_object = self.resource.Object(self.bucket_name, s3_key)
+                    if self.public_readable:
+                        s3_object.put(Body=json_as_bytes, Metadata=meta_data, ACL="public-read")
+                    else:
+                        s3_object.put(Body=json_as_bytes, Metadata=meta_data)
+                    uploaded_flag = True
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                    log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
+                    transfer_retry_count += 1
+                    time.sleep(self.retry_sleep_time)
+
+        else:
+            log.info(f"file hash of {json_sha512} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
@@ -282,6 +311,93 @@ class S3Access(CacheAccess):
         return success
 
     @typechecked()
+    def download_cached(self, s3_key: str, dest_path: Path) -> S3DownloadStatus:
+        """
+        download from AWS S3 with caching
+
+        :param dest_path: destination full path
+        :param s3_key: S3 key of source
+        :return: S3DownloadStatus instance
+        """
+
+        self.download_status = S3DownloadStatus()  # init
+
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+
+        sha512 = s3_object_metadata.get_sha512()
+        cache_path = Path(self.cache_dir, sha512)
+        log.debug(f"{cache_path}")
+
+        if cache_path.exists():
+            log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+            self.download_status.cache_hit = True
+            self.download_status.success = True
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache_path, dest_path)
+        else:
+            self.download_status.cache_hit = False
+
+        if not self.download_status.cache_hit:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
+            self.download(s3_key, dest_path)
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
+
+        return self.download_status
+
+    @typechecked()
+    def download_object_as_json(self, s3_key: str) -> Union[List, Dict]:
+        s3_key = _get_json_key(s3_key)
+        s3_object = self.resource.Object(self.bucket_name, s3_key)
+        body = s3_object.get()["Body"].read().decode("utf-8")
+        obj = json.loads(body)
+        return obj
+
+    @typechecked()
+    def download_object_as_json_cached(self, s3_key: str) -> Union[List, Dict]:
+        """
+        download object from AWS S3 with caching
+
+        :param dest_path: destination full path
+        :param s3_key: S3 key of source
+        :return: S3DownloadStatus instance
+        """
+        object_from_json = None
+
+        s3_key = _get_json_key(s3_key)
+
+        self.download_status = S3DownloadStatus()  # init
+
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+
+        sha512 = s3_object_metadata.get_sha512()
+        cache_path = Path(self.cache_dir, sha512)
+        log.debug(f"{cache_path}")
+
+        if cache_path.exists():
+            log.info(f"{self.bucket_name}/{s3_key} cache hit : using {cache_path=}")
+            self.download_status.cache_hit = True
+            self.download_status.success = True
+            with cache_path.open("rb") as f:
+                object_from_json = json.loads(f.read())
+        else:
+            self.download_status.cache_hit = False
+
+        if not self.download_status.cache_hit:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss)")
+            s3_object = self.resource.Object(self.bucket_name, s3_key)
+            body = s3_object.get()["Body"].read()
+            object_from_json = json.loads(body)
+            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
+            self.download_status.success = True
+
+        if object_from_json is None:
+            raise RuntimeError(s3_key)
+
+        return object_from_json
+
+    @typechecked()
     def get_s3_object_url(self, s3_key: str) -> str:
         """
         Get S3 object URL
@@ -306,8 +422,15 @@ class S3Access(CacheAccess):
         if self.object_exists(s3_key):
 
             bucket_object = bucket_resource.Object(s3_key)
+            assert isinstance(self.bucket_name, str)  # mainly for mypy
             s3_object_metadata = S3ObjectMetadata(
-                s3_key, bucket_object.content_length, bucket_object.last_modified, bucket_object.e_tag[1:-1].lower(), bucket_object.metadata.get(sha512_string), self.get_s3_object_url(s3_key)
+                self.bucket_name,
+                s3_key,
+                bucket_object.content_length,
+                bucket_object.last_modified,
+                bucket_object.e_tag[1:-1].lower(),
+                bucket_object.metadata.get(sha512_string),
+                self.get_s3_object_url(s3_key),
             )
 
         else:

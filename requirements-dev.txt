@@ -5,6 +5,7 @@ boto3
 typeguard
 dictim
 appdirs
+tobool
 #
 # examples
 ismain

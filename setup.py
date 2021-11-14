@@ -23,7 +23,7 @@ setup(
     keywords=["aws", "cloud", "storage", "database", "dynamodb", "s3"],
     packages=[__title__],
     package_data={__title__: [readme_file_path, "py.typed"]},
-    install_requires=["boto3", "typeguard", "hashy", "dictim", "appdirs"],
+    install_requires=["boto3", "typeguard", "hashy", "dictim", "appdirs", "tobool"],
     project_urls={"Documentation": "https://awsimple.readthedocs.io/"},
     classifiers=[],
 )
