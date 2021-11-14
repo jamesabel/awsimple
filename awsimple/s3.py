@@ -10,12 +10,12 @@ from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Union
-import urllib3
 from logging import getLogger
 import json
 
-from botocore.exceptions import ClientError, EndpointConnectionError
+from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError
 from s3transfer import S3UploadFailedError
+import urllib3
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
 
@@ -303,7 +303,7 @@ class S3Access(CacheAccess):
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
-            except (ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+            except (ClientError, EndpointConnectionError, ConnectionClosedError, urllib3.exceptions.ProtocolError) as e:
                 # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
                 transfer_retry_count += 1
