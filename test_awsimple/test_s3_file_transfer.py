@@ -4,15 +4,9 @@ from pathlib import Path
 from math import isclose
 import os
 from shutil import rmtree
-from functools import lru_cache
 
 from awsimple import S3Access, get_directory_size, is_mock
-from test_awsimple import test_awsimple_str, never_change_file_name
-
-temp_dir = Path("temp")
-temp_dir.mkdir(parents=True, exist_ok=True)
-cache_dir = Path(temp_dir, "cache")
-cache_dir.mkdir(parents=True, exist_ok=True)
+from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
 
 big_file_name = "big.txt"
 big_file_max_size = round(100e6)  # should be large enough to do a multi-part upload and would timeout with default AWS timeouts (we use longer timeouts than the defaults)
@@ -61,8 +55,6 @@ def test_s3_read_string(s3_access):
 def test_s3_big_file_upload(s3_access):
     # test big file upload (e.g. that we don't get a timeout)
     # this is run before the cache tests (hence the function name)
-
-    temp_dir.mkdir(parents=True, exist_ok=True)
 
     last_run = 0.0
     big_last_run_file_path = Path(temp_dir, "big_last_run.txt")

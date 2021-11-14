@@ -3,9 +3,7 @@ from pathlib import Path
 
 from awsimple import S3Access
 
-from test_awsimple import test_awsimple_str
-
-temp_dir = Path("temp")
+from test_awsimple import test_awsimple_str, temp_dir
 
 
 def test_s3_keys():
