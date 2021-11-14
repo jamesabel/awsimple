@@ -44,8 +44,6 @@ class S3DownloadStatus:
     success: bool = False
     cache_hit: Union[bool, None] = None
     cache_write: Union[bool, None] = None
-    sizes_differ: Union[bool, None] = None
-    mtimes_differ: Union[bool, None] = None
 
 
 @dataclass
