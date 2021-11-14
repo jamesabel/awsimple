@@ -102,6 +102,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
             is_room = get_directory_size(cache_dir) + new_size <= max_cache_size
 
         if is_room:
+            cache_dir.mkdir(parents=True, exist_ok=True)
             cache_dest = Path(cache_dir, cache_file_name)
             if isinstance(new_data, Path):
                 log.info(f"caching {new_data=} to {cache_dest=}")
