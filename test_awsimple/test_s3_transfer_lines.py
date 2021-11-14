@@ -1,4 +1,3 @@
-
 def test_s3_transfer_lines(s3_access):
     s3_key = "a"
     lines = ["1", "2"]

@@ -64,7 +64,7 @@ def test_s3_multiple_transfers(s3_access):
     assert s3_access.read_string("a") == "c"
 
     # now upload and download an object
-    test_dict = {'z': 3}
+    test_dict = {"z": 3}
     s3_access.upload_object_as_json(test_dict, "a")
     downloaded_dict = s3_access.download_object_as_json("a")
     assert test_dict == downloaded_dict
