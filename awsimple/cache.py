@@ -105,11 +105,11 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_dest = Path(cache_dir, cache_file_name)
             if isinstance(new_data, Path):
-                log.info(f"caching {new_data=} to {cache_dest=}")
+                log.info(f"caching {new_data} to {cache_dest=}")
                 copy2(new_data, cache_dest)
                 wrote_to_cache = True
             elif isinstance(new_data, bytes):
-                log.info(f"caching {new_data=} to {cache_dest=}")
+                log.info(f"caching {len(new_data)}B to {cache_dest=}")
                 with cache_dest.open("wb") as f:
                     f.write(new_data)
                 wrote_to_cache = True
