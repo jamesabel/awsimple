@@ -4,3 +4,4 @@ hashy
 dictim
 appdirs
 ismain
+tobool
