@@ -434,7 +434,7 @@ class S3Access(CacheAccess):
             )
 
         else:
-            raise AWSimpleException(f"{s3_key} does not exist")
+            raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist")
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
 
