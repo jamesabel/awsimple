@@ -1,3 +1,4 @@
+from typing import Union, List
 from math import isinf, isnan, nan, inf
 
 from typeguard import typechecked
@@ -10,7 +11,7 @@ abs_tol_default = 0.0
 
 class ValueDivergence:
     @typechecked(always=True)
-    def __init__(self, label: (str, None), value):
+    def __init__(self, label: Union[str, None], value):
         self.label = label
         self.value = value
 
@@ -36,7 +37,7 @@ class ValueDivergences:
     @typechecked(always=True)
     def __init__(self, max_divergences: int = 10):
         self.max_divergences = max_divergences
-        self.divergences = []
+        self.divergences = []  # type: List[ValueDivergence]
         self.hit_max_divergences_flag = False
 
     def __repr__(self):
@@ -95,7 +96,7 @@ class DictIsClose:
         return self.divergences.__repr__()
 
     @typechecked(always=True)
-    def _is_close_number(self, a: (float, int), b: (float, int), rel_tol: float, abs_tol: float, value_label: (str, None)):
+    def _is_close_number(self, a: Union[float, int], b: Union[float, int], rel_tol: float, abs_tol: float, value_label: Union[str, None]):
 
         """
         similar to math.isclose() except is keeps track of which values have the greatest difference
@@ -132,7 +133,7 @@ class DictIsClose:
         return is_close_flag
 
     @typechecked(always=True)
-    def _dict_is_close(self, x, y, rel_tol: (float, None), abs_tol: (float, None), parent_label: (str, None)):
+    def _dict_is_close(self, x, y, rel_tol: Union[float, None], abs_tol: Union[float, None], parent_label: Union[str, None]):
 
         if rel_tol is None or isnan(rel_tol):
             rel_tol = rel_tol_default
