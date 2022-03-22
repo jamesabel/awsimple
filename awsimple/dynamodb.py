@@ -313,8 +313,7 @@ class DynamoDBAccess(CacheAccess):
     def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
-        Read data table(s) from AWS with caching.  This is meant for static or slowly changing tables, and *requires* that
-        the table not change during execution nor from run to run without setting invalidate_cache.
+        Read data table(s) from AWS with caching.  This is meant for static or slowly changing tables.
 
         :param invalidate_cache: True to initially invalidate the cache (forcing a table scan)
         :return: a list with the (possibly cached) table data
@@ -339,7 +338,7 @@ class DynamoDBAccess(CacheAccess):
                 # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
                 # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
                 # have in our cache, we need to update our cache even if we haven't had a timeout.
-                item_count_mismatch = self.resource.Table(self.table_name).item_count > len(table_data)
+                item_count_mismatch = self.resource.Table(self.table_name).item_count != len(table_data)
 
         if not table_data_valid or item_count_mismatch:
             log.info(f"getting {self.table_name} from DB")
