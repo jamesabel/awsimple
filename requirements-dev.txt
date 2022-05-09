@@ -7,6 +7,7 @@ dictim
 appdirs
 tobool
 urllib3
+balsa
 #
 # examples
 ismain
@@ -16,7 +17,6 @@ twine
 wheel
 #
 # testing
-balsa
 pytest
 moto
 # moto apparently requires docker

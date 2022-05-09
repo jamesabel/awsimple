@@ -16,13 +16,14 @@ from itertools import islice
 import json
 from enum import Enum
 from decimal import Decimal
-from logging import getLogger
+import operator
 
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim
+from balsa import sf, get_logger
 
 from awsimple import CacheAccess, __application_name__, AWSimpleException
 
@@ -43,7 +44,7 @@ handle_inexact_error = True
 # for scan to dict
 DictKey = namedtuple("DictKey", ["partition", "sort"])  # only for Primary Key with both partition and sort keys
 
-log = getLogger(__application_name__)
+log = get_logger(__application_name__)
 
 
 class QuerySelection(Enum):
@@ -190,14 +191,17 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, Non
 
 class DynamoDBAccess(CacheAccess):
     @typechecked()
-    def __init__(self, table_name: str = None, **kwargs):
+    def __init__(self, table_name: str = None, reload_comparison: Callable[[int, int], bool] = operator.gt, **kwargs):
         """
         AWS DynamoDB access
 
         :param table_name: DynamoDB table name
+        :param reload_comparison: table size comparison to use to determine if we need to reload from cloud. Use operator.eq if table is not monotonically increasing and won't be used within
+        6 hours after modification.
         :param kwargs: kwargs
         """
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
+        self.reload_comparison = reload_comparison
         self.cache_hit = False
         self.secondary_index_postfix = "-index"
         super().__init__(resource_name="dynamodb", **kwargs)
@@ -264,8 +268,6 @@ class DynamoDBAccess(CacheAccess):
         """
         returns entire lookup table
 
-        :param table_name: DynamoDB table name
-        :param profile_name: AWS IAM profile name
         :return: table contents
         """
 
@@ -338,9 +340,13 @@ class DynamoDBAccess(CacheAccess):
                 # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
                 # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
                 # have in our cache, we need to update our cache even if we haven't had a timeout.
-                item_count_mismatch = self.resource.Table(self.table_name).item_count != len(table_data)
+                cloud_table_item_count = self.resource.Table(self.table_name).item_count
+                len_table_data = len(table_data)
+                # usually .gt (e.g. >) but can be .eq if table is not monotonically increasing and won't be used withing AWS's 6-hour update time
+                load_from_cloud = self.reload_comparison(cloud_table_item_count, len_table_data)
+                log.info(sf(load_from_cloud=load_from_cloud, cloud_table_item_count=cloud_table_item_count, len_table_data=len_table_data))
 
-        if not table_data_valid or item_count_mismatch:
+        if not table_data_valid or load_from_cloud:
             log.info(f"getting {self.table_name} from DB")
 
             try:
