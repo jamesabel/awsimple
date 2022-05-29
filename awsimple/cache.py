@@ -12,6 +12,8 @@ from awsimple import __application_name__, __author__, AWSAccess, AWSimpleExcept
 
 log = getLogger(__application_name__)
 
+CACHE_DIR_ENV_VAR = f"{__application_name__}_CACHE_DIR".upper()
+
 
 @typechecked()
 def get_disk_free(path: Path = Path(".")) -> int:
@@ -133,6 +135,7 @@ class CacheAccess(AWSAccess):
         cache_max_absolute: int = round(1e9),
         cache_max_of_free: float = 0.05,
         mtime_abs_tol: float = 10.0,
+        use_env_var_cache_dir: bool = False,
         **kwargs,
     ):
         """
@@ -143,12 +146,16 @@ class CacheAccess(AWSAccess):
         :param cache_max_absolute: max size of cache
         :param cache_max_of_free: max portion of disk free space the cache will consume
         :param mtime_abs_tol: window in seconds where a modification time will be considered equal
+        :param use_env_var_cache_dir: set to True to attempt to use environmental variable for the cache dir (user must explicitly set this to use env var for cache dir)
         """
 
-        if cache_dir is None:
-            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
+        self.use_env_var_cache_dir = use_env_var_cache_dir
+        if cache_dir is not None:
+            self.cache_dir = cache_dir  # passing cache dir in takes precedent
+        elif self.use_env_var_cache_dir and (cache_dir_from_env_var := os.environ.get(CACHE_DIR_ENV_VAR)) is not None:
+            self.cache_dir = Path(cache_dir_from_env_var.strip())
         else:
-            self.cache_dir = cache_dir
+            self.cache_dir = Path(user_cache_dir(__application_name__, __author__), "aws", resource_name)
 
         self.cache_life = cache_life  # seconds
         self.cache_max_absolute = cache_max_absolute  # max absolute cache size
