@@ -197,9 +197,10 @@ class DynamoDBAccess(CacheAccess):
 
         :param table_name: DynamoDB table name
         :param reload_comparison: table size comparison to use to determine if we need to reload from cloud. Use operator.eq if table is not monotonically increasing and won't be used within
-        6 hours after modification.
+                                  6 hours after modification.
         :param kwargs: kwargs
         """
+
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
         self.reload_comparison = reload_comparison
         self.cache_hit = False
