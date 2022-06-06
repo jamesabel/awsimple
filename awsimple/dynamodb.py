@@ -334,8 +334,13 @@ class DynamoDBAccess(CacheAccess):
         if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
             with open(cache_file_path, "rb") as f:
                 log.info(f"{self.table_name=} : reading {cache_file_path=}")
-                table_data = pickle.load(f)
-                table_data_valid = True
+                try:
+                    table_data = pickle.load(f)
+                    table_data_valid = True
+                except (EOFError, IOError) as e:
+                    log.info(f"{cache_file_path},{e}")
+                    table_data = []
+                    table_data_valid = False
                 log.debug(f"done reading {cache_file_path=}")
 
                 # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
