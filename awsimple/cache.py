@@ -1,16 +1,16 @@
 from pathlib import Path
 from shutil import disk_usage, copy2
 import os
-from logging import getLogger
 import math
 from typing import Union
 
 from typeguard import typechecked
 from appdirs import user_cache_dir
+from balsa import get_logger
 
 from awsimple import __application_name__, __author__, AWSAccess, AWSimpleException
 
-log = getLogger(__application_name__)
+log = get_logger(__application_name__)
 
 CACHE_DIR_ENV_VAR = f"{__application_name__}_CACHE_DIR".upper()
 

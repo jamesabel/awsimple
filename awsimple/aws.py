@@ -1,12 +1,12 @@
-import logging
 import os
 from typing import Union
 
 from typeguard import typechecked
+from balsa import get_logger
 
 from awsimple import __application_name__, is_mock
 
-log = logging.getLogger(__application_name__)
+log = get_logger(__application_name__)
 
 
 class AWSimpleException(Exception):

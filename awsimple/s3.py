@@ -10,12 +10,13 @@ from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Union
-from logging import getLogger
 import json
 
+from balsa import sf, get_logger
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError
 from s3transfer import S3UploadFailedError
 import urllib3
+import urllib3.exceptions
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
 
@@ -26,7 +27,7 @@ sha512_string = f"{__application_name__}-sha512"
 
 json_extension = ".json"
 
-log = getLogger(__application_name__)
+log = get_logger(__application_name__)
 
 
 class BucketNotFound(AWSimpleException):
@@ -298,16 +299,20 @@ class S3Access(CacheAccess):
         success = False
         while not success and transfer_retry_count < self.retry_count:
             try:
+                log.debug(sf("calling client.download_file()", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
                 self.client.download_file(self.bucket_name, s3_key, dest_path)
+                log.debug(sf("S3 client.download_file() complete", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
+                log.debug(sf("S3 object metadata", s3_object_metadata=s3_object_metadata))
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
             except (ClientError, EndpointConnectionError, ConnectionClosedError, urllib3.exceptions.ProtocolError) as e:
                 # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
-                transfer_retry_count += 1
                 time.sleep(self.retry_sleep_time)
+                transfer_retry_count += 1
+        log.debug(sf(transfer_retry_count=transfer_retry_count, success=success, bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
         return success
 
     @typechecked()

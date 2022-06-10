@@ -9,15 +9,15 @@ import statistics
 from datetime import timedelta
 from pathlib import Path
 import json
-from logging import getLogger
 
 from botocore.exceptions import ClientError
 from typeguard import typechecked
 import appdirs
+from balsa import get_logger
 
 from awsimple import AWSAccess, __application_name__, __author__
 
-log = getLogger(__application_name__)
+log = get_logger(__application_name__)
 
 
 @dataclass
