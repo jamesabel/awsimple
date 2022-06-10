@@ -32,6 +32,8 @@ black
 flake8
 mypy
 boto3-stubs[s3,dynamodb,sqs,sns]
+appdirs-stubs
+types-urllib3
 #
 # documentation
 sphinx
