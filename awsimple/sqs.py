@@ -302,6 +302,22 @@ class SQSAccess(AWSAccess):
         log.info(f"{policy_string=}")
         self.client.set_queue_attributes(QueueUrl=self._get_queue().url, Attributes={"Policy": policy_string})
 
+    def purge(self):
+        """
+        purge all messages in the queue
+        """
+        self.client.purge_queue(QueueUrl=self._get_queue().url)
+
+    def messages_available(self) -> int:
+        """
+        return number of messages available
+        :return: number of messages available
+        """
+        key = "ApproximateNumberOfMessages"
+        response = self.client.get_queue_attributes(QueueUrl=self._get_queue().url, AttributeNames=[key])
+        number_of_messages_available = int(response["Attributes"][key])
+        return number_of_messages_available
+
 
 class SQSPollAccess(SQSAccess):
     def __init__(self, queue_name: str, **kwargs):
