@@ -17,12 +17,13 @@ import json
 from enum import Enum
 from decimal import Decimal
 import operator
+from functools import lru_cache
 
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
-from dictim import dictim
+from dictim import dictim  # type: ignore
 from balsa import sf, get_logger
 
 from awsimple import CacheAccess, __application_name__, AWSimpleException
@@ -466,9 +467,10 @@ class DynamoDBAccess(CacheAccess):
 
         return created
 
+    @lru_cache()  # once created, the primary keys don't change
     def get_primary_keys(self) -> tuple:
         """
-        get the table's primary keys
+        Get the table's primary keys.
 
         :return: a 2-tuple of (partition_key, sort_key).  sort_key will be None if there is no sort key.
         """
@@ -636,7 +638,7 @@ class DynamoDBAccess(CacheAccess):
     # cant' do a @typechecked() since optional item requires a single type
     def get_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
         """
-        get a DB item
+        Get a DB item. Raise DBItemNotFound if does not exist.
 
         :param partition_key: partition key
         :param partition_value: partition value (str or int)
