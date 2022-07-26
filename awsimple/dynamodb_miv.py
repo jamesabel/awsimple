@@ -54,30 +54,35 @@ class DynamoDBMIVUI(DynamoDBAccess):
         return super().create_table(partition_key, miv_string, secondary_index, partition_key_type, int, secondary_key_type)
 
     @typechecked()
-    def put_item(self, item: dict, time_us: int = get_time_us()):
+    def put_item(self, item: dict, time_us: int = None):
         """
         Put (write) a DynamoDB table item with the miv automatically filled in.
 
         :param item: item
-        :param time_us: time in uS (parameters is mainly for testing)
+        :param time_us: optional time in uS to use (otherwise current time is used)
         """
         table = self.resource.Table(self.table_name)
 
-        # get the miv for the existing entries
-        partition_key, sort_key = self.get_primary_keys()
-        partition_value = item[partition_key]
-        try:
-            existing_most_senior_item = self.get_most_senior_item(partition_key, partition_value)
-            existing_miv_ui = existing_most_senior_item[miv_string]
-        except DBItemNotFound:
-            existing_miv_ui = None
-
         # Determine new miv. The miv is an int to avoid comparison or specification problems that can arise with floats. For example, when it comes time to delete an item.
-        if existing_miv_ui is None or time_us > existing_miv_ui:
-            new_miv_ui = time_us
+        if time_us is None:
+
+            # get the miv for the existing entries
+            partition_key, sort_key = self.get_primary_keys()
+            partition_value = item[partition_key]
+            try:
+                existing_most_senior_item = self.get_most_senior_item(partition_key, partition_value)
+                existing_miv_ui = existing_most_senior_item[miv_string]
+            except DBItemNotFound:
+                existing_miv_ui = None
+
+            current_time_us = get_time_us()
+            if existing_miv_ui is None or current_time_us > existing_miv_ui:
+                new_miv_ui = current_time_us
+            else:
+                # the prior writer seems to be from the future (from our perspective), so just increment the existing miv by the smallest increment and go with that
+                new_miv_ui = existing_miv_ui + 1
         else:
-            # the prior writer seems to be from the future (from our perspective), so just increment the existing miv by the smallest increment and go with that
-            new_miv_ui = existing_miv_ui + 1
+            new_miv_ui = time_us
 
         # make the new item with the new miv and put it into the DB table
         new_item = deepcopy(item)
