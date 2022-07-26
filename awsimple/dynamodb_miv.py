@@ -31,10 +31,8 @@ class DynamoDBMIV(DynamoDBAccess):
     def create_table(
         self,
         partition_key: str,
-        sort_key: str = None,
         secondary_index: str = None,
         partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
-        sort_key_type: Union[Type[str], Type[int], Type[bool]] = str,
         secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
     ) -> bool:
         return super().create_table(partition_key, miv_string, secondary_index, partition_key_type, int, secondary_key_type)
