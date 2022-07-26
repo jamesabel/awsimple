@@ -636,7 +636,7 @@ class DynamoDBAccess(CacheAccess):
     # cant' do a @typechecked() since optional item requires a single type
     def get_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
         """
-        get a DB item
+        Get a DB item. Raise DBItemNotFound if does not exist.
 
         :param partition_key: partition key
         :param partition_value: partition value (str or int)
