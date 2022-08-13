@@ -67,7 +67,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
         if time_us is None:
 
             # get the miv for the existing entries
-            partition_key, sort_key = self.get_primary_keys()
+            partition_key = self.get_primary_partition_key()
             partition_value = item[partition_key]
             try:
                 existing_most_senior_item = self.get_most_senior_item(partition_key, partition_value)

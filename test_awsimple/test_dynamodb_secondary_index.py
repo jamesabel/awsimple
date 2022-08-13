@@ -25,7 +25,9 @@ def test_dynamodb_secondary_index():
     print(f"{query_results=}")
     assert len(query_results) == 2  # just the partition key should provide us with both rows
 
-    assert table.query(secondary_index, "je") == [item2]  # with (only) the secondary index (in DynamoDB you can't mix primary and secondary indexes)
+    # with (only) the secondary index (in DynamoDB you can't mix primary and secondary indexes)
+    assert table.query(secondary_index, "je") == [item2]
+    assert table.query(id3="je") == [item2]
 
     expected_contents = {
         DictKey(partition="me", sort="moi même"): {"id": "me", "id2": "moi même", "id3": "je"},
