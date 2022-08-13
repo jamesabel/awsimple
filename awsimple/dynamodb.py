@@ -19,6 +19,7 @@ from decimal import Decimal
 import operator
 from functools import lru_cache
 import warnings
+from logging import getLogger
 
 
 from boto3.exceptions import RetriesExceededError
@@ -26,9 +27,9 @@ from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim  # type: ignore
-from balsa import sf, get_logger
 
 from awsimple import CacheAccess, __application_name__, AWSimpleException
+from awsimple.structured_logging import sf
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -47,7 +48,7 @@ handle_inexact_error = True
 # for scan to dict
 DictKey = namedtuple("DictKey", ["partition", "sort"])  # only for Primary Key with both partition and sort keys
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 class QuerySelection(Enum):

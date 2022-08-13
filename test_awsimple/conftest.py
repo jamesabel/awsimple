@@ -4,8 +4,6 @@ from pathlib import Path
 import logging
 
 
-from balsa import Balsa
-
 from awsimple import __application_name__, __author__, is_mock, use_moto_mock_env_var, S3Access
 
 from test_awsimple import test_awsimple_str, temp_dir, cache_dir
@@ -45,14 +43,10 @@ def session_fixture():
     temp_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    balsa = Balsa(__application_name__, __author__, log_directory=Path("log"), delete_existing_log_files=True, verbose=False)
-
     # add handler that will throw an assert on ERROR or greater
     test_handler = TestAWSimpleLoggingHandler()
     test_handler.setLevel(logging.ERROR)
     logging.getLogger().addHandler(test_handler)
-
-    balsa.init_logger()
 
     print(f"{is_mock()=}")
 
