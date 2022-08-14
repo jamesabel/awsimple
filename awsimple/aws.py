@@ -85,6 +85,7 @@ class AWSAccess:
                 self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
             self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
             if self.resource_name == "s3":
+                assert self.resource is not None
                 self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
 
         elif self.resource_name is None:

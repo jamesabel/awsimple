@@ -130,6 +130,7 @@ class S3Access(CacheAccess):
         :return: S3 object as a string
         """
         log.debug(f"reading {self.bucket_name}/{s3_key}")
+        assert self.resource is not None
         return self.resource.Object(self.bucket_name, s3_key).get()["Body"].read().decode()
 
     @typechecked()
@@ -151,6 +152,7 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         """
         log.debug(f"writing {self.bucket_name}/{s3_key}")
+        assert self.resource is not None
         self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, Metadata={sha512_string: get_string_sha512(input_str)})
 
     @typechecked()
@@ -171,6 +173,7 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         """
         log.info(f"deleting {self.bucket_name}/{s3_key}")
+        assert self.resource is not None
         self.resource.Object(self.bucket_name, s3_key).delete()
 
     @typechecked()
@@ -259,6 +262,7 @@ class S3Access(CacheAccess):
             while not uploaded_flag and transfer_retry_count < self.retry_count:
                 meta_data = {sha512_string: json_sha512}
                 log.info(f"{meta_data=}")
+                assert self.resource is not None
                 try:
                     s3_object = self.resource.Object(self.bucket_name, s3_key)
                     if self.public_readable:
@@ -355,6 +359,7 @@ class S3Access(CacheAccess):
     @typechecked()
     def download_object_as_json(self, s3_key: str) -> Union[List, Dict]:
         s3_key = _get_json_key(s3_key)
+        assert self.resource is not None
         s3_object = self.resource.Object(self.bucket_name, s3_key)
         body = s3_object.get()["Body"].read().decode("utf-8")
         obj = json.loads(body)
@@ -392,6 +397,7 @@ class S3Access(CacheAccess):
 
         if not self.download_status.cache_hit:
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss)")
+            assert self.resource is not None
             s3_object = self.resource.Object(self.bucket_name, s3_key)
             body = s3_object.get()["Body"].read()
             object_from_json = json.loads(body)
@@ -424,6 +430,7 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         :return: S3ObjectMetadata or None if object does not exist
         """
+        assert self.resource is not None
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
 
@@ -453,6 +460,7 @@ class S3Access(CacheAccess):
         :param s3_key: the S3 object key
         :return: True if object exists
         """
+        assert self.resource is not None
         bucket_resource = self.resource.Bucket(self.bucket_name)
         objs = list(bucket_resource.objects.filter(Prefix=s3_key))
         object_exists = len(objs) > 0 and objs[0].key == s3_key

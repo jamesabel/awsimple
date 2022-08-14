@@ -61,6 +61,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
         :param item: item
         :param time_us: optional time in uS to use (otherwise current time is used)
         """
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
 
         # Determine new miv. The miv is an int to avoid comparison or specification problems that can arise with floats. For example, when it comes time to delete an item.
@@ -95,6 +96,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
         Get the most senior (greatest miv value) item for a given primary partition (hash) key. Raises DBItemNotFound if it doesn't exist.
         :return: most senior item
         """
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         # just get the one most senior item
         response = table.query(KeyConditionExpression=Key(partition_key).eq(partition_value), ScanIndexForward=False, Limit=1)

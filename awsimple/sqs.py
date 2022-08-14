@@ -118,6 +118,7 @@ class SQSAccess(AWSAccess):
 
         :return: True if exists
         """
+        assert self.resource is not None
         try:
             self.resource.get_queue_by_name(QueueName=self.queue_name)
             queue_exists = True

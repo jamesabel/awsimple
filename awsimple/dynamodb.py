@@ -289,6 +289,7 @@ class DynamoDBAccess(CacheAccess):
         # todo: use boto3 paginator
 
         items = []
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
 
         more_to_evaluate = True
@@ -360,6 +361,7 @@ class DynamoDBAccess(CacheAccess):
                 # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
                 # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
                 # have in our cache, we need to update our cache even if we haven't had a timeout.
+                assert self.resource is not None
                 cloud_table_item_count = self.resource.Table(self.table_name).item_count
                 len_table_data = len(table_data)
                 # usually .gt (e.g. >) but can be .eq if table is not monotonically increasing and won't be used withing AWS's 6-hour update time
@@ -490,6 +492,7 @@ class DynamoDBAccess(CacheAccess):
         """
         warnings.warn("deprecated - will be removed in a future version - use .get_primary_keys_dict() instead", DeprecationWarning)
         keys = []
+        assert self.resource is not None
         for key_schema in self.resource.Table(self.table_name).key_schema:
             for key_type in ["HASH", "RANGE"]:
                 if key_schema["KeyType"] == key_type:
@@ -515,6 +518,7 @@ class DynamoDBAccess(CacheAccess):
         :return: a dict with the primary key partition key and (optionally) sort key
         """
 
+        assert self.resource is not None
         return self._get_keys_from_schema(self.resource.Table(self.table_name).key_schema)
 
     @lru_cache()
@@ -536,6 +540,7 @@ class DynamoDBAccess(CacheAccess):
         :return: list of dicts with secondary keys
         """
         secondary_indexes = []
+        assert self.resource is not None
         for table_secondary_index in self.resource.Table(self.table_name).global_secondary_indexes:
             secondary_indexes.append(self._get_keys_from_schema(table_secondary_index["KeySchema"]))
         return secondary_indexes
@@ -568,6 +573,7 @@ class DynamoDBAccess(CacheAccess):
         if secondary_index_name is not None:
             kwargs["IndexName"] = secondary_index_name
 
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
 
         results = []
@@ -635,6 +641,7 @@ class DynamoDBAccess(CacheAccess):
         """
         if partition_key is None:
             partition_key = self.get_primary_partition_key()
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         element = None
         scan_index_forward = direction == QuerySelection.lowest  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
@@ -703,6 +710,7 @@ class DynamoDBAccess(CacheAccess):
 
         :param item: item
         """
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         table.put_item(Item=item)
 
@@ -723,6 +731,7 @@ class DynamoDBAccess(CacheAccess):
         if sort_key is None and sort_value is not None:
             sort_key = self.get_primary_sort_key()
 
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}  # type: Dict[str, Any]
         if sort_key is not None:
@@ -748,6 +757,7 @@ class DynamoDBAccess(CacheAccess):
         if sort_key is None and sort_value is not None:
             sort_key = self.get_primary_sort_key()
 
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}  # type: dict[str, Any]
         if sort_key is not None:
@@ -777,6 +787,7 @@ class DynamoDBAccess(CacheAccess):
         if item is None:
             AWSimpleException(f"{item=}")
         else:
+            assert self.resource is not None
             table = self.resource.Table(self.table_name)
             key = {partition_key: partition_value}  # type: dict[str, Any]
             if sort_key is not None:
@@ -804,6 +815,7 @@ class DynamoDBAccess(CacheAccess):
 
         :return: number of items deleted
         """
+        assert self.resource is not None
         table = self.resource.Table(self.table_name)
         hash_key = self.get_primary_partition_key()
         sort_key = self.get_primary_sort_key()
