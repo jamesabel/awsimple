@@ -70,13 +70,19 @@ class AWSAccess:
                 from moto import mock_sqs as moto_mock
             elif self.resource_name == "dynamodb":
                 from moto import mock_dynamodb2 as moto_mock
+            elif self.resource_name == "logs":
+                from moto import mock_logs as moto_mock
             else:
                 from moto import mock_iam as moto_mock
 
             self._moto_mock = moto_mock()
             self._moto_mock.start()
             region = "us-east-1"
-            self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
+            if self.resource_name == "logs":
+                # logs don't have resource
+                self.resource = None
+            else:
+                self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
             self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
             if self.resource_name == "s3":
                 self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
@@ -86,9 +92,12 @@ class AWSAccess:
             self.client = None
             self.resource = None
         else:
-            # real AWS (no mock)
             self.client = self.session.client(self.resource_name, config=self._get_config())  # type: ignore
-            self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
+            if self.resource_name == "logs":
+                # logs don't have resource
+                self.resource = None
+            else:
+                self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
 
     def _get_config(self):
         from botocore.config import Config  # import here to facilitate mocking

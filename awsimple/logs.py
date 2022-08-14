@@ -28,9 +28,8 @@ class LogsAccess(AWSAccess):
         :param log_group: AWS CloudWatch log group
         :param kwargs: other kwargs (e.g. for authentication)
         """
-        super().__init__(**kwargs)
+        super().__init__("logs", **kwargs)
         self.log_group = log_group
-        self.client = self.session.client("logs")  # AWSAccess doesn't provide the client
         self._upload_sequence_token = None  # type: Union[str, None]
 
     def put(self, message: str):
