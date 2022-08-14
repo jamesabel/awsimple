@@ -27,9 +27,9 @@ from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim  # type: ignore
+from yasf import sf
 
 from awsimple import CacheAccess, __application_name__, AWSimpleException
-from awsimple.structured_logging import sf
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False

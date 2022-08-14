@@ -8,6 +8,7 @@ appdirs
 tobool
 urllib3
 python-dateutil
+yasf
 #
 # examples
 ismain

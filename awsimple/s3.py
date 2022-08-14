@@ -19,9 +19,9 @@ import urllib3
 import urllib3.exceptions
 from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
+from yasf import sf
 
 from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
-from awsimple.structured_logging import sf
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
