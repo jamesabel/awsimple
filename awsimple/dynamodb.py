@@ -18,15 +18,18 @@ from enum import Enum
 from decimal import Decimal
 import operator
 from functools import lru_cache
+import warnings
+from logging import getLogger
+
 
 from boto3.exceptions import RetriesExceededError
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim  # type: ignore
-from balsa import sf, get_logger
 
 from awsimple import CacheAccess, __application_name__, AWSimpleException
+from awsimple.structured_logging import sf
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -45,12 +48,20 @@ handle_inexact_error = True
 # for scan to dict
 DictKey = namedtuple("DictKey", ["partition", "sort"])  # only for Primary Key with both partition and sort keys
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 class QuerySelection(Enum):
     lowest = 0
     highest = 1
+
+
+class KeyType(Enum):
+    partition = "HASH"
+    sort = "RANGE"
+
+
+aws_name_to_key_type = {k.value: k for k in KeyType}  # AWS's key type as a string (HASH, RANGE) to KeyType
 
 
 def convert_serializable_special_cases(o):
@@ -236,15 +247,17 @@ class DynamoDBAccess(CacheAccess):
 
     def rows_to_dict(self, rows: list, sort_key: Union[Callable, None] = None) -> dict:
         """
-        Get table rows as a sorted dict. dict key is the DynamoDB primary key, either as a single value (if only Partition Key used) or a 2 element named tuple (if Partition and Sort key used).
-        Input row ends up being sorted.
+        Get table rows as a sorted dict. dict key is the DynamoDB primary key, either as a single value (if only Partition Key used) or a 2 element named tuple (if Partition and Sort key
+        used). Input row ends up being sorted.
 
         :param rows: table rows (sorted after call)
         :param sort_key: function to use to get the sort key from the row or omit to sort based on DynamoDB Primary Key
         :return: dict of data with Primary Key used as key
         """
 
-        db_partition_key, db_sort_key = self.get_primary_keys()  # DynamoDB Primary Keys
+        # DynamoDB Primary Keys
+        db_partition_key = self.get_primary_partition_key()
+        db_sort_key = self.get_primary_sort_key()
 
         if sort_key is None:
             # if a sort key for the output isn't provided by the caller, use the DynamoDB Primary Key
@@ -467,13 +480,15 @@ class DynamoDBAccess(CacheAccess):
 
         return created
 
-    @lru_cache()  # once created, the primary keys don't change
+    @lru_cache()
     def get_primary_keys(self) -> tuple:
         """
-        Get the table's primary keys.
+        DEPRECATED
 
+        Get the table's primary keys as a tuple.
         :return: a 2-tuple of (partition_key, sort_key).  sort_key will be None if there is no sort key.
         """
+        warnings.warn("deprecated - will be removed in a future version - use .get_primary_keys_dict() instead", DeprecationWarning)
         keys = []
         for key_schema in self.resource.Table(self.table_name).key_schema:
             for key_type in ["HASH", "RANGE"]:
@@ -485,6 +500,45 @@ class DynamoDBAccess(CacheAccess):
         elif len(keys) == 1:
             keys.append(None)  # no sort key
         return keys[0], keys[1]
+
+    def _get_keys_from_schema(self, table_schema: List) -> Dict[KeyType, str]:
+        key_schema = {}
+        for table_key_schema in table_schema:
+            key_schema[aws_name_to_key_type[table_key_schema["KeyType"]]] = table_key_schema["AttributeName"]
+        return key_schema
+
+    @lru_cache()
+    def get_primary_keys_dict(self) -> Dict[KeyType, str]:
+        """
+        Get the table's primary keys.
+
+        :return: a dict with the primary key partition key and (optionally) sort key
+        """
+
+        return self._get_keys_from_schema(self.resource.Table(self.table_name).key_schema)
+
+    @lru_cache()
+    def get_primary_partition_key(self) -> str:
+        primary_keys = self.get_primary_keys_dict()
+        return primary_keys[KeyType.partition]
+
+    @lru_cache()
+    def get_primary_sort_key(self) -> Union[str, None]:
+        primary_keys = self.get_primary_keys_dict()
+        sort_key = primary_keys.get(KeyType.sort)
+        return sort_key
+
+    @lru_cache()
+    def get_secondary_indexes(self) -> List[Dict[KeyType, str]]:
+        """
+        Get the secondary indexes as a list of dicts with the key as the KeyType.
+
+        :return: list of dicts with secondary keys
+        """
+        secondary_indexes = []
+        for table_secondary_index in self.resource.Table(self.table_name).global_secondary_indexes:
+            secondary_indexes.append(self._get_keys_from_schema(table_secondary_index["KeySchema"]))
+        return secondary_indexes
 
     def _query(self, comp: str, *args) -> List[dict]:
         """
@@ -498,7 +552,7 @@ class DynamoDBAccess(CacheAccess):
         :return: a (possibly empty) list of rows matching the query
         """
 
-        primary_keys = self.get_primary_keys()
+        primary_keys = self.get_primary_keys_dict()
         secondary_index_name = None
 
         key_condition_expression = None
@@ -507,7 +561,7 @@ class DynamoDBAccess(CacheAccess):
                 key_condition_expression = Key(args[0]).eq(args[1])  # partition key always uses equals (not other queries like "begins_with")
             else:
                 key_condition_expression &= getattr(Key(key), comp)(value)
-            if key not in primary_keys:
+            if key not in primary_keys.values():
                 secondary_index_name = f"{key}{self.secondary_index_postfix}"
 
         kwargs = {"KeyConditionExpression": key_condition_expression}  # type: Dict[str, Any]
@@ -532,38 +586,55 @@ class DynamoDBAccess(CacheAccess):
 
         return results
 
-    def query(self, *args) -> List[dict]:
+    def _args_kwargs(self, _args, _kwargs):
         """
-        query exact match
+        convert args and kwargs to a list of args for use by query methods
+        :param _args: *args
+        :param _kwargs: **kwargs
+        :return: args with kwargs added to the end as pairs
+        """
+        args = _args
+        for k, v in _kwargs.items():
+            args = args + (k,)
+            args = args + (v,)
+        return args
 
-        :param args: key, value pairs
+    def query(self, *args, **kwargs) -> List[dict]:
+        """
+        Query exact match using arg pairs or keyword args. Primary or secondary indexes allowed.
+
+        :param args: key, value pairs or keyword args
         :return: a list of DB rows matching the query
         """
+        args = self._args_kwargs(args, kwargs)
         return self._query("eq", *args)
 
-    def query_begins_with(self, *args) -> List[dict]:
+    def query_begins_with(self, *args, **kwargs) -> List[dict]:
         """
-        query if begins with
+        Query if begins with using arg pairs or keyword args. Primary or secondary indexes allowed.
 
-        :param args: key, value pairs
+        :param args: key, value pairs or keyword args
         :return: a list of DB rows matching the query
         """
+        args = self._args_kwargs(args, kwargs)
         return self._query("begins_with", *args)
 
     @typechecked()
-    def query_one(self, partition_key: str, partition_value, direction: QuerySelection, secondary_index_name: str = None) -> Union[dict, None]:
+    def query_one(self, partition_key: str = None, partition_value=None, direction: QuerySelection = QuerySelection.highest, secondary_index_name: str = None) -> Union[dict, None]:
         """
         Query and return one or none items, optionally using the sort key to provide either the start or end of the ordered (sorted) set of items.
 
-        This is particularly useful when the table uses a sort key that orders the items and you want one value that is at one of the
+        This is particularly useful when the table uses a sort key that orders the items, and you want one value that is at one of the
         ends of that sort. For example, if the sort key is an epoch timestamp (number) and direction is QueryDirection.highest, the most recent item is returned.
 
-        :param partition_key: partition key
+        :param partition_key: partition key (optional - if not given AWSimple will use the primary partition key)
         :param partition_value: partition value to match (exactly)
         :param direction: the range extreme to retrieve (Range.lowest or Range.highest)
         :param secondary_index_name: secondary index (if not using primary index)
         :return: an item or None if not found
         """
+        if partition_key is None:
+            partition_key = self.get_primary_partition_key()
         table = self.resource.Table(self.table_name)
         element = None
         scan_index_forward = direction == QuerySelection.lowest  # scanning "backwards" and returning one entry gives us the entry with the greatest sort value
@@ -628,7 +699,7 @@ class DynamoDBAccess(CacheAccess):
     @typechecked()
     def put_item(self, item: dict):
         """
-        Put (write) a DynamoDB table item
+        Put (write) a DynamoDB table dict item.
 
         :param item: item
         """
@@ -636,16 +707,22 @@ class DynamoDBAccess(CacheAccess):
         table.put_item(Item=item)
 
     # cant' do a @typechecked() since optional item requires a single type
-    def get_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
+    def get_item(self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
         """
-        Get a DB item. Raise DBItemNotFound if does not exist.
+        Get a DB item using the primary keys. Raise DBItemNotFound if item does not exist.
 
-        :param partition_key: partition key
+        :param partition_key: partition key (optional - if not given or None AWSimple will provide it)
         :param partition_value: partition value (str or int)
-        :param sort_key: sort key (optional)
+        :param sort_key: sort key (optional in case sort not used, but if sort used and not given or None AWSimple will provide it)
         :param sort_value: sort value (optional str or int)
-        :return: item dict or raises DBItemNotFound if does not exist
+        :return: item dict or raises DBItemNotFound if item does not exist
         """
+
+        if partition_key is None:
+            partition_key = self.get_primary_partition_key()
+        if sort_key is None and sort_value is not None:
+            sort_key = self.get_primary_sort_key()
+
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}  # type: Dict[str, Any]
         if sort_key is not None:
@@ -656,7 +733,7 @@ class DynamoDBAccess(CacheAccess):
         return item
 
     # cant' do a @typechecked() since optional item requires a single type
-    def delete_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None):
+    def delete_item(self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None):
         """
         Delete table item
 
@@ -665,6 +742,12 @@ class DynamoDBAccess(CacheAccess):
         :param sort_key: item sort key (if exists)
         :param sort_value: item sort value (if sort key exists)
         """
+
+        if partition_key is None:
+            partition_key = self.get_primary_partition_key()
+        if sort_key is None and sort_value is not None:
+            sort_key = self.get_primary_sort_key()
+
         table = self.resource.Table(self.table_name)
         key = {partition_key: partition_value}  # type: dict[str, Any]
         if sort_key is not None:
@@ -672,7 +755,9 @@ class DynamoDBAccess(CacheAccess):
         table.delete_item(Key=key)
 
     # cant' do a @typechecked() since optional item requires a single type
-    def upsert_item(self, partition_key: str, partition_value: Union[str, int], sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None, item: Union[dict, None] = None):
+    def upsert_item(
+        self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None, item: Union[dict, None] = None
+    ):
 
         """
         Upsert (update or insert) table item
@@ -683,6 +768,11 @@ class DynamoDBAccess(CacheAccess):
         :param sort_value: item sort value (if sort key exists)
         :param item: item data
         """
+
+        if partition_key is None:
+            partition_key = self.get_primary_partition_key()
+        if sort_key is None and sort_value is not None:
+            sort_key = self.get_primary_sort_key()
 
         if item is None:
             AWSimpleException(f"{item=}")
@@ -715,7 +805,8 @@ class DynamoDBAccess(CacheAccess):
         :return: number of items deleted
         """
         table = self.resource.Table(self.table_name)
-        hash_key, sort_key = self.get_primary_keys()
+        hash_key = self.get_primary_partition_key()
+        sort_key = self.get_primary_sort_key()
         count = 0
         for item in self.scan_table():
             key = {hash_key: item[hash_key]}

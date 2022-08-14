@@ -7,7 +7,7 @@ dictim
 appdirs
 tobool
 urllib3
-balsa
+python-dateutil
 #
 # examples
 ismain

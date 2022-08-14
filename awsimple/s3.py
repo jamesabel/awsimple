@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Union
 import json
+from logging import getLogger
 
-from balsa import sf, get_logger
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError
 from s3transfer import S3UploadFailedError
 import urllib3
@@ -21,13 +21,14 @@ from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
 
 from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
+from awsimple.structured_logging import sf
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
 
 json_extension = ".json"
 
-log = get_logger(__application_name__)
+log = getLogger(__application_name__)
 
 
 class BucketNotFound(AWSimpleException):
