@@ -3,6 +3,8 @@ import getpass
 import platform
 from functools import lru_cache
 from typing import Union
+from pathlib import Path
+from datetime import datetime
 
 from awsimple import AWSAccess
 
@@ -71,9 +73,16 @@ class LogsAccess(AWSAccess):
                 put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=self.get_stream_name(), logEvents=log_events)
             else:
                 put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=self.get_stream_name(), logEvents=log_events, sequenceToken=self._upload_sequence_token)
-        except self.client.exceptions.InvalidSequenceTokenException:
-            put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=self.get_stream_name(), logEvents=log_events)
-        self._upload_sequence_token = put_response.get("nextSequenceToken")
+        except self.client.exceptions.InvalidSequenceTokenException as e:
+            # something went terribly wrong in logging, so write what happened somewhere safe
+            with Path(Path.home(), "awsimple_exception.txt").open("w") as f:
+                f.write(f"{datetime.now().astimezone().isoformat()},{self.log_group=},{self.get_stream_name()=},{self._upload_sequence_token=},{e}\n")
+            put_response = None
+
+        if put_response is None:
+            self._upload_sequence_token = None
+        else:
+            self._upload_sequence_token = put_response.get("nextSequenceToken")
 
     def get_stream_name(self) -> str:
         """
