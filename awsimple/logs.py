@@ -60,23 +60,27 @@ class LogsAccess(AWSAccess):
         :param message: message as a string
         """
 
+        # if self._upload_sequence_token is None:
+        # we don't yet have the sequence token, so try to get it from AWS
+        stream_name = self.get_stream_name()
         if self._upload_sequence_token is None:
-            # we don't yet have the sequence token, so try to get it from AWS
             log_streams_description = self.client.describe_log_streams(logGroupName=self.log_group)
             if (log_streams := log_streams_description.get("logStreams")) is not None and len(log_streams) > 0:
-                self._upload_sequence_token = log_streams[0].get("uploadSequenceToken")
+                for log_stream in log_streams:
+                    if log_stream["logStreamName"] == stream_name:
+                        self._upload_sequence_token = log_stream.get("uploadSequenceToken")
 
         # timestamp defined by AWS to be mS since epoch
         log_events = [{"timestamp": int(round(time.time() * 1000)), "message": message}]
         try:
             if self._upload_sequence_token is None:
-                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=self.get_stream_name(), logEvents=log_events)
+                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events)
             else:
-                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=self.get_stream_name(), logEvents=log_events, sequenceToken=self._upload_sequence_token)
+                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events, sequenceToken=self._upload_sequence_token)
         except self.client.exceptions.InvalidSequenceTokenException as e:
             # something went terribly wrong in logging, so write what happened somewhere safe
             with Path(Path.home(), "awsimple_exception.txt").open("w") as f:
-                f.write(f"{datetime.now().astimezone().isoformat()},{self.log_group=},{self.get_stream_name()=},{self._upload_sequence_token=},{e}\n")
+                f.write(f"{datetime.now().astimezone().isoformat()},{self.log_group=},{stream_name=},{self._upload_sequence_token=},{e}\n")
             put_response = None
 
         if put_response is None:
