@@ -69,7 +69,7 @@ class AWSAccess:
             elif self.resource_name == "sqs":
                 from moto import mock_sqs as moto_mock
             elif self.resource_name == "dynamodb":
-                from moto import mock_dynamodb2 as moto_mock
+                from moto import mock_dynamodb as moto_mock
             elif self.resource_name == "logs":
                 from moto import mock_logs as moto_mock
             else:
