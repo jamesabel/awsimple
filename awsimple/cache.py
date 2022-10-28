@@ -121,7 +121,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
             log.info(f"no room for {new_data=}")
 
     except (FileNotFoundError, IOError, PermissionError) as e:
-        log.warning(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}", stack_info=True, exc_info=True)
+        log.debug(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}", stack_info=True, exc_info=True)
 
     return wrote_to_cache
 
