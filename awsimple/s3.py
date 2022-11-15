@@ -13,7 +13,7 @@ from typing import Dict, List, Union
 import json
 from logging import getLogger
 
-from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError
+from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
 from s3transfer import S3UploadFailedError
 import urllib3
 import urllib3.exceptions
@@ -222,7 +222,7 @@ class S3Access(CacheAccess):
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
                     uploaded_flag = True
-                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, SSLError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
                     transfer_retry_count += 1
                     time.sleep(self.retry_sleep_time)
@@ -270,7 +270,7 @@ class S3Access(CacheAccess):
                     else:
                         s3_object.put(Body=json_as_bytes, Metadata=meta_data)
                     uploaded_flag = True
-                except (S3UploadFailedError, ClientError, EndpointConnectionError, urllib3.exceptions.ProtocolError) as e:
+                except (S3UploadFailedError, ClientError, EndpointConnectionError, SSLError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
                     transfer_retry_count += 1
                     time.sleep(self.retry_sleep_time)
@@ -312,7 +312,7 @@ class S3Access(CacheAccess):
                 mtime_ts = s3_object_metadata.mtime.timestamp()
                 os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
                 success = True
-            except (ClientError, EndpointConnectionError, ConnectionClosedError, urllib3.exceptions.ProtocolError) as e:
+            except (ClientError, EndpointConnectionError, SSLError, ConnectionClosedError, urllib3.exceptions.ProtocolError) as e:
                 # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
                 time.sleep(self.retry_sleep_time)
