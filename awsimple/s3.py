@@ -239,7 +239,6 @@ class S3Access(CacheAccess):
 
                 transfer_retry_count += 1
 
-
         else:
             log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
 
