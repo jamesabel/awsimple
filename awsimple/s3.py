@@ -14,6 +14,7 @@ import json
 from logging import getLogger
 
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
+from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
 import urllib3
 import urllib3.exceptions
@@ -107,6 +108,12 @@ class S3Access(CacheAccess):
         self.download_status = S3DownloadStatus()
         super().__init__(resource_name="s3", **kwargs)
 
+    def get_s3_transfer_config(self) -> TransferConfig:
+        # workaround threading issue https://github.com/boto/s3transfer/issues/197
+        # derived class can overload this if a different config is desired
+        s3_transfer_config = TransferConfig(use_threads=False)
+        return s3_transfer_config
+
     @typechecked()
     def set_public_readable(self, public_readable: bool):
         self.public_readable = public_readable
@@ -177,7 +184,7 @@ class S3Access(CacheAccess):
         self.resource.Object(self.bucket_name, s3_key).delete()
 
     @typechecked()
-    def upload(self, file_path: Union[str, Path], s3_key: str, force=False) -> bool:
+    def upload(self, file_path: Union[str, Path], s3_key: str, force: bool = False) -> bool:
         """
         Upload a file to an S3 object
 
@@ -219,13 +226,19 @@ class S3Access(CacheAccess):
                 if self.public_readable:
                     extra_args["ACL"] = "public-read"  # type: ignore
                 log.info(f"{extra_args=}")
+
                 try:
-                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args)
+                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args, Config=self.get_s3_transfer_config())
                     uploaded_flag = True
                 except (S3UploadFailedError, ClientError, EndpointConnectionError, SSLError, urllib3.exceptions.ProtocolError) as e:
                     log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
-                    transfer_retry_count += 1
                     time.sleep(self.retry_sleep_time)
+                except RuntimeError as e:
+                    log.error(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
+                    time.sleep(self.retry_sleep_time)
+
+                transfer_retry_count += 1
+
 
         else:
             log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
