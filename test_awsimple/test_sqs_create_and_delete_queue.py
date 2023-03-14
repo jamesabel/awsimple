@@ -6,7 +6,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_sqs_create_and_delete_queue():
-
     # have to wait 60 seconds from delete to (re)creation so don't use the same queue name as other tests
     queue_name = "createdelete"
     q = SQSAccess(queue_name, profile_name=test_awsimple_str)

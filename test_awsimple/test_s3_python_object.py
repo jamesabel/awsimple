@@ -4,7 +4,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_s3_python_object():
-
     my_dict_a = {"a": 1}
     my_dict_b = {"b": 2}
     my_list = [1, 2, 3]

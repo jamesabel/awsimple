@@ -56,7 +56,6 @@ class AWSAccess:
         self.session = boto3.session.Session(**kwargs)
 
         if is_mock():
-
             # moto mock AWS
             for aws_key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]:
                 self._aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
@@ -157,9 +156,7 @@ class AWSAccess:
         return self._moto_mock is not None
 
     def __del__(self):
-
         if self._moto_mock is not None:
-
             # if mocking, put everything back
 
             for aws_key, value in self._aws_keys_save.items():

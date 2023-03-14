@@ -6,7 +6,6 @@ from test_awsimple import id_str, test_awsimple_str
 
 
 def test_dynamodb_delete_all_items():
-
     table_name = "awsimple-delete-test"  # this test is the only thing we'll use this table for
 
     dynamodb_access = DynamoDBAccess(table_name, profile_name=test_awsimple_str)

@@ -21,7 +21,6 @@ def check_scan_table(table_contents: dict, expected_contents: dict):
 
 
 def test_dynamodb_scan_table_as_dict():
-
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_dir=Path("cache"), cache_life=timedelta(seconds=10).total_seconds())
     dynamodb_access.create_table(id_str)
     dynamodb_access.put_item({id_str: "b", "value": 1})  # will be sorted in a different order than we're inputting

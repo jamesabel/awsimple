@@ -8,7 +8,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_aws_test():
-
     # test the test() method (basic AWS connection)
 
     # these should work

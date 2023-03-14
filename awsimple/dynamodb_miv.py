@@ -66,7 +66,6 @@ class DynamoDBMIVUI(DynamoDBAccess):
 
         # Determine new miv. The miv is an int to avoid comparison or specification problems that can arise with floats. For example, when it comes time to delete an item.
         if time_us is None:
-
             # get the miv for the existing entries
             partition_key = self.get_primary_partition_key()
             partition_value = item[partition_key]

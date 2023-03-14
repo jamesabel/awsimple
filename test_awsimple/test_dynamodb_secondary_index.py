@@ -5,7 +5,6 @@ from test_awsimple import test_awsimple_str, id_str
 
 
 def test_dynamodb_secondary_index():
-
     table_name = f"{test_awsimple_str}2"
     table = DynamoDBAccess(table_name)
 
@@ -41,7 +40,6 @@ def test_dynamodb_secondary_index():
 
 
 def test_dynamodb_secondary_index_int():
-
     table_name = f"{test_awsimple_str}3"
     table = DynamoDBAccess(table_name)
 

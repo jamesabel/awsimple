@@ -4,7 +4,6 @@ from awsimple import DynamoDBMIVUI, miv_string, get_time_us, miv_us_to_timestamp
 
 
 def test_dynamodb_miv_ui():
-
     test_name = "test_dynamodb_miv_ui"
     primary_partition_key = "id"
     id_value = "me"

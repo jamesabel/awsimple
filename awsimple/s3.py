@@ -445,7 +445,6 @@ class S3Access(CacheAccess):
         assert self.resource is not None
         bucket_resource = self.resource.Bucket(self.bucket_name)
         if self.object_exists(s3_key):
-
             bucket_object = bucket_resource.Object(s3_key)
             assert isinstance(self.bucket_name, str)  # mainly for mypy
             s3_object_metadata = S3ObjectMetadata(

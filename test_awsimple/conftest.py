@@ -39,7 +39,6 @@ class TestAWSimpleLoggingHandler(logging.Handler):
 
 @pytest.fixture(scope="session", autouse=True)
 def session_fixture():
-
     temp_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 

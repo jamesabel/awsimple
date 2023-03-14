@@ -136,7 +136,6 @@ class SQSAccess(AWSAccess):
         return nominal_work_time
 
     def calculate_visibility_timeout(self) -> int:
-
         if self.user_provided_timeout is None:
             if self.immediate_delete:
                 visibility_timeout = self.immediate_delete_timeout  # we immediately delete the message so this doesn't need to be very long
@@ -155,7 +154,6 @@ class SQSAccess(AWSAccess):
 
     @typechecked()
     def _receive(self, max_number_of_messages_parameter: int = None) -> List[SQSMessage]:
-
         if self.user_provided_timeout is None and not self.immediate_delete:
             # read in response history (and initialize it if it doesn't exist)
             try:
@@ -177,7 +175,6 @@ class SQSAccess(AWSAccess):
         call_wait_time = self.sqs_call_wait_time  # first time through may be long poll, but after that it's a short poll
 
         while continue_to_receive:
-
             aws_messages = None
 
             if max_number_of_messages_parameter is None:
@@ -186,7 +183,6 @@ class SQSAccess(AWSAccess):
                 max_number_of_messages = max_number_of_messages_parameter - len(messages)  # how many left to do
 
             try:
-
                 aws_messages = self._get_queue().receive_messages(
                     MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
                 )
@@ -195,7 +191,6 @@ class SQSAccess(AWSAccess):
                     if self.immediate_delete:
                         m.delete()
                     elif self.user_provided_timeout is None:
-
                         #  keep history of message processing times for user deletes, by AWS's message id
                         self.response_history[m.message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
 

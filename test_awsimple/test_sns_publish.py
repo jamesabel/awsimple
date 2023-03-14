@@ -8,7 +8,6 @@ from test_awsimple import test_awsimple_str, drain
 
 
 def test_sns_publish():
-
     drain()
 
     sqs_access = SQSPollAccess(test_awsimple_str)  # queue that will subscribe to this topic and we'll read from at the end to test the propagation from SNS to SQS

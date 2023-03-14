@@ -12,7 +12,6 @@ send_message = "hi"
 
 
 def test_sqs_immediate_delete():
-
     drain()
 
     q = SQSAccess(test_awsimple_str, profile_name=test_awsimple_str)
@@ -30,7 +29,6 @@ def test_sqs_immediate_delete():
 
 
 def test_sqs_poll_immediate_delete():
-
     drain()
 
     q = SQSPollAccess(test_awsimple_str, profile_name=test_awsimple_str)
@@ -47,7 +45,6 @@ def test_sqs_poll_immediate_delete():
 
 
 def test_sqs_poll_user_delete():
-
     work_time = 3.0
 
     drain()

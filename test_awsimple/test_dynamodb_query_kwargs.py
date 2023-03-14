@@ -6,7 +6,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_dynamodb_query_kwargs():
-
     table_name = "testawsimpleps"  # ps = both partition and sort
 
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=table_name)

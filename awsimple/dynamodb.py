@@ -768,7 +768,6 @@ class DynamoDBAccess(CacheAccess):
     def upsert_item(
         self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None, item: Union[dict, None] = None
     ):
-
         """
         Upsert (update or insert) table item
 

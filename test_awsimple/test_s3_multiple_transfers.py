@@ -14,7 +14,6 @@ def check_file_contents(file_path: Path, expected_contents: str):
 
 
 def test_s3_multiple_transfers(s3_access):
-
     s3_paths = {}
     rmtree(temp_dir)
     for test_string in ["a", "b"]:

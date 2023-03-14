@@ -7,7 +7,6 @@ from awsimple import DynamoDBAccess, dict_to_dynamodb
 
 
 def musical_instruments_example():
-
     """
     This example shows how to use DynamoDB to keep a table of musical instruments.
 

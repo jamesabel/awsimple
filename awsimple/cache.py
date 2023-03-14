@@ -69,7 +69,6 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
             log.info(f"{new_data=} {new_size=} is larger than the cache itself {max_cache_size=}")
             is_room = False  # new file will never fit so don't try to evict to make room for it
         else:
-
             cache_size = get_directory_size(cache_dir)
             overage = (cache_size + new_size) - max_cache_size
 

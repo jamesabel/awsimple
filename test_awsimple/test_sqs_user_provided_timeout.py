@@ -7,7 +7,6 @@ from test_awsimple import test_awsimple_str, drain
 
 
 def test_user_provided_timeout():
-
     drain()
 
     send_message = "hello"
@@ -31,7 +30,6 @@ def test_user_provided_timeout():
 
 
 def test_user_provided_minimum_timeout():
-
     drain()
 
     send_message = "hello"
@@ -55,7 +53,6 @@ def test_user_provided_minimum_timeout():
 
 
 def test_actually_timeout():
-
     drain()
 
     send_message = "hello"
@@ -81,7 +78,6 @@ def test_actually_timeout():
 
 
 def test_user_provided_timeout_nonsensical_parameters():
-
     drain()
 
     send_message = "hello"

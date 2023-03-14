@@ -73,7 +73,6 @@ def test_get_table_names():
 
 
 def test_dynamodb():
-
     dynamodb_dict = dict_to_dynamodb(sample_input)
 
     assert dynamodb_dict["sample1"] == "Test Data"

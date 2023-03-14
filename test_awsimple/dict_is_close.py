@@ -48,7 +48,6 @@ class ValueDivergences:
 
     @typechecked(always=True)
     def add(self, divergence: ValueDivergence):
-
         if not any([d == divergence for d in self.divergences]):
             self.divergences.append(divergence)
             self.divergences.sort(key=lambda x: x.to_sort())
@@ -97,7 +96,6 @@ class DictIsClose:
 
     @typechecked(always=True)
     def _is_close_number(self, a: Union[float, int], b: Union[float, int], rel_tol: float, abs_tol: float, value_label: Union[str, None]):
-
         """
         similar to math.isclose() except is keeps track of which values have the greatest difference
         :param a: first input
@@ -134,7 +132,6 @@ class DictIsClose:
 
     @typechecked(always=True)
     def _dict_is_close(self, x, y, rel_tol: Union[float, None], abs_tol: Union[float, None], parent_label: Union[str, None]):
-
         if rel_tol is None or isnan(rel_tol):
             rel_tol = rel_tol_default
         if abs_tol is None:
@@ -146,7 +143,6 @@ class DictIsClose:
             is_close_flags = []
             if set(x.keys()) == set(y.keys()):
                 for k in x:
-
                     # keys can be things other than strings, e.g. int
                     str_k = str(k)
                     if parent_label is None:

@@ -6,7 +6,6 @@ from awsimple import DynamoDBAccess
 
 
 def users_example():
-
     """
     This example shows how to use DynamoDB to keep a table of users. This also illustrates the flexibility of NoSQL in that we can
     simply add fields at any time.

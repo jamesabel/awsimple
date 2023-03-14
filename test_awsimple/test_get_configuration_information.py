@@ -4,7 +4,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_get_access_key():
-
     if not is_mock():
         # todo: get this to work with mocking
         access_key = AWSAccess(profile_name=test_awsimple_str).get_access_key()
@@ -15,7 +14,6 @@ def test_get_access_key():
 
 
 def test_get_region():
-
     if not is_mock():
         # todo: get this to work with mocking
         region = AWSAccess(profile_name=test_awsimple_str).get_region()

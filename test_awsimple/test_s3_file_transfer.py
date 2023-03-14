@@ -18,11 +18,9 @@ never_change_etag = "e3cb2ac8d7d4a8339ea3653f4f155ab4"
 
 
 def test_get_never_change_metadata(s3_access) -> (int, float, str):
-
     global never_change_size, never_change_mtime, never_change_etag
 
     if is_mock():
-
         # mocking always starts with nothing so we need up "upload" this file, but use boto3 so we don't write awsimple's SHA512
 
         test_file_path = Path(temp_dir, never_change_file_name)
@@ -40,7 +38,6 @@ def test_get_never_change_metadata(s3_access) -> (int, float, str):
 
 
 def test_s3_read_string(s3_access):
-
     test_string = str(time.time())  # so it changes between tests
 
     # s3_access.create_bucket()  # may already exist
@@ -63,7 +60,6 @@ def test_s3_big_file_upload(s3_access):
 
     # only run once a day max since it takes so long
     if last_run + timedelta(days=1).total_seconds() < time.time():
-
         big_file_path = Path(temp_dir, big_file_name)
         size = big_file_max_size / 1000  # start with something small
         while size < big_file_max_size:
@@ -81,7 +77,6 @@ def test_s3_big_file_upload(s3_access):
 
 
 def test_s3_upload(s3_access):
-
     test_file_name = "test.txt"
     test_file_path = Path(temp_dir, test_file_name)
     test_file_path.open("w").write("hello world")
@@ -91,7 +86,6 @@ def test_s3_upload(s3_access):
 
 
 def test_s3_z_metadata(s3_access):
-
     # does not work for mock todo: fix
     test_file_name = "test.txt"
     s3_object_metadata = s3_access.get_s3_object_metadata(test_file_name)
@@ -101,7 +95,6 @@ def test_s3_z_metadata(s3_access):
 
 
 def test_s3_download(s3_access):
-
     dest_path = Path(temp_dir, never_change_file_name)
     dest_path.unlink(missing_ok=True)
     success = s3_access.download(never_change_file_name, dest_path)
@@ -111,7 +104,6 @@ def test_s3_download(s3_access):
 
 
 def test_s3_metadata_not_uploaded_with_awsimple(s3_access):
-
     bucket_dir = s3_access.dir()
     print(bucket_dir)
     s3_object_metadata = s3_access.get_s3_object_metadata(never_change_file_name)
@@ -123,7 +115,6 @@ def test_s3_metadata_not_uploaded_with_awsimple(s3_access):
 
 
 def test_s3_download_cached(s3_access):
-
     dest_path = Path(temp_dir, never_change_file_name)  # small file with no AWSimple SHA512
 
     # start with empty cache

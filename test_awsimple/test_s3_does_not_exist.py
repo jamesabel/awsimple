@@ -5,7 +5,6 @@ from test_awsimple import test_awsimple_str
 
 
 def test_s3_object_does_not_exist():
-
     i_do_not_exist_key = "i-do-not-exist"
 
     s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)  # keyword parameter for bucket_name
