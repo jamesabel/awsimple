@@ -78,12 +78,15 @@ class AWSAccess:
             self._moto_mock = moto_mock()
             self._moto_mock.start()
             region = "us-east-1"
-            if self.resource_name == "logs":
-                # logs don't have resource
+            if self.resource_name == "logs" or self.resource_name is None:
+                # logs don't have a resource
                 self.resource = None
             else:
                 self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
-            self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
+            if self.resource_name is None:
+                self.client = None
+            else:
+                self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
             if self.resource_name == "s3":
                 assert self.resource is not None
                 self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
