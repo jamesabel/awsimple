@@ -193,6 +193,13 @@ class DBItemNotFound(AWSimpleException):
         return f"{self.key=} {self.message}"
 
 
+class TableNotFound(AWSimpleException):
+    def __init__(self, table_name: str):
+        self.table_name = table_name
+        self.message = f'Table "{self.table_name}" not found'
+        super().__init__(self.message)
+
+
 @typechecked()
 def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, None]) -> bool:
     is_valid = file_path.exists() and getsize(str(file_path)) > 0
@@ -513,13 +520,22 @@ class DynamoDBAccess(CacheAccess):
     @lru_cache()
     def get_primary_keys_dict(self) -> Dict[KeyType, str]:
         """
-        Get the table's primary keys.
+        Get the table's primary keys. Raise TableNotFound if table does not exist.
 
         :return: a dict with the primary key partition key and (optionally) sort key
         """
 
         assert self.resource is not None
-        return self._get_keys_from_schema(self.resource.Table(self.table_name).key_schema)
+        try:
+            table = self.resource.Table(self.table_name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ResourceNotFoundException":
+                raise TableNotFound(self.table_name)
+            else:
+                raise
+        key_schema = table.key_schema
+        keys = self._get_keys_from_schema(key_schema)
+        return keys
 
     @lru_cache()
     def get_primary_partition_key(self) -> str:
