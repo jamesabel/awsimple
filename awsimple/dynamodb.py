@@ -194,6 +194,10 @@ class DBItemNotFound(AWSimpleException):
 
 
 class DynamoDBTableNotFound(AWSimpleException):
+    """
+    DynamoDB Table Not Found exception (doesn't require access to a boto3 client instance).
+    """
+
     def __init__(self, table_name: str):
         self.table_name = table_name
         self.message = f'Table "{self.table_name}" not found'
