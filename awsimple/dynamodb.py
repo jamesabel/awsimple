@@ -529,11 +529,8 @@ class DynamoDBAccess(CacheAccess):
         try:
             table = self.resource.Table(self.table_name)
             key_schema = table.key_schema
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                raise DynamoDBTableNotFound(self.table_name)
-            else:
-                raise
+        except self.client.exceptions.ResourceNotFoundException:
+            raise DynamoDBTableNotFound(self.table_name)
         keys = self._get_keys_from_schema(key_schema)
         return keys
 
@@ -730,11 +727,8 @@ class DynamoDBAccess(CacheAccess):
         try:
             table = self.resource.Table(self.table_name)
             table.put_item(Item=item)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                raise DynamoDBTableNotFound(self.table_name)
-            else:
-                raise
+        except self.client.exceptions.ResourceNotFoundException:
+            raise DynamoDBTableNotFound(self.table_name)
 
     # cant' do a @typechecked() since optional item requires a single type
     def get_item(self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
@@ -760,11 +754,8 @@ class DynamoDBAccess(CacheAccess):
             if sort_key is not None:
                 key[sort_key] = sort_value
             response = table.get_item(Key=key)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                raise DynamoDBTableNotFound(self.table_name)
-            else:
-                raise
+        except self.client.exceptions.ResourceNotFoundException:
+            raise DynamoDBTableNotFound(self.table_name)
         if (item := response.get("Item")) is None:
             raise DBItemNotFound(key)
         return item
