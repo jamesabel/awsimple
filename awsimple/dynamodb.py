@@ -193,7 +193,7 @@ class DBItemNotFound(AWSimpleException):
         return f"{self.key=} {self.message}"
 
 
-class TableNotFound(AWSimpleException):
+class DynamoDBTableNotFound(AWSimpleException):
     def __init__(self, table_name: str):
         self.table_name = table_name
         self.message = f'Table "{self.table_name}" not found'
@@ -528,12 +528,12 @@ class DynamoDBAccess(CacheAccess):
         assert self.resource is not None
         try:
             table = self.resource.Table(self.table_name)
+            key_schema = table.key_schema
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                raise TableNotFound(self.table_name)
+                raise DynamoDBTableNotFound(self.table_name)
             else:
                 raise
-        key_schema = table.key_schema
         keys = self._get_keys_from_schema(key_schema)
         return keys
 
