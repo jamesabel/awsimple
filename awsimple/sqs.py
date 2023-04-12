@@ -11,11 +11,11 @@ from pathlib import Path
 import json
 from logging import getLogger
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, HTTPClientError
 from typeguard import typechecked
 import appdirs
 
-from awsimple import AWSAccess, __application_name__, __author__
+from awsimple import AWSAccess, __application_name__, __author__, boto_error_to_string
 
 log = getLogger(__application_name__)
 
@@ -204,9 +204,10 @@ class SQSAccess(AWSAccess):
 
                     messages.append(SQSMessage(m.body, m, self))
 
-            except ClientError as e:
-                # should happen very infrequently
-                log.warning(f"{self.queue_name=} {e}")
+            except (ClientError, HTTPClientError) as e:
+                # Usually we don't catch boto3 exceptions, but during a long poll a quick internet disruption can raise an exception that we'd like to avoid.
+                log.debug(f"{self.queue_name=} {e}")
+                self.most_recent_error = boto_error_to_string(e)
 
             call_wait_time = 0  # now, short polls
 
@@ -268,7 +269,8 @@ class SQSAccess(AWSAccess):
 
         :param message: message string
         """
-        self._get_queue().send_message(MessageBody=message)
+        queue = self._get_queue()
+        queue.send_message(MessageBody=message)
 
     @typechecked()
     def get_arn(self) -> str:

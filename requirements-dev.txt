@@ -25,6 +25,7 @@ docker
 coverage
 pytest-cov
 pytest-pycharm
+pytest-socket
 pillow
 requests
 #

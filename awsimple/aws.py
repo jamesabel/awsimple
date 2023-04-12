@@ -13,6 +13,17 @@ class AWSimpleException(Exception):
     pass
 
 
+def boto_error_to_string(boto_error) -> Union[str, None]:
+    if (response := boto_error.response) is None:
+        most_recent_error = str(boto_error)
+    else:
+        if (response_error := response.get("Error")) is None:
+            most_recent_error = None
+        else:
+            most_recent_error = response_error.get("Code")
+    return most_recent_error
+
+
 class AWSAccess:
     @typechecked()
     def __init__(
@@ -43,6 +54,9 @@ class AWSAccess:
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
         self.region_name = region_name
+
+        # string representation of AWS most recent error code
+        self.most_recent_error = None  # type: Union[str, None]
 
         self._moto_mock = None
         self._aws_keys_save = {}
@@ -154,6 +168,9 @@ class AWSAccess:
         :return: True if mocked
         """
         return self._moto_mock is not None
+
+    def clear_most_recent_error(self):
+        self.most_recent_error = None
 
     def __del__(self):
         if self._moto_mock is not None:
