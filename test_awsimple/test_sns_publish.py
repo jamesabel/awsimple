@@ -1,8 +1,6 @@
 import json
 
-from ismain import is_main
-
-from awsimple import SNSAccess, SQSPollAccess
+from awsimple import SNSAccess, SQSPollAccess, is_mock
 
 from test_awsimple import test_awsimple_str, drain
 
@@ -24,15 +22,13 @@ def test_sns_publish():
 
     message_string = "This is a test for awsimple."
     subject_string = "awsimple test"
-    message_id = sns_access.publish(message_string, subject_string)
-    print(f"{message_id=}")
-    assert message_id is not None and len(message_id) > 0
+    # doesn't work with moto :(
+    if not is_mock():
+        message_id = sns_access.publish(message_string, subject_string)
+        print(f"{message_id=}")
+        assert message_id is not None and len(message_id) > 0
 
-    message = json.loads(sqs_access.receive_message().message)
-    returned_message_string = message["Message"]
-    print(f"{returned_message_string=}")
-    assert returned_message_string == message_string
-
-
-if is_main():
-    test_sns_publish()
+        message = json.loads(sqs_access.receive_message().message)
+        returned_message_string = message["Message"]
+        print(f"{returned_message_string=}")
+        assert returned_message_string == message_string

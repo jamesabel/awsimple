@@ -7,4 +7,5 @@ def test_sqs_queue_exists():
     q = SQSAccess(test_awsimple_str)
     q.create_queue()
     assert q.exists()
-    assert not SQSAccess("IDoNotExist").exists()
+    exists = SQSAccess("IDoNotExist").exists()
+    assert not exists
