@@ -141,8 +141,9 @@ class SQSAccess(AWSAccess):
         except self.client.exceptions.QueueDoesNotExist:
             queue_exists = False
         except self.client.exceptions.ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            queue_exists = not (error_code == "AWS.SimpleQueueService.NonExistentQueue" or error_code == "400")  # 400 is for mock
+            error_code = e.response["Error"].get("Code")
+            log.info(f"{self.queue_name},{error_code=}")
+            queue_exists = False
         return queue_exists
 
     def calculate_nominal_work_time(self) -> int:
