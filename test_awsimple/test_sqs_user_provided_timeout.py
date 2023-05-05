@@ -7,7 +7,6 @@ from test_awsimple import test_awsimple_str, drain
 
 
 def test_user_provided_timeout():
-
     if not is_mock():
         drain()
 
@@ -32,9 +31,7 @@ def test_user_provided_timeout():
 
 
 def test_user_provided_minimum_timeout():
-
     if not is_mock():
-
         drain()
 
         send_message = "hello"
@@ -58,7 +55,6 @@ def test_user_provided_minimum_timeout():
 
 
 def test_actually_timeout():
-
     if not is_mock():
         drain()
 
@@ -85,7 +81,6 @@ def test_actually_timeout():
 
 
 def test_user_provided_timeout_nonsensical_parameters():
-
     if not is_mock():
         drain()
 

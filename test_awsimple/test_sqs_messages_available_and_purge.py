@@ -14,7 +14,6 @@ def wait_for_n_messages_available(queue: SQSAccess, expected_number_of_messages:
 
 
 def test_sqs_message_available_and_purge():
-
     if not is_mock():
         drain()
 
