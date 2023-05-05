@@ -455,6 +455,9 @@ class DynamoDBAccess(CacheAccess):
 
         created = False
         if not self.table_exists():
+
+            log.info(f'creating table "{self.table_name}"')
+
             client = self.client
 
             # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.CoreComponents.html#HowItWorks.CoreComponents.PrimaryKey
