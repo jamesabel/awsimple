@@ -103,7 +103,9 @@ class SQSAccess(AWSAccess):
 
         :return: queue URL
         """
-        return self.client.create_queue(QueueName=self.queue_name)["QueueUrl"]
+        response = self.client.create_queue(QueueName=self.queue_name)
+        url = response.get("QueueUrl", "")
+        return url
 
     def delete_queue(self):
         """
