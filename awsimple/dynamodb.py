@@ -455,7 +455,6 @@ class DynamoDBAccess(CacheAccess):
 
         created = False
         if not self.table_exists():
-
             log.info(f'creating table "{self.table_name}"')
 
             client = self.client
