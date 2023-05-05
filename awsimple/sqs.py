@@ -82,7 +82,14 @@ class SQSAccess(AWSAccess):
 
     def _get_queue(self):
         if self.queue is None:
-            self.queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
+            queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
+            queue_type = type(queue)
+            queue_type_string = str(queue_type)
+            log.debug(queue_type_string)
+            if "sqs.Queue" in queue_type_string:
+                self.queue = queue
+            else:
+                log.warning(f"could not get Queue {self.queue_name}")
         return self.queue
 
     @typechecked()
@@ -111,7 +118,14 @@ class SQSAccess(AWSAccess):
         """
         delete queue
         """
-        self.resource.get_queue_by_name(QueueName=self.queue_name).delete()
+        queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
+        queue_type = type(queue)
+        queue_type_string = str(queue_type)
+        log.debug(queue_type_string)
+        if "sqs.Queue" in queue_type_string:
+            queue.delete()
+        else:
+            log.warning(f"could not get queue {self.queue_name}")
 
     @typechecked()
     def exists(self) -> bool:
@@ -126,6 +140,9 @@ class SQSAccess(AWSAccess):
             queue_exists = True
         except self.client.exceptions.QueueDoesNotExist:
             queue_exists = False
+        except self.client.exceptions.ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            queue_exists = not (error_code == "AWS.SimpleQueueService.NonExistentQueue" or error_code == "400")  # 400 is for mock
         return queue_exists
 
     def calculate_nominal_work_time(self) -> int:
@@ -185,26 +202,29 @@ class SQSAccess(AWSAccess):
                 max_number_of_messages = max_number_of_messages_parameter - len(messages)  # how many left to do
 
             try:
-                aws_messages = self._get_queue().receive_messages(
-                    MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
-                )
+                if (queue := self._get_queue()) is None:
+                    log.warning(f"could not get queue {self.queue_name}")
+                else:
+                    aws_messages = queue.receive_messages(
+                        MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
+                    )
 
-                for m in aws_messages:
-                    if self.immediate_delete:
-                        m.delete()
-                    elif self.user_provided_timeout is None:
-                        #  keep history of message processing times for user deletes, by AWS's message id
-                        self.response_history[m.message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
+                    for m in aws_messages:
+                        if self.immediate_delete:
+                            m.delete()
+                        elif self.user_provided_timeout is None:
+                            #  keep history of message processing times for user deletes, by AWS's message id
+                            self.response_history[m.message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
 
-                        # if history is too large, delete the oldest
-                        while len(self.response_history) > self.max_history:
-                            oldest = None
-                            for handle, start_finish in self.response_history.items():
-                                if oldest is None or start_finish[0] < self.response_history[oldest][0]:
-                                    oldest = handle
-                            del self.response_history[oldest]
+                            # if history is too large, delete the oldest
+                            while len(self.response_history) > self.max_history:
+                                oldest = None
+                                for handle, start_finish in self.response_history.items():
+                                    if oldest is None or start_finish[0] < self.response_history[oldest][0]:
+                                        oldest = handle
+                                del self.response_history[oldest]
 
-                    messages.append(SQSMessage(m.body, m, self))
+                        messages.append(SQSMessage(m.body, m, self))
 
             except (ClientError, HTTPClientError) as e:
                 # Usually we don't catch boto3 exceptions, but during a long poll a quick internet disruption can raise an exception that we'd like to avoid.
@@ -271,8 +291,10 @@ class SQSAccess(AWSAccess):
 
         :param message: message string
         """
-        queue = self._get_queue()
-        queue.send_message(MessageBody=message)
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+        else:
+            queue.send_message(MessageBody=message)
 
     @typechecked()
     def get_arn(self) -> str:
@@ -281,7 +303,12 @@ class SQSAccess(AWSAccess):
 
         :return: ARN string
         """
-        return self._get_queue().attributes["QueueArn"]
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+            arn = ""
+        else:
+            arn = queue.attributes["QueueArn"]
+        return arn
 
     @typechecked()
     def add_permission(self, source_arn: str):
@@ -300,7 +327,10 @@ class SQSAccess(AWSAccess):
 
         policy_string = json.dumps(policy)
         log.info(f"{policy_string=}")
-        self.client.set_queue_attributes(QueueUrl=self._get_queue().url, Attributes={"Policy": policy_string})
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+        else:
+            self.client.set_queue_attributes(QueueUrl=queue.url, Attributes={"Policy": policy_string})
 
     def purge(self):
         """
@@ -314,8 +344,12 @@ class SQSAccess(AWSAccess):
         :return: number of messages available
         """
         key = "ApproximateNumberOfMessages"
-        response = self.client.get_queue_attributes(QueueUrl=self._get_queue().url, AttributeNames=[key])
-        number_of_messages_available = int(response["Attributes"][key])
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+            number_of_messages_available = 0
+        else:
+            response = self.client.get_queue_attributes(QueueUrl=queue.url, AttributeNames=[key])
+            number_of_messages_available = int(response["Attributes"][key])
         return number_of_messages_available
 
 

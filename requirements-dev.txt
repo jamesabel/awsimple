@@ -19,7 +19,7 @@ wheel
 #
 # testing
 pytest
-moto[dynamodb,dynamodb2,s3,sns,sqs]
+moto[dynamodb,s3,sns,sqs]
 # moto apparently requires docker
 docker
 coverage
