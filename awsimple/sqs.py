@@ -82,14 +82,29 @@ class SQSAccess(AWSAccess):
 
     def _get_queue(self):
         if self.queue is None:
-            queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
-            queue_type = type(queue)
-            queue_type_string = str(queue_type)
-            log.debug(queue_type_string)
-            if "sqs.Queue" in queue_type_string:
-                self.queue = queue
-            else:
-                log.warning(f"could not get Queue {self.queue_name}")
+            try:
+                queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
+            except self.client.exceptions.QueueDoesNotExist as e:
+                log.debug(f"{self.queue_name},{e=}")
+                queue = None
+            except self.client.exceptions.ClientError as e:
+                error_code = e.response["Error"].get("Code")
+                if "NonExistentQueue" in error_code:
+                    log.debug(f"{self.queue_name},{e=},{error_code=}")
+                    queue = None
+                else:
+                    # other errors (e.g. connection errors, etc.)
+                    raise
+
+            if queue is not None:
+                # kludge so when moto mocking we return None if it can't get the queue
+                queue_type = type(queue)
+                queue_type_string = str(queue_type)
+                if "dict" in queue_type_string:
+                    log.warning(f"could not get Queue {self.queue_name}")
+                else:
+                    self.queue = queue
+
         return self.queue
 
     @typechecked()
@@ -118,14 +133,10 @@ class SQSAccess(AWSAccess):
         """
         delete queue
         """
-        queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
-        queue_type = type(queue)
-        queue_type_string = str(queue_type)
-        log.debug(queue_type_string)
-        if "sqs.Queue" in queue_type_string:
-            queue.delete()
-        else:
+        if (queue := self._get_queue()) is None:
             log.warning(f"could not get queue {self.queue_name}")
+        else:
+            queue.delete()
 
     @typechecked()
     def exists(self) -> bool:
@@ -134,17 +145,7 @@ class SQSAccess(AWSAccess):
 
         :return: True if exists
         """
-        assert self.resource is not None
-        try:
-            self.resource.get_queue_by_name(QueueName=self.queue_name)
-            queue_exists = True
-        except self.client.exceptions.QueueDoesNotExist:
-            queue_exists = False
-        except self.client.exceptions.ClientError as e:
-            error_code = e.response["Error"].get("Code")
-            log.info(f"{self.queue_name},{error_code=}")
-            queue_exists = False
-        return queue_exists
+        return self._get_queue() is not None
 
     def calculate_nominal_work_time(self) -> int:
         response_times = []
@@ -337,7 +338,10 @@ class SQSAccess(AWSAccess):
         """
         purge all messages in the queue
         """
-        self.client.purge_queue(QueueUrl=self._get_queue().url)
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+        else:
+            self.client.purge_queue(QueueUrl=queue.url)
 
     def messages_available(self) -> int:
         """
