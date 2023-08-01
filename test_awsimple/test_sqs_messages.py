@@ -2,7 +2,7 @@ from pprint import pprint
 import time
 import math
 
-from awsimple import SQSAccess, SQSPollAccess, is_mock
+from awsimple import SQSAccess, SQSPollAccess
 
 from test_awsimple import test_awsimple_str, drain
 
@@ -19,13 +19,11 @@ def test_sqs_immediate_delete():
     q.send(send_message)
     time.sleep(0.1)
 
-    # doesn't work with moto :(
-    if not is_mock():
-        while (receive_message := q.receive_message()) is None:
-            time.sleep(0.1)
-        print(receive_message)
-        assert receive_message.message == send_message
-        print(f"took {time.time() - send_time} seconds")
+    while (receive_message := q.receive_message()) is None:
+        time.sleep(0.1)
+    print(receive_message)
+    assert receive_message.message == send_message
+    print(f"took {time.time() - send_time} seconds")
 
 
 def test_sqs_poll_immediate_delete():
@@ -37,13 +35,11 @@ def test_sqs_poll_immediate_delete():
     send_time = time.time()
     q.send(send_message)
 
-    # doesn't work with moto :(
-    if not is_mock():
-        receive_message = q.receive_message()  # will long poll so we expect the message to be available within one call
-        assert receive_message is not None
-        print(receive_message)
-        assert receive_message.message == send_message
-        print(f"took {time.time() - send_time} seconds")
+    receive_message = q.receive_message()  # will long poll so we expect the message to be available within one call
+    assert receive_message is not None
+    print(receive_message)
+    assert receive_message.message == send_message
+    print(f"took {time.time() - send_time} seconds")
 
 
 def test_sqs_poll_user_delete():
@@ -74,19 +70,17 @@ def test_sqs_poll_user_delete():
     send_time = time.time()
     poll_queue.send(send_message)
 
-    # doesn't work with moto :(
-    if not is_mock():
-        receive_message = poll_queue.receive_message()  # will long poll so we expect the message to be available within one call
-        assert receive_message is not None
-        print(receive_message.message)
-        assert receive_message.message == send_message
-        time.sleep(work_time)  # do some work
-        print(f"took {time.time() - send_time} seconds")
-        receive_message.delete()
+    receive_message = poll_queue.receive_message()  # will long poll so we expect the message to be available within one call
+    assert receive_message is not None
+    print(receive_message.message)
+    assert receive_message.message == send_message
+    time.sleep(work_time)  # do some work
+    print(f"took {time.time() - send_time} seconds")
+    receive_message.delete()
 
-        nominal_work_time = poll_queue.calculate_nominal_work_time()
-        print(f"{work_time=}, calculated {nominal_work_time=}")
-        assert math.isclose(nominal_work_time, work_time, rel_tol=0.5, abs_tol=1.0)  # fairly wide tolerance
+    nominal_work_time = poll_queue.calculate_nominal_work_time()
+    print(f"{work_time=}, calculated {nominal_work_time=}")
+    assert math.isclose(nominal_work_time, work_time, rel_tol=0.5, abs_tol=1.0)  # fairly wide tolerance
 
 
 def test_sqs_n_messages():
@@ -106,9 +100,6 @@ def test_sqs_n_messages():
     time.sleep(10.0)  # wait for messages to become available
 
     received = queue.receive_messages(11)  # just over the AWS max per call of 10
-    if is_mock():
-        assert len(received) == 0
-    else:
-        assert len(received) == 11
+    assert len(received) == 11
 
     drain()  # clean up unreceived messages
