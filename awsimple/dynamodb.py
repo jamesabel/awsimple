@@ -92,7 +92,7 @@ def convert_serializable_special_cases(o):
         else:
             # not representable with an integer so use a float
             serializable_representation = float(o)
-    elif isinstance(o, bytes) or isinstance(o, bytearray):
+    elif isinstance(o, bytes) or isinstance(o, bytearray) or isinstance(o, Path):
         serializable_representation = str(o)
     elif hasattr(o, "value"):
         # e.g. PIL images
