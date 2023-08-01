@@ -49,7 +49,7 @@ aws_sqs_max_messages = 10
 
 class SQSAccess(AWSAccess):
     @typechecked()
-    def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: int = None, minimum_visibility_timeout: int = 0, **kwargs):
+    def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: Union[int, None] = None, minimum_visibility_timeout: int = 0, **kwargs):
         """
         SQS access
 
@@ -174,7 +174,7 @@ class SQSAccess(AWSAccess):
         return visibility_timeout
 
     @typechecked()
-    def _receive(self, max_number_of_messages_parameter: int = None) -> List[SQSMessage]:
+    def _receive(self, max_number_of_messages_parameter: Union[int, None] = None) -> List[SQSMessage]:
         if self.user_provided_timeout is None and not self.immediate_delete:
             # read in response history (and initialize it if it doesn't exist)
             try:
@@ -258,7 +258,7 @@ class SQSAccess(AWSAccess):
         return message
 
     @typechecked()
-    def receive_messages(self, max_messages: int = None) -> List[SQSMessage]:
+    def receive_messages(self, max_messages: Union[int, None] = None) -> List[SQSMessage]:
         """
         receive a (possibly empty) list of SQS messages from this queue
 

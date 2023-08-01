@@ -214,7 +214,7 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, Non
 
 class DynamoDBAccess(CacheAccess):
     @typechecked()
-    def __init__(self, table_name: str = None, reload_comparison: Callable[[int, int], bool] = operator.gt, **kwargs):
+    def __init__(self, table_name: Union[str, None] = None, reload_comparison: Callable[[int, int], bool] = operator.gt, **kwargs):
         """
         AWS DynamoDB access
 
@@ -417,8 +417,8 @@ class DynamoDBAccess(CacheAccess):
     def create_table(
         self,
         partition_key: str,
-        sort_key: str = None,
-        secondary_index: str = None,
+        sort_key: Union[str, None] = None,
+        secondary_index: Union[str, None] = None,
         partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
         sort_key_type: Union[Type[str], Type[int], Type[bool]] = str,
         secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
@@ -536,7 +536,7 @@ class DynamoDBAccess(CacheAccess):
             table = self.resource.Table(self.table_name)
             key_schema = table.key_schema
         except self.client.exceptions.ResourceNotFoundException:
-            raise DynamoDBTableNotFound(self.table_name)
+            raise DynamoDBTableNotFound(str(self.table_name))
         keys = self._get_keys_from_schema(key_schema)
         return keys
 
@@ -645,7 +645,9 @@ class DynamoDBAccess(CacheAccess):
         return self._query("begins_with", *args)
 
     @typechecked()
-    def query_one(self, partition_key: str = None, partition_value=None, direction: QuerySelection = QuerySelection.highest, secondary_index_name: str = None) -> Union[dict, None]:
+    def query_one(
+        self, partition_key: Union[str, None] = None, partition_value=None, direction: QuerySelection = QuerySelection.highest, secondary_index_name: Union[str, None] = None
+    ) -> Union[dict, None]:
         """
         Query and return one or none items, optionally using the sort key to provide either the start or end of the ordered (sorted) set of items.
 
@@ -734,10 +736,12 @@ class DynamoDBAccess(CacheAccess):
             table = self.resource.Table(self.table_name)
             table.put_item(Item=item)
         except self.client.exceptions.ResourceNotFoundException:
-            raise DynamoDBTableNotFound(self.table_name)
+            raise DynamoDBTableNotFound(str(self.table_name))
 
     # cant' do a @typechecked() since optional item requires a single type
-    def get_item(self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int] = None) -> dict:
+    def get_item(
+        self, partition_key: Union[str, None] = None, partition_value: Union[str, int, None] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None
+    ) -> dict:
         """
         Get a DB item using the primary keys. Raise DBItemNotFound if item does not exist.
 
@@ -761,13 +765,13 @@ class DynamoDBAccess(CacheAccess):
                 key[sort_key] = sort_value
             response = table.get_item(Key=key)
         except self.client.exceptions.ResourceNotFoundException:
-            raise DynamoDBTableNotFound(self.table_name)
+            raise DynamoDBTableNotFound(str(self.table_name))
         if (item := response.get("Item")) is None:
             raise DBItemNotFound(key)
         return item
 
     # cant' do a @typechecked() since optional item requires a single type
-    def delete_item(self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None):
+    def delete_item(self, partition_key: Union[str, None] = None, partition_value: Union[str, int, None] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None):
         """
         Delete table item
 
@@ -791,7 +795,12 @@ class DynamoDBAccess(CacheAccess):
 
     # cant' do a @typechecked() since optional item requires a single type
     def upsert_item(
-        self, partition_key: str = None, partition_value: Union[str, int] = None, sort_key: Union[str, None] = None, sort_value: Union[str, int, None] = None, item: Union[dict, None] = None
+        self,
+        partition_key: Union[str, None] = None,
+        partition_value: Union[str, int, None] = None,
+        sort_key: Union[str, None] = None,
+        sort_value: Union[str, int, None] = None,
+        item: Union[dict, None] = None,
     ):
         """
         Upsert (update or insert) table item

@@ -34,7 +34,7 @@ def get_directory_size(path: Path) -> int:
 
 
 @typechecked()
-def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: int = None, max_free_portion: float = None) -> bool:
+def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None) -> bool:
     """
     free up space in the LRU cache to make room for the new file
     :param new_data: path to new file or a bytes object we want to put in the cache

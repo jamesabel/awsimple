@@ -94,7 +94,7 @@ def _get_json_key(s3_key: str):
 
 class S3Access(CacheAccess):
     @typechecked()
-    def __init__(self, bucket_name: str = None, **kwargs):
+    def __init__(self, bucket_name: Union[str, None] = None, **kwargs):
         """
         S3 Access
 

@@ -86,7 +86,7 @@ class SNSAccess(AWSAccess):
         return response["SubscriptionArn"]
 
     @typechecked()
-    def publish(self, message: str, subject: str = None, attributes: dict = None) -> str:
+    def publish(self, message: str, subject: Union[str, None] = None, attributes: Union[dict, None] = None) -> str:
         """
         publish to an existing SNS topic
 

@@ -1,5 +1,5 @@
 import os
-from typing import Union
+from typing import Union, Any
 from logging import getLogger
 
 from typeguard import typechecked
@@ -28,11 +28,11 @@ class AWSAccess:
     @typechecked()
     def __init__(
         self,
-        resource_name: str = None,
-        profile_name: str = None,
-        aws_access_key_id: str = None,
-        aws_secret_access_key: str = None,
-        region_name: str = None,
+        resource_name: Union[str, None] = None,
+        profile_name: Union[str, None] = None,
+        aws_access_key_id: Union[str, None] = None,
+        aws_secret_access_key: Union[str, None] = None,
+        region_name: Union[str, None] = None,
     ):
         """
         AWSAccess - takes care of basic AWS access (e.g. session, client, resource), getting some basic AWS information, and mock support for testing.
@@ -69,6 +69,7 @@ class AWSAccess:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
 
+        self.client = None  # type: Any
         if is_mock():
             # moto mock AWS
             for aws_key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]:

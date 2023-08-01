@@ -47,14 +47,14 @@ class DynamoDBMIVUI(DynamoDBAccess):
     def create_table(  # type: ignore
         self,
         partition_key: str,
-        secondary_index: str = None,
+        secondary_index: Union[str, None] = None,
         partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
         secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
     ) -> bool:
         return super().create_table(partition_key, miv_string, secondary_index, partition_key_type, int, secondary_key_type)
 
     @typechecked()
-    def put_item(self, item: dict, time_us: int = None):
+    def put_item(self, item: dict, time_us: Union[int, None] = None):
         """
         Put (write) a DynamoDB table item with the miv automatically filled in.
 
