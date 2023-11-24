@@ -7,7 +7,6 @@ from test_awsimple import test_awsimple_str
 
 
 def drain():
-
     # drain existing messages
     q = SQSAccess(test_awsimple_str, profile_name=test_awsimple_str)
     q.create_queue()  # just in case it doesn't exist
