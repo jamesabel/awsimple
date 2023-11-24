@@ -4,6 +4,9 @@ from logging import getLogger
 
 from typeguard import typechecked
 
+from boto3.session import Session
+from botocore.credentials import Credentials
+
 from awsimple import __application_name__, is_mock, is_using_localstack
 
 log = getLogger(__application_name__)
@@ -152,7 +155,12 @@ class AWSAccess:
 
         :return: access key
         """
-        return self.session.get_credentials().access_key
+        _session = self.session
+        assert isinstance(_session, Session)  # for mypy
+        _credentials = _session.get_credentials()
+        assert isinstance(_credentials, Credentials)  # for mypy
+        access_key = _credentials.access_key
+        return access_key
 
     def get_account_id(self):
         """
@@ -186,9 +194,6 @@ class AWSAccess:
         :return: True if mocked
         """
         return self._moto_mock is not None
-
-    def using_localstack(self) -> bool:
-        return self._using_localstack
 
     def clear_most_recent_error(self):
         self.most_recent_error = None
