@@ -54,6 +54,8 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 
 - Can automatically set SQS timeouts based on runtime data (can also be user-specified)
 
+- Supports moto mock and localstack. Handy for testing and CI.
+
 ## Usage
 
     pip install awsimple

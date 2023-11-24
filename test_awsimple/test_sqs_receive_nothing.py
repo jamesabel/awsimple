@@ -1,7 +1,7 @@
 import time
 import math
 
-from awsimple import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time, is_mock
+from awsimple import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time, is_mock, is_using_localstack
 
 from test_awsimple import test_awsimple_str, drain
 
@@ -17,7 +17,10 @@ def test_sqs_receive_nothing():
     assert len(queue.receive_messages()) == 0
     t = time.time() - start
     print(f"{t=}")
-    assert t < 3.0  # "immediate"
+    if is_using_localstack():
+        assert t < 100.0  # local stack is slow
+    else:
+        assert t < 3.0  # "immediate"
 
 
 def test_sqs_receive_nothing_poll_one():

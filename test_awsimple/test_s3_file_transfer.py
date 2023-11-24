@@ -5,11 +5,11 @@ from math import isclose
 import os
 from shutil import rmtree
 
-from awsimple import S3Access, get_directory_size, is_mock
+from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack
 from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
 
 big_file_name = "big.txt"
-big_file_max_size = round(100e6)  # should be large enough to do a multi-part upload and would timeout with default AWS timeouts (we use longer timeouts than the defaults)
+big_file_max_size = round(100e6)  # should be large enough to do a multipart upload and would time out with default AWS timeouts (we use longer timeouts than the defaults)
 
 # real AWS
 never_change_size = 67
@@ -20,8 +20,9 @@ never_change_etag = "e3cb2ac8d7d4a8339ea3653f4f155ab4"
 def test_get_never_change_metadata(s3_access) -> (int, float, str):
     global never_change_size, never_change_mtime, never_change_etag
 
-    if is_mock():
-        # mocking always starts with nothing so we need up "upload" this file, but use boto3 so we don't write awsimple's SHA512
+    if is_mock() or is_using_localstack():
+        # mocking always starts with nothing so we need up "upload" this file, but use boto3 so we don't write awsimple's SHA512.
+        # localstack is similar in that we need to ensure we make the file.
 
         test_file_path = Path(temp_dir, never_change_file_name)
         never_change_file_contents = "modification Aug 21, 2020 at 2:51 PM PT\nnever change this file\n"
@@ -49,10 +50,11 @@ def test_s3_big_file_upload(s3_access):
     # test big file upload (e.g. that we don't get a timeout)
     # this is run before the cache tests (hence the function name)
 
-    last_run = 0.0
     big_last_run_file_path = Path("big_last_run.txt")
     big_last_run_file_path.parent.mkdir(exist_ok=True, parents=True)
-    if not is_mock():
+    last_run = 0.0
+    if not (is_mock() or is_using_localstack()):
+        # avoid large frequent file uploads with real AWS
         try:
             last_run = float(big_last_run_file_path.open().read().strip())
         except FileNotFoundError:

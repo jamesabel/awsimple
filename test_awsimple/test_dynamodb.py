@@ -12,7 +12,7 @@ from PIL import Image
 from ismain import is_main
 from dictim import dictim
 
-from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock, KeyType
+from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock, is_using_localstack, KeyType
 from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
 dict_id = "test"
@@ -61,7 +61,7 @@ def check_table_contents(contents):
 
 
 def test_get_table_names():
-    if is_mock():
+    if is_mock() or is_using_localstack():
         dynamodb_access = DynamoDBAccess(test_awsimple_str, profile_name=test_awsimple_str)  # for mock we have to make the table
         dynamodb_access.create_table(id_str)  # have to create the table on the fly for mocking
     else:
@@ -89,11 +89,12 @@ def test_dynamodb():
     assert dynamodb_dict["test_date_time"] == "2019-06-04T20:18:55+00:00"
     assert dynamodb_dict["zero_len_string"] is None
 
-    # while dictim is case-insensitive, when we convert to dict for DynamoDB it becomes case sensitive
+    # while dictim is case-insensitive, when we convert to dict for DynamoDB it becomes case-sensitive
     assert list(dynamodb_dict["dictim"]["HI"])[0] == "there"
     assert dynamodb_dict["dictim"]["HI"]["there"] == 1  # actually Decimal(1)
     assert dynamodb_dict["dictim"].get("hi") is None  # we're back to case sensitivity
 
+    # start with a cache life of 1 second to ensure there is no cache hit
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_dir=Path("cache"), cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table(id_str)
     dynamodb_access.put_item(dynamodb_dict)
@@ -108,6 +109,8 @@ def test_dynamodb():
     table_contents = dynamodb_access.scan_table()
     check_table_contents(table_contents)
 
+    if is_using_localstack():
+        dynamodb_access.cache_life = 600.0  # localstack can take a while ...
     table_contents = dynamodb_access.scan_table_cached()
     assert dynamodb_access.cache_hit
     check_table_contents(table_contents)

@@ -4,7 +4,7 @@ from logging import getLogger
 
 from typeguard import typechecked
 
-from awsimple import __application_name__, is_mock
+from awsimple import __application_name__, is_mock, is_using_localstack
 
 log = getLogger(__application_name__)
 
@@ -104,7 +104,17 @@ class AWSAccess:
             if self.resource_name == "s3":
                 assert self.resource is not None
                 self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
-
+        elif is_using_localstack():
+            self.aws_access_key_id = "test"
+            self.aws_secret_access_key = "test"
+            self.region_name = "us-west-2"
+            if self.resource_name is not None:
+                if self.resource_name == "logs":
+                    # logs don't have resource
+                    self.resource = None
+                else:
+                    self.resource = boto3.resource(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())  # type: ignore
+                self.client = boto3.client(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())  # type: ignore
         elif self.resource_name is None:
             # just the session, but not the client or resource
             self.client = None
@@ -116,6 +126,10 @@ class AWSAccess:
                 self.resource = None
             else:
                 self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
+
+    def _get_localstack_endpoint_url(self) -> str | None:
+        endpoint_url = "http://localhost:4566"  # default localstack endpoint
+        return endpoint_url
 
     def _get_config(self):
         from botocore.config import Config  # import here to facilitate mocking
@@ -146,7 +160,10 @@ class AWSAccess:
 
         :return: account ID
         """
-        arn = self.session.resource("iam").CurrentUser().arn
+        if is_using_localstack():
+            arn = self.session.resource("iam", endpoint_url=self._get_localstack_endpoint_url()).CurrentUser().arn
+        else:
+            arn = self.session.resource("iam").CurrentUser().arn
         log.info("current user {arn=}")
         return arn.split(":")[4]
 
@@ -169,6 +186,9 @@ class AWSAccess:
         :return: True if mocked
         """
         return self._moto_mock is not None
+
+    def using_localstack(self) -> bool:
+        return self._using_localstack
 
     def clear_most_recent_error(self):
         self.most_recent_error = None

@@ -2,7 +2,7 @@ from pprint import pprint
 import time
 import math
 
-from awsimple import SQSAccess, SQSPollAccess
+from awsimple import SQSAccess, SQSPollAccess, is_using_localstack
 
 from test_awsimple import test_awsimple_str, drain
 
@@ -80,7 +80,9 @@ def test_sqs_poll_user_delete():
 
     nominal_work_time = poll_queue.calculate_nominal_work_time()
     print(f"{work_time=}, calculated {nominal_work_time=}")
-    assert math.isclose(nominal_work_time, work_time, rel_tol=0.5, abs_tol=1.0)  # fairly wide tolerance
+    if not is_using_localstack():
+        # localstack can be slow
+        assert math.isclose(nominal_work_time, work_time, rel_tol=0.5, abs_tol=1.0)  # fairly wide tolerance
 
 
 def test_sqs_n_messages():
