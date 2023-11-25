@@ -117,9 +117,9 @@ and potentially offer a speedup.
 
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
-## mock/localstack
+## Testing using moto mock and localstack
 
-mock-ing can improve performance and reduce AWS costs.  `awsimple` supports both moto mock and localstack.
+moto mock-ing can improve performance and reduce AWS costs.  `awsimple` supports both moto mock and localstack.
 In general, it's recommended to develop with mock and finally test with the real AWS services.
 
 Select via environment variables:
