@@ -26,4 +26,5 @@ setup(
     install_requires=["boto3", "typeguard<3", "hashy>=0.1.1", "dictim", "appdirs", "tobool", "urllib3", "python-dateutil", "yasf"],
     project_urls={"Documentation": "https://awsimple.readthedocs.io/"},
     classifiers=[],
+    python_requires='>3.10',
 )
