@@ -289,13 +289,21 @@ class SQSAccess(AWSAccess):
     @typechecked()
     def send(self, message: str):
         """
-        send SQS message
+        Send SQS message. If the queue doesn't exist, it will be created.
 
         :param message: message string
         """
         if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-        else:
+            log.info(f"could not get queue {self.queue_name} - creating it")
+            self.create_queue()
+            # ensure the queue has indeed been created
+            count = 0
+            while not self.exists() and count < 100:
+                time.sleep(3)
+                count += 1
+            if (queue := self._get_queue()) is None:
+                log.error(f"could not create queue {self.queue_name}")
+        if queue is not None:
             queue.send_message(MessageBody=message)
 
     @typechecked()

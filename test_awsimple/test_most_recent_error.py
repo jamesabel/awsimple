@@ -1,4 +1,4 @@
-from awsimple import SQSAccess, is_mock
+from awsimple import SQSAccess, is_mock, is_using_localstack
 
 from test_awsimple import test_awsimple_str, drain
 from pytest_socket import disable_socket, enable_socket
@@ -18,8 +18,8 @@ def test_most_recent_error():
         disable_socket()
 
     message = queue.receive_message()
-    if not is_mock():
-        # doesn't work with moto :(
+    if not is_mock() and not is_using_localstack():
+        # doesn't work with moto nor localstack :(
         assert message.message == message_contents
 
     if not is_mock():

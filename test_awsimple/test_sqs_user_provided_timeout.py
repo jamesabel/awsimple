@@ -1,7 +1,7 @@
 import pytest
 import time
 
-from awsimple import SQSPollAccess, SQSAccess, is_mock
+from awsimple import SQSPollAccess, SQSAccess, is_mock, is_using_localstack
 
 from test_awsimple import test_awsimple_str, drain
 
@@ -59,7 +59,11 @@ def test_actually_timeout():
         drain()
 
         send_message = "hello"
-        work_time = 5.0
+        if is_using_localstack():
+            # localstack is slow
+            work_time = 500.0
+        else:
+            work_time = 5.0
 
         qp = SQSPollAccess(test_awsimple_str, visibility_timeout=round(0.5 * work_time), immediate_delete=False, profile_name=test_awsimple_str)
         qp.create_queue()

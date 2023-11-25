@@ -54,6 +54,9 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 
 - Can automatically set SQS timeouts based on runtime data (can also be user-specified)
 
+- Supports moto mock and localstack. Handy for testing and CI.
+
+
 ## Usage
 
     pip install awsimple
@@ -114,6 +117,25 @@ and potentially offer a speedup.
 
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
+## Testing using moto mock and localstack
+
+moto mock-ing can improve performance and reduce AWS costs.  `awsimple` supports both moto mock and localstack.
+In general, it's recommended to develop with mock and finally test with the real AWS services.
+
+Select via environment variables:
+
+  - AWSIMPLE_USE_MOTO_MOCK=1  # use moto
+  - AWSIMPLE_USE_LOCALSTACK=1  # use localstack
+
+### Test Time
+
+| Method     | Test Time (seconds) | Speedup (or slowdown) | Comment         |
+|------------|---------------------|-----------------------|-----------------|
+| AWS        | 462.65              | 1x                    | baseline        |
+| mock       | 40.46               | 11x                   | faster than AWS |
+| localstack | 2246.82             | 0.2x                  | slower than AWS |
+
+System: Intel&reg; Core&trade; i7 CPU @ 3.47GHz, 32 GB RAM
 
 ## Contributing
 
