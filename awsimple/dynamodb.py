@@ -373,7 +373,7 @@ class DynamoDBAccess(CacheAccess):
                 # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
                 # have in our cache, we need to update our cache even if we haven't had a timeout.
                 assert self.resource is not None
-                cloud_table_item_count = self.resource.Table(self.table_name).item_count
+                cloud_table_item_count = self.get_item_count()
                 len_table_data = len(table_data)
                 # usually .gt (e.g. >) but can be .eq if table is not monotonically increasing and won't be used withing AWS's 6-hour update time
                 load_from_cloud = self.reload_comparison(cloud_table_item_count, len_table_data)
@@ -401,6 +401,19 @@ class DynamoDBAccess(CacheAccess):
             AWSimpleException(f'table "{self.table_name}" not accessible')
 
         return table_data
+
+    @typechecked()
+    def get_item_count(self) -> int:
+        """
+        Get the number of items in the table.
+
+        :return: number of items in the table
+        """
+        assert self.resource is not None
+        table = self.resource.Table(self.table_name)
+        item_count = table.item_count
+        log.debug(f"{self.table_name=} {item_count=}")
+        return item_count
 
     @typechecked()
     def scan_table_cached_as_dict(self, invalidate_cache: bool = False, sort_key: Union[Callable, None] = None) -> dict:
