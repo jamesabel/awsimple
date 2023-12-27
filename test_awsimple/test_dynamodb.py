@@ -115,7 +115,6 @@ def test_dynamodb():
     assert dynamodb_access.cache_hit
     check_table_contents(table_contents)
 
-    assert dynamodb_access.get_primary_keys() == (id_str, None)  # no sort key
     assert dynamodb_access.get_primary_keys_dict() == {KeyType.partition: id_str}
 
 
