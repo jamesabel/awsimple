@@ -869,10 +869,11 @@ class _DynamoDBMetadataTable:
     def __init__(self, table_name: str):
         self.table_name = table_name  # table we're storing metadata *for* (not the name of this metadata table)
         self.primary_partition_key = "service"
-        self.primary_sort_key = "table"
+        self.primary_sort_key = "name"  # e.g. table name
         self.mtime_f_string = "mtime_f"
         self.mtime_human_string = "mtime_human"
         self.service = "dynamodb"  # type: Literal["dynamodb"]
+        self.client = boto3.client(self.service)
         self.resource = boto3.resource(self.service)
         self.table = self.resource.Table(metadata_table_name)
 
@@ -906,7 +907,11 @@ class _DynamoDBMetadataTable:
         try:
             self.table.put_item(Item=item)
         except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            error_code = e.response["Error"]["Code"]
+            if error_code == "ValidationException":
+                self.client.delete_table(TableName=metadata_table_name)
+                self.table.meta.client.get_waiter("table_not_exists").wait(TableName=metadata_table_name)
+            if error_code == "ValidationException" or error_code == "ResourceNotFoundException":
                 self.create_table()  # table doesn't exist, so create it
                 retry_put = True  # and retry the put
             else:
