@@ -3,19 +3,18 @@ DynamoDB access
 """
 
 import io
-import decimal
 import pickle
 import time
 from collections import OrderedDict, defaultdict, namedtuple
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
-from os import utime
 from typing import List, Union, Any, Type, Dict, Callable, Literal
 from pprint import pformat
 from itertools import islice
 import json
 from enum import Enum
+import decimal
 from decimal import Decimal
 from functools import lru_cache
 from logging import getLogger
@@ -369,8 +368,9 @@ class DynamoDBAccess(CacheAccess):
                 cache_file_mtime = getmtime(str(cache_file_path))
                 table_mtime_f = self.metadata_table.get_table_mtime_f()
                 log.info(f"{self.table_name=},{cache_file_path=},{cache_file_mtime=},{table_mtime_f=}")
-                # determine if table has been updated since cache file was written (with a small tolerance to accommodate rounding errors in file system mtime)
-                self.cache_hit = table_mtime_f is not None and table_mtime_f <= cache_file_mtime + 2.0
+                # determine if table has been updated since local cache file was written
+                # (assumes the clock of the system that wrote the table is in sync with the clock of this system)
+                self.cache_hit = table_mtime_f is not None and table_mtime_f <= cache_file_mtime
                 with open(cache_file_path, "rb") as f:
                     log.info(f"{self.table_name=},{cache_file_path=}")
                     table_data = pickle.load(f)
@@ -390,7 +390,6 @@ class DynamoDBAccess(CacheAccess):
                 # update local data cache
                 with open(cache_file_path, "wb") as f:
                     pickle.dump(table_data, f)
-                utime(cache_file_path, (now, now))  # ensure local file mtime is exactly the same as what's in the DB
             except (DynamoDBTableNotFound, self.client.exceptions.ResourceNotFoundException) as e:
                 log.debug(f"{self.table_name=},{e}")
                 table_data = []
@@ -501,9 +500,7 @@ class DynamoDBAccess(CacheAccess):
                 created = True
             except ClientError as e:
                 log.warning(e)
-        cache_file_path = self.get_cache_file_path()
-        cache_file_path.unlink(missing_ok=True)
-        self.metadata_table.clear()
+        self.metadata_table.update_table_mtime()
 
         return created
 
@@ -865,11 +862,10 @@ class _DynamoDBMetadataTable:
 
     @typechecked()
     def __init__(self, table_name: str):
-        self.table_name = table_name  # table we're storing metadata *for* (not the name of the metadata table)
+        self.table_name = table_name  # table we're storing metadata *for* (not the name of this metadata table)
         self.primary_partition_key = "service"
         self.primary_sort_key = "table"
         self.mtime_f_string = "mtime_f"
-        self.mtime_ui_string = "mtime_ui"
         self.mtime_human_string = "mtime_human"
         self.service = "dynamodb"  # type: Literal["dynamodb"]
         self.resource = boto3.resource(self.service)
@@ -887,19 +883,6 @@ class _DynamoDBMetadataTable:
         # Wait until the table exists
         self.table.meta.client.get_waiter("table_exists").wait(TableName=metadata_table_name)
 
-    def clear(self):
-        """
-        Clear metadata for this table.
-        """
-        key = {self.primary_partition_key: self.service, self.primary_sort_key: self.table_name}
-        try:
-            self.table.delete_item(Key=key)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                pass  # table doesn't exist, so nothing to clear
-            else:
-                raise  # some other exception, so re-raise it
-
     def update_table_mtime(self):
         """
         Update a table's mtime in the metadata table.  Creates metadata table if it doesn't exist.
@@ -910,43 +893,35 @@ class _DynamoDBMetadataTable:
                 self.primary_partition_key: self.service,
                 self.primary_sort_key: self.table_name,
                 self.mtime_f_string: m_time,
-                self.mtime_ui_string: int(round(1e6 * m_time)),
                 self.mtime_human_string: datetime.datetime.fromtimestamp(m_time).astimezone().isoformat(),
             }
         )
         log.debug(sf(item=item))
-        put_success = False
+        retry_put = False
         try:
             self.table.put_item(Item=item)
-            put_success = True
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceNotFoundException":
                 self.create_table()  # table doesn't exist, so create it
+                retry_put = True  # and retry the put
             else:
                 raise  # some other exception, so re-raise it
-        if not put_success:
+        if retry_put:
             self.table.put_item(Item=item)
 
     @typechecked()
-    def _get_table_mtime(self) -> Union[dict | None]:
+    def get_table_mtime_f(self) -> Union[float | None]:
+        """
+        Get a table's mtime from the metadata table.
+        :return: table's mtime as a float or None if table hasn't been written to
+        """
+        mtime_f = None
         key = {self.primary_partition_key: self.service, self.primary_sort_key: self.table_name}
         try:
             response = self.table.get_item(Key=key)
-            item = response.get("Item")
+            if (mtime_item := response.get("Item")) is not None and (mtime_f_as_decimal := mtime_item.get(self.mtime_f_string)) is not None:
+                assert isinstance(mtime_f_as_decimal, Decimal)  # mainly for mypy
+                mtime_f = float(mtime_f_as_decimal)  # boto3 uses Decimal for numbers, but we want a float
         except DBItemNotFound:
-            item = None
-        log.info(sf(item=item))
-        return item
-
-    @typechecked()
-    def get_table_mtime_f(self) -> Union[float, None]:
-        """
-        Get a table's mtime in seconds as a float or None if table hasn't been written to.
-        :return: mtime in seconds as a float or None if table hasn't been written to
-        """
-        if (mtime_item := self._get_table_mtime()) is not None and (mtime_f_as_decimal := mtime_item.get(self.mtime_f_string)) is not None:
-            assert isinstance(mtime_f_as_decimal, Decimal)  # numbers come in via boto3 as Decimal
-            mtime_f = float(mtime_f_as_decimal)
-        else:
-            mtime_f = None
+            pass
         return mtime_f
