@@ -857,7 +857,7 @@ class DynamoDBAccess(CacheAccess):
         return count
 
 
-metadata_table_name = f"__{__application_name__}_dynamodb_metadata__"
+metadata_table_name = f"__{__application_name__}_metadata__"
 
 
 class _DynamoDBMetadataTable:
