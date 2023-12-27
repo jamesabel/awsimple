@@ -1,3 +1,5 @@
+import time
+
 from awsimple import SQSAccess, is_mock, is_using_localstack
 
 from test_awsimple import test_awsimple_str, drain
@@ -17,6 +19,7 @@ def test_most_recent_error():
         # emulate a short internet disruption
         disable_socket()
 
+    time.sleep(3)
     message = queue.receive_message()
     if not is_mock() and not is_using_localstack():
         # doesn't work with moto nor localstack :(
