@@ -62,6 +62,11 @@ class KeyType(Enum):
 aws_name_to_key_type = {k.value: k for k in KeyType}  # AWS's key type as a string (HASH, RANGE) to KeyType
 
 
+def get_accommodated_clock_skew() -> float:
+    # allow for clock skew between systems
+    return 100.0  # seconds
+
+
 def convert_serializable_special_cases(o):
     """
     Convert an object to a type that is fairly generally serializable (e.g. json serializable).
@@ -369,8 +374,8 @@ class DynamoDBAccess(CacheAccess):
                 table_mtime_f = self.metadata_table.get_table_mtime_f()
                 log.info(f"{self.table_name=},{cache_file_path=},{cache_file_mtime=},{table_mtime_f=}")
                 # determine if table has been updated since local cache file was written
-                # (assumes the clock of the system that wrote the table is in sync with the clock of this system)
-                self.cache_hit = table_mtime_f is not None and table_mtime_f <= cache_file_mtime
+                # (assumes the clock of the system that wrote the table is in sync with the clock of this system within the clock skew)
+                self.cache_hit = table_mtime_f is not None and table_mtime_f + get_accommodated_clock_skew() <= cache_file_mtime
                 with open(cache_file_path, "rb") as f:
                     log.info(f"{self.table_name=},{cache_file_path=}")
                     table_data = pickle.load(f)

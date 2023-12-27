@@ -7,12 +7,14 @@ import datetime
 from datetime import timedelta, timezone
 import pickle
 from pathlib import Path
+import time
 
 from PIL import Image
 from ismain import is_main
 from dictim import dictim
 
 from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock, is_using_localstack, KeyType
+from awsimple.dynamodb import get_accommodated_clock_skew
 from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
 dict_id = "test"
@@ -98,6 +100,7 @@ def test_dynamodb():
     dynamodb_access = DynamoDBAccess(profile_name=test_awsimple_str, table_name=test_awsimple_str, cache_dir=Path("cache"), cache_life=timedelta(seconds=1).total_seconds())
     dynamodb_access.create_table(id_str)
     dynamodb_access.put_item(dynamodb_dict)
+    time.sleep(get_accommodated_clock_skew())
 
     sample_from_db = dynamodb_access.get_item(id_str, dict_id)
     assert sample_from_db == dynamodb_dict  # make sure we get back exactly what we wrote
