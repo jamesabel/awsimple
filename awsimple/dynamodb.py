@@ -3,26 +3,24 @@ DynamoDB access
 """
 
 import io
-import decimal
 import pickle
 import time
 from collections import OrderedDict, defaultdict, namedtuple
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
-from typing import List, Union, Any, Type, Dict, Callable
+from typing import List, Union, Any, Type, Dict, Callable, Literal
 from pprint import pformat
 from itertools import islice
 import json
 from enum import Enum
+import decimal
 from decimal import Decimal
-import operator
 from functools import lru_cache
-import warnings
 from logging import getLogger
 
 
-from boto3.exceptions import RetriesExceededError
+import boto3
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
@@ -62,6 +60,11 @@ class KeyType(Enum):
 
 
 aws_name_to_key_type = {k.value: k for k in KeyType}  # AWS's key type as a string (HASH, RANGE) to KeyType
+
+
+def get_accommodated_clock_skew() -> float:
+    # allow for clock skew between systems
+    return 100.0  # seconds
 
 
 def convert_serializable_special_cases(o):
@@ -214,20 +217,21 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, Non
 
 class DynamoDBAccess(CacheAccess):
     @typechecked()
-    def __init__(self, table_name: Union[str, None] = None, reload_comparison: Callable[[int, int], bool] = operator.gt, **kwargs):
+    def __init__(self, table_name: Union[str, None] = None, **kwargs):
         """
         AWS DynamoDB access
 
         :param table_name: DynamoDB table name
-        :param reload_comparison: table size comparison to use to determine if we need to reload from cloud. Use operator.eq if table is not monotonically increasing and won't be used within
-                                  6 hours after modification.
         :param kwargs: kwargs
         """
 
-        self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
-        self.reload_comparison = reload_comparison
         self.cache_hit = False
         self.secondary_index_postfix = "-index"
+
+        self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
+        if self.table_name is not None:
+            self.metadata_table = _DynamoDBMetadataTable(self.table_name)
+
         super().__init__(resource_name="dynamodb", **kwargs)
 
     @typechecked()
@@ -339,6 +343,11 @@ class DynamoDBAccess(CacheAccess):
         return self.rows_to_dict(self.scan_table(), sort_key)
 
     @typechecked()
+    def get_cache_file_path(self) -> Path:
+        cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
+        return cache_file_path
+
+    @typechecked()
     def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
 
@@ -349,57 +358,48 @@ class DynamoDBAccess(CacheAccess):
         """
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
+        cache_file_path = self.get_cache_file_path()
         log.debug(f"cache_file_path : {cache_file_path.resolve()}")
 
         if invalidate_cache:
             cache_file_path.unlink(missing_ok=True)  # invalidate by deleting the cache file
 
-        table_data_valid = False
-        table_data = []
-        if _is_valid_db_pickled_file(cache_file_path, self.cache_life):
-            with open(cache_file_path, "rb") as f:
-                log.info(f"{self.table_name=} : reading {cache_file_path=}")
-                try:
+        table_data = None
+        self.cache_hit = False
+        now = time.time()
+        try:
+            if now <= getmtime(str(cache_file_path)) + self.cache_life:
+                # cache file exists and is current, see if it has expired
+                cache_file_mtime = getmtime(str(cache_file_path))
+                table_mtime_f = self.metadata_table.get_table_mtime_f()
+                log.info(f"{self.table_name=},{cache_file_path=},{cache_file_mtime=},{table_mtime_f=}")
+                # determine if table has been updated since local cache file was written
+                # (assumes the clock of the system that wrote the table is in sync with the clock of this system within the clock skew)
+                self.cache_hit = table_mtime_f is not None and table_mtime_f + get_accommodated_clock_skew() <= cache_file_mtime
+                with open(cache_file_path, "rb") as f:
+                    log.info(f"{self.table_name=},{cache_file_path=}")
                     table_data = pickle.load(f)
-                    table_data_valid = True
-                except (EOFError, IOError) as e:
-                    log.info(f"{cache_file_path},{e}")
-                    table_data = []
-                    table_data_valid = False
-                log.debug(f"done reading {cache_file_path=}")
+                    log.debug(f"done reading {cache_file_path=}")
+        except FileNotFoundError:
+            self.cache_hit = False  # simple cache miss
+        except (EOFError, OSError, pickle.PickleError) as e:
+            log.info(f"{cache_file_path},{e}")
+            cache_file_path.unlink(missing_ok=True)  # cache file is corrupted, so delete it
+            self.cache_hit = False
 
-                # If the DynamoDB table has more entries than what's in our cache, then we deem our cache to be stale.  The table count updates approximately
-                # every 6 hours.  The assumption here is that we're generally adding items to the table, and if the table has more items than we
-                # have in our cache, we need to update our cache even if we haven't had a timeout.
-                assert self.resource is not None
-                cloud_table_item_count = self.get_item_count()
-                len_table_data = len(table_data)
-                # usually .gt (e.g. >) but can be .eq if table is not monotonically increasing and won't be used withing AWS's 6-hour update time
-                load_from_cloud = self.reload_comparison(cloud_table_item_count, len_table_data)
-                log.info(sf(load_from_cloud=load_from_cloud, cloud_table_item_count=cloud_table_item_count, len_table_data=len_table_data))
-
-        if not table_data_valid or load_from_cloud:
+        if not self.cache_hit:
             log.info(f"getting {self.table_name} from DB")
-
             try:
                 table_data = self.scan_table()
-                table_data_valid = True
-            except RetriesExceededError:
-                pass
 
-            if table_data_valid:
-                # update data cache
+                # update local data cache
                 with open(cache_file_path, "wb") as f:
                     pickle.dump(table_data, f)
+            except (DynamoDBTableNotFound, self.client.exceptions.ResourceNotFoundException) as e:
+                log.debug(f"{self.table_name=},{e}")
+                table_data = []
 
-            self.cache_hit = False
-        else:
-            self.cache_hit = True
-
-        if not table_data_valid:
-            AWSimpleException(f'table "{self.table_name}" not accessible')
-
+        assert table_data is not None
         return table_data
 
     @typechecked()
@@ -505,30 +505,9 @@ class DynamoDBAccess(CacheAccess):
                 created = True
             except ClientError as e:
                 log.warning(e)
+        self.metadata_table.update_table_mtime()
 
         return created
-
-    @lru_cache()
-    def get_primary_keys(self) -> tuple:
-        """
-        DEPRECATED
-
-        Get the table's primary keys as a tuple.
-        :return: a 2-tuple of (partition_key, sort_key).  sort_key will be None if there is no sort key.
-        """
-        warnings.warn("deprecated - will be removed in a future version - use .get_primary_keys_dict() instead", DeprecationWarning)
-        keys = []
-        assert self.resource is not None
-        for key_schema in self.resource.Table(self.table_name).key_schema:
-            for key_type in ["HASH", "RANGE"]:
-                if key_schema["KeyType"] == key_type:
-                    keys.append(key_schema["AttributeName"])
-        if len(keys) == 0:
-            # we should always have a partition key
-            raise ValueError(f"no partition key in {self.table_name}")  # should be impossible if DynamoDB is working properly
-        elif len(keys) == 1:
-            keys.append(None)  # no sort key
-        return keys[0], keys[1]
 
     def _get_keys_from_schema(self, table_schema: List) -> Dict[KeyType, str]:
         key_schema = {}
@@ -561,8 +540,7 @@ class DynamoDBAccess(CacheAccess):
     @lru_cache()
     def get_primary_sort_key(self) -> Union[str, None]:
         primary_keys = self.get_primary_keys_dict()
-        sort_key = primary_keys.get(KeyType.sort)
-        return sort_key
+        return primary_keys.get(KeyType.sort)
 
     @lru_cache()
     def get_secondary_indexes(self) -> List[Dict[KeyType, str]]:
@@ -748,6 +726,7 @@ class DynamoDBAccess(CacheAccess):
         try:
             table = self.resource.Table(self.table_name)
             table.put_item(Item=item)
+            self.metadata_table.update_table_mtime()
         except self.client.exceptions.ResourceNotFoundException:
             raise DynamoDBTableNotFound(str(self.table_name))
 
@@ -805,6 +784,7 @@ class DynamoDBAccess(CacheAccess):
         if sort_key is not None:
             key[sort_key] = sort_value
         table.delete_item(Key=key)
+        self.metadata_table.update_table_mtime()
 
     # cant' do a @typechecked() since optional item requires a single type
     def upsert_item(
@@ -847,6 +827,7 @@ class DynamoDBAccess(CacheAccess):
                 expression_attribute_values[f":{k}"] = v
 
             table.update_item(Key=key, UpdateExpression=update_expression, ExpressionAttributeValues=expression_attribute_values)
+            self.metadata_table.update_table_mtime()
 
     def delete_all_items(self) -> int:
         """
@@ -872,4 +853,80 @@ class DynamoDBAccess(CacheAccess):
                 key[sort_key] = item[sort_key]
             table.delete_item(Key=key)
             count += 1
+        self.metadata_table.update_table_mtime()
         return count
+
+
+metadata_table_name = f"__{__application_name__}_dynamodb_metadata__"
+
+
+class _DynamoDBMetadataTable:
+    """
+    Access metadata (e.g. most recent modification time) for DynamoDB tables.
+    """
+
+    @typechecked()
+    def __init__(self, table_name: str):
+        self.table_name = table_name  # table we're storing metadata *for* (not the name of this metadata table)
+        self.primary_partition_key = "service"
+        self.primary_sort_key = "table"
+        self.mtime_f_string = "mtime_f"
+        self.mtime_human_string = "mtime_human"
+        self.service = "dynamodb"  # type: Literal["dynamodb"]
+        self.resource = boto3.resource(self.service)
+        self.table = self.resource.Table(metadata_table_name)
+
+    def create_table(self):
+        key_schema = [{"AttributeName": self.primary_partition_key, "KeyType": "HASH"}, {"AttributeName": self.primary_sort_key, "KeyType": "RANGE"}]  # Partition key  # Sort key
+
+        attribute_definitions = [{"AttributeName": self.primary_partition_key, "AttributeType": "S"}, {"AttributeName": self.primary_sort_key, "AttributeType": "S"}]
+
+        self.table = self.resource.create_table(
+            TableName=metadata_table_name, KeySchema=key_schema, AttributeDefinitions=attribute_definitions, BillingMode="PAY_PER_REQUEST"  # on-demand capacity mode
+        )
+
+        # Wait until the table exists
+        self.table.meta.client.get_waiter("table_exists").wait(TableName=metadata_table_name)
+
+    def update_table_mtime(self):
+        """
+        Update a table's mtime in the metadata table.  Creates metadata table if it doesn't exist.
+        """
+        m_time = time.time()
+        item = dict_to_dynamodb(
+            {
+                self.primary_partition_key: self.service,
+                self.primary_sort_key: self.table_name,
+                self.mtime_f_string: m_time,
+                self.mtime_human_string: datetime.datetime.fromtimestamp(m_time).astimezone().isoformat(),
+            }
+        )
+        log.debug(sf(item=item))
+        retry_put = False
+        try:
+            self.table.put_item(Item=item)
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ResourceNotFoundException":
+                self.create_table()  # table doesn't exist, so create it
+                retry_put = True  # and retry the put
+            else:
+                raise  # some other exception, so re-raise it
+        if retry_put:
+            self.table.put_item(Item=item)
+
+    @typechecked()
+    def get_table_mtime_f(self) -> Union[float | None]:
+        """
+        Get a table's mtime from the metadata table.
+        :return: table's mtime as a float or None if table hasn't been written to
+        """
+        mtime_f = None
+        key = {self.primary_partition_key: self.service, self.primary_sort_key: self.table_name}
+        try:
+            response = self.table.get_item(Key=key)
+            if (mtime_item := response.get("Item")) is not None and (mtime_f_as_decimal := mtime_item.get(self.mtime_f_string)) is not None:
+                assert isinstance(mtime_f_as_decimal, Decimal)  # mainly for mypy
+                mtime_f = float(mtime_f_as_decimal)  # boto3 uses Decimal for numbers, but we want a float
+        except DBItemNotFound:
+            pass
+        return mtime_f

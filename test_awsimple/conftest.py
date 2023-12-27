@@ -5,7 +5,7 @@ import logging
 
 from botocore.exceptions import EndpointConnectionError
 
-from awsimple import is_mock, use_moto_mock_env_var, S3Access, is_using_localstack
+from awsimple import is_mock, use_moto_mock_env_var, S3Access, is_using_localstack, dynamodb
 
 from test_awsimple import test_awsimple_str, temp_dir, cache_dir
 
@@ -20,6 +20,7 @@ aws_credentials_and_config_dir = Path(Path.home(), ".aws")
 aws_credentials_file = Path(aws_credentials_and_config_dir, "credentials")
 aws_config_file = Path(aws_credentials_and_config_dir, "config")
 if is_mock():
+    dynamodb.get_accommodated_clock_skew = lambda: 0.0  # no clock skew for mock (better for CI)
     if not aws_credentials_and_config_dir.exists():
         aws_credentials_and_config_dir.mkdir(parents=True, exist_ok=True)
     if not aws_credentials_file.exists():
@@ -31,6 +32,8 @@ if is_mock():
     if not aws_config_file.exists():
         config_strings = ["[profile default]\nregion=us-west-2", f"[profile {test_awsimple_str}]\nregion=us-west-2"]
         aws_config_file.write_text("\n".join(config_strings))
+else:
+    dynamodb.get_accommodated_clock_skew = lambda: 1.0  # faster than the default so tests don't take too much time
 
 
 class TestAWSimpleLoggingHandler(logging.Handler):

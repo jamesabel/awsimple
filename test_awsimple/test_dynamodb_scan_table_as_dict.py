@@ -1,8 +1,10 @@
 from pathlib import Path
 from datetime import timedelta
 from decimal import Decimal
+import time
 
 from awsimple import DynamoDBAccess
+from awsimple.dynamodb import get_accommodated_clock_skew
 from test_awsimple import test_awsimple_str, id_str
 
 
@@ -26,6 +28,7 @@ def test_dynamodb_scan_table_as_dict():
     dynamodb_access.put_item({id_str: "b", "value": 1})  # will be sorted in a different order than we're inputting
     dynamodb_access.put_item({id_str: "c", "value": 3})
     dynamodb_access.put_item({id_str: "a", "value": 2})
+    time.sleep(get_accommodated_clock_skew())
 
     expected_contents = {"a": {"id": "a", "value": Decimal("2")}, "b": {"id": "b", "value": Decimal("1")}, "c": {"id": "c", "value": Decimal("3")}}
     table_contents = dynamodb_access.scan_table_as_dict()
