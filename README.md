@@ -109,6 +109,8 @@ to test for file equivalency.
 S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 
 and potentially offer a speedup.
 
+DynamoDB cached table scans are particularly useful for tables that are infrequently updated.
+
 ## What`awsimple` Is Not
 
 - `awsimple` is not necessarily the most memory and CPU efficient
@@ -116,6 +118,11 @@ and potentially offer a speedup.
 - `awsimple` does not provide cost monitoring hooks
 
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
+
+## Updates/Releases
+
+3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
+table). Explict cache life is no longer required (parameter has been removed).
 
 ## Testing using moto mock and localstack
 
