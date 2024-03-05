@@ -127,15 +127,15 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
 
 class CacheAccess(AWSAccess):
     def __init__(
-        self,
-        resource_name: str,
-        cache_dir: Union[Path, None] = None,
-        cache_life: float = math.inf,
-        cache_max_absolute: int = round(1e9),
-        cache_max_of_free: float = 0.05,
-        mtime_abs_tol: float = 10.0,
-        use_env_var_cache_dir: bool = False,
-        **kwargs,
+            self,
+            resource_name: str,
+            cache_dir: Union[Path, None] = None,
+            cache_life: float = math.inf,
+            cache_max_absolute: int = round(1e9),
+            cache_max_of_free: float = 0.05,
+            mtime_abs_tol: float = 10.0,
+            use_env_var_cache_dir: bool = False,
+            **kwargs,
     ):
         """
         AWS Access for cacheables
