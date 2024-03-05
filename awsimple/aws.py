@@ -30,12 +30,12 @@ def boto_error_to_string(boto_error) -> Union[str, None]:
 class AWSAccess:
     @typechecked()
     def __init__(
-        self,
-        resource_name: Union[str, None] = None,
-        profile_name: Union[str, None] = None,
-        aws_access_key_id: Union[str, None] = None,
-        aws_secret_access_key: Union[str, None] = None,
-        region_name: Union[str, None] = None,
+            self,
+            resource_name: Union[str, None] = None,
+            profile_name: Union[str, None] = None,
+            aws_access_key_id: Union[str, None] = None,
+            aws_secret_access_key: Union[str, None] = None,
+            region_name: Union[str, None] = None,
     ):
         """
         AWSAccess - takes care of basic AWS access (e.g. session, client, resource), getting some basic AWS information, and mock support for testing.
@@ -79,20 +79,9 @@ class AWSAccess:
                 self._aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
                 os.environ[aws_key] = "testing"
 
-            if self.resource_name == "s3":
-                from moto import mock_s3 as moto_mock
-            elif self.resource_name == "sns":
-                from moto import mock_sns as moto_mock
-            elif self.resource_name == "sqs":
-                from moto import mock_sqs as moto_mock
-            elif self.resource_name == "dynamodb":
-                from moto import mock_dynamodb as moto_mock
-            elif self.resource_name == "logs":
-                from moto import mock_logs as moto_mock
-            else:
-                from moto import mock_iam as moto_mock
+            from moto import mock_aws
 
-            self._moto_mock = moto_mock()
+            self._moto_mock = mock_aws()
             self._moto_mock.start()
             region = "us-east-1"
             if self.resource_name == "logs" or self.resource_name is None:
@@ -164,16 +153,11 @@ class AWSAccess:
 
     def get_account_id(self):
         """
-        Get AWS account ID
+        Get AWS account ID *** HAS BEEN REMOVED ***
 
         :return: account ID
         """
-        if is_using_localstack():
-            arn = self.session.resource("iam", endpoint_url=self._get_localstack_endpoint_url()).CurrentUser().arn
-        else:
-            arn = self.session.resource("iam").CurrentUser().arn
-        log.info("current user {arn=}")
-        return arn.split(":")[4]
+        raise NotImplementedError(".get_account_id() has been removed")
 
     def test(self) -> bool:
         """
