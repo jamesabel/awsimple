@@ -13,6 +13,8 @@ from typing import Dict, List, Union
 import json
 from logging import getLogger
 
+import boto3
+from botocore.client import Config
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
 from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
@@ -298,17 +300,18 @@ class S3Access(CacheAccess):
         Download an S3 object
 
         :param s3_key: S3 key
-        :param dest_path: destination file path
+        :param dest_path: destination file or directory path. If the path is a directory, the file will be downloaded to that directory with the same name as the S3 key.
         :return: True if downloaded successfully
         """
 
         if isinstance(dest_path, str):
             log.info(f"{dest_path} is not Path object.  Non-Path objects will be deprecated in the future")
 
-        if isinstance(dest_path, Path):
-            dest_path = str(dest_path)
+        assert isinstance(dest_path, Path)
+        if dest_path.is_dir():
+            dest_path = Path(dest_path, s3_key)
 
-        log.info(f'S3 download : {self.bucket_name}/{s3_key} to "{dest_path}" ({Path(dest_path).absolute()})')
+        log.info(f'S3 download : {self.bucket_name}:{s3_key} to "{dest_path}" ("{Path(dest_path).absolute()}")')
 
         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -337,10 +340,14 @@ class S3Access(CacheAccess):
         """
         download from AWS S3 with caching
 
-        :param dest_path: destination full path
+        :param dest_path: destination full path or directory. If the path is a directory, the file will be downloaded to that directory with the same name as the S3 key.
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
         """
+
+        if dest_path.is_dir():
+            dest_path = Path(dest_path, s3_key)
+        log.info(f'S3 download_cached : {self.bucket_name}:{s3_key} to "{dest_path}" ("{dest_path.absolute()}")')
 
         self.download_status = S3DownloadStatus()  # init
 
@@ -382,7 +389,6 @@ class S3Access(CacheAccess):
         """
         download object from AWS S3 with caching
 
-        :param dest_path: destination full path
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
         """
@@ -467,7 +473,6 @@ class S3Access(CacheAccess):
         """
         determine if an s3 object exists
 
-        :param s3_bucket: the S3 bucket
         :param s3_key: the S3 object key
         :return: True if object exists
         """
@@ -485,8 +490,12 @@ class S3Access(CacheAccess):
 
         :return: True if bucket exists
         """
+
+        # use a "custom" config so that .head_bucket() doesn't take a really long time if the bucket does not exist
+        config = Config(connect_timeout=5, retries={'max_attempts': 3, 'mode': 'standard'})
+        s3 = boto3.client('s3', config=config)
         try:
-            self.client.head_bucket(Bucket=self.bucket_name)
+            s3.head_bucket(Bucket=self.bucket_name)
             exists = True
         except ClientError as e:
             log.info(f"{self.bucket_name=}{e=}")
