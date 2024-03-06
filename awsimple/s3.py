@@ -492,8 +492,8 @@ class S3Access(CacheAccess):
         """
 
         # use a "custom" config so that .head_bucket() doesn't take a really long time if the bucket does not exist
-        config = Config(connect_timeout=5, retries={'max_attempts': 3, 'mode': 'standard'})
-        s3 = boto3.client('s3', config=config)
+        config = Config(connect_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
+        s3 = boto3.client("s3", config=config)
         assert self.bucket_name is not None
         try:
             s3.head_bucket(Bucket=self.bucket_name)
