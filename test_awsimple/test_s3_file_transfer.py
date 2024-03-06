@@ -4,6 +4,7 @@ from pathlib import Path
 from math import isclose
 import os
 from shutil import rmtree
+from logging import getLogger
 
 from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack
 from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
@@ -15,6 +16,8 @@ big_file_max_size = round(100e6)  # should be large enough to do a multipart upl
 never_change_size = 67
 never_change_mtime = 1636830116.0
 never_change_etag = "e3cb2ac8d7d4a8339ea3653f4f155ab4"
+
+log = getLogger(__name__)
 
 
 def test_get_never_change_metadata(s3_access) -> (int, float, str):
@@ -71,11 +74,11 @@ def test_s3_big_file_upload(s3_access):
                 f.truncate(round(size))  # this quickly makes a (sparse) file filled with zeros
             start = time.time()
             s3_access.upload(big_file_path, big_file_name)
-            print(f"{time.time() - start},{size:.0f}")
+            log.info(f"{time.time() - start},{size:.0f}")
 
         big_last_run_file_path.open("w").write(str(time.time()))
     else:
-        print(f"last run {time.time() - last_run} seconds ago so not running now")
+        log.info(f"last run {time.time() - last_run} seconds ago so not running now")
 
 
 def test_s3_upload(s3_access):
@@ -96,10 +99,19 @@ def test_s3_z_metadata(s3_access):
     assert s3_object_metadata.size == 11
 
 
-def test_s3_download(s3_access):
+def test_s3_download_dest_full_path(s3_access):
     dest_path = Path(temp_dir, never_change_file_name)
     dest_path.unlink(missing_ok=True)
-    success = s3_access.download(never_change_file_name, dest_path)
+    success = s3_access.download(never_change_file_name, dest_path)  # dest is a full path
+    assert success
+    assert dest_path.exists()
+    assert isclose(os.path.getmtime(dest_path), never_change_mtime, rel_tol=0.0, abs_tol=3.0)
+
+
+def test_s3_download_dest_dir(s3_access):
+    dest_path = Path(temp_dir, never_change_file_name)
+    dest_path.unlink(missing_ok=True)
+    success = s3_access.download(never_change_file_name, temp_dir)  # dest is a directory
     assert success
     assert dest_path.exists()
     assert isclose(os.path.getmtime(dest_path), never_change_mtime, rel_tol=0.0, abs_tol=3.0)
@@ -107,7 +119,8 @@ def test_s3_download(s3_access):
 
 def test_s3_metadata_not_uploaded_with_awsimple(s3_access):
     bucket_dir = s3_access.dir()
-    print(bucket_dir)
+    assert len(bucket_dir) > 0
+    assert bucket_dir["never_change.txt"].size == never_change_size
     s3_object_metadata = s3_access.get_s3_object_metadata(never_change_file_name)
     mtime_epoch = s3_object_metadata.mtime.timestamp()
     assert isclose(mtime_epoch, never_change_mtime, rel_tol=0.0, abs_tol=3.0)  # SWAG
@@ -116,19 +129,24 @@ def test_s3_metadata_not_uploaded_with_awsimple(s3_access):
     assert s3_object_metadata.size == never_change_size
 
 
-def test_s3_download_cached(s3_access):
-    dest_path = Path(temp_dir, never_change_file_name)  # small file with no AWSimple SHA512
-
+def _s3_download(dest: Path, s3_access):
+    """
+    :param dest: directory or file path to download to
+    :param s3_access: S3Access
+    """
+    dest_path = Path(temp_dir, never_change_file_name)  # expect file to be downloaded here
     # start with empty cache
     rmtree(cache_dir, ignore_errors=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     dest_path.unlink(missing_ok=True)
-    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    download_status = s3_access.download_cached(never_change_file_name, dest)
     assert download_status.success
     assert not download_status.cache_hit
     assert download_status.cache_write
     assert dest_path.exists()
-    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    # download cached
+    dest_path.unlink()
+    download_status = s3_access.download_cached(never_change_file_name, dest)
     assert download_status.success
     assert download_status.cache_hit
     assert not download_status.cache_write
@@ -136,24 +154,35 @@ def test_s3_download_cached(s3_access):
 
     # with warm cache
     dest_path.unlink()
-    download_status = s3_access.download_cached(never_change_file_name, dest_path)
+    download_status = s3_access.download_cached(never_change_file_name, dest)
     assert download_status.success
     assert download_status.cache_hit
     assert dest_path.exists()
 
+
+def _s3_download_big(dest: Path, s3_access):
     # download big file with normal cache size
     cache_size = get_directory_size(cache_dir)
-    print(f"{cache_size=}")
     assert cache_size < 1000  # big file not in cache
     big_file_path = Path(temp_dir, big_file_name)
-    download_status = s3_access.download_cached(big_file_name, big_file_path)
+    download_status = s3_access.download_cached(big_file_name, dest)
     assert download_status.success
     assert not download_status.cache_hit
     assert download_status.cache_write
     assert big_file_path.exists()
     cache_size = get_directory_size(cache_dir)
-    print(f"{cache_size=}")
     assert cache_size > 1000  # big file is in cache
+
+
+def test_s3_download_cached(s3_access):
+    dest_path = Path(temp_dir, never_change_file_name)  # small file with no AWSimple SHA512
+    _s3_download(dest_path, s3_access)
+    _s3_download_big(dest_path, s3_access)
+
+
+def test_s3_download_cached_dir(s3_access):
+    _s3_download(temp_dir, s3_access)
+    _s3_download_big(temp_dir, s3_access)
 
 
 def test_cache_eviction(s3_access):
@@ -192,7 +221,6 @@ def test_cache_eviction(s3_access):
 
         # make sure cache stays within max size limit
         cache_size = get_directory_size(eviction_cache)
-        print(f"{cache_size=}")
         assert cache_size <= cache_max  # make sure we stay within bounds
 
         size *= 2
