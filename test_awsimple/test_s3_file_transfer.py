@@ -175,9 +175,8 @@ def _s3_download_big(dest: Path, s3_access):
 
 
 def test_s3_download_cached(s3_access):
-    dest_path = Path(temp_dir, never_change_file_name)  # small file with no AWSimple SHA512
-    _s3_download(dest_path, s3_access)
-    _s3_download_big(dest_path, s3_access)
+    _s3_download(Path(temp_dir, never_change_file_name), s3_access)  # small file with no AWSimple SHA512
+    _s3_download_big(Path(temp_dir, big_file_name), s3_access)
 
 
 def test_s3_download_cached_dir(s3_access):
