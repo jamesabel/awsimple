@@ -31,7 +31,6 @@ pytest-cov
 pytest-pycharm
 pytest-socket
 pytest-xdist
-pytest-fly
 pillow
 requests
 #
