@@ -31,10 +31,11 @@ jobs:
         python -m pip install flake8 pytest
         if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-    - name: Install libEGL dependency
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libegl-mesa0 libgl1
+# was for pytest-fly, but couldn't get CI to install a compatible libEGL
+#    - name: Install libEGL dependency
+#      run: |
+#        sudo apt-get update
+#        sudo apt-get install -y libegl-mesa0 libgl1
 
     - name: Lint with flake8
       run: |
