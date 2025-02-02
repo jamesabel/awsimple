@@ -180,6 +180,8 @@ def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_except
         resp = image_byte_array.getvalue()
     elif isinstance(input_value, datetime.datetime):
         resp = input_value.isoformat()
+    elif isinstance(input_value, Path):
+        resp = input_value.as_posix()
     else:
         if raise_exception:
             raise NotImplementedError(type(input_value), input_value)
