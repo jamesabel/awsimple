@@ -30,12 +30,12 @@ def boto_error_to_string(boto_error) -> Union[str, None]:
 class AWSAccess:
     @typechecked()
     def __init__(
-            self,
-            resource_name: Union[str, None] = None,
-            profile_name: Union[str, None] = None,
-            aws_access_key_id: Union[str, None] = None,
-            aws_secret_access_key: Union[str, None] = None,
-            region_name: Union[str, None] = None,
+        self,
+        resource_name: Union[str, None] = None,
+        profile_name: Union[str, None] = None,
+        aws_access_key_id: Union[str, None] = None,
+        aws_secret_access_key: Union[str, None] = None,
+        region_name: Union[str, None] = None,
     ):
         """
         AWSAccess - takes care of basic AWS access (e.g. session, client, resource), getting some basic AWS information, and mock support for testing.
