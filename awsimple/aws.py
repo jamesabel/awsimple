@@ -113,8 +113,8 @@ class AWSAccess:
             self.resource = None
         else:
             self.client = self.session.client(self.resource_name, config=self._get_config())  # type: ignore
-            if self.resource_name == "logs":
-                # logs don't have resource
+            if self.resource_name == "logs" or self.resource_name == "rds":
+                # logs and rds don't have a resource
                 self.resource = None
             else:
                 self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
