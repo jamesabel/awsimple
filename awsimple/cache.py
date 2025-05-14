@@ -82,7 +82,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
                 least_recently_used_size = None
                 for file_path in cache_dir.rglob("*"):
                     access_time = os.path.getatime(file_path)
-                    if least_recently_used_path is None or access_time < least_recently_used_access_time:
+                    if least_recently_used_path is None or least_recently_used_access_time is None or access_time < least_recently_used_access_time:
                         least_recently_used_path = file_path
                         least_recently_used_access_time = access_time
                         least_recently_used_size = os.path.getsize(file_path)
