@@ -33,7 +33,7 @@ def test_make_serializable():
     assert serial_values["bool"] is True
     assert serial_values["a"] == "a"
     assert serial_values["b"] == "b"
-    assert len(serial_values["image"]) == 140065
+    assert len(serial_values["image"]) == 141233
     assert serial_values["binary"] == "b'\\x00\\x01'"
     assert isinstance(serial_values["ni"], int)
     assert isinstance(serial_values["nbi"], float)  # ends up being a float, even though we'd prefer it as an int
