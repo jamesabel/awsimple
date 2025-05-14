@@ -20,7 +20,7 @@ from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
 import urllib3.exceptions
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512  # type: ignore
+from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512
 from yasf import sf
 
 from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
