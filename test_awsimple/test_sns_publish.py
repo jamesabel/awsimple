@@ -14,9 +14,6 @@ def test_sns_publish():
 
     sns_access.create_topic()  # this can set the permissions, which can take a while to propagate so it might fail the first time through
 
-    subscription_arn = sns_access.subscribe(sqs_access)  # subscribe the SQS queue to the SNS topic
-    print(f"{subscription_arn=}")
-
     # put in your actual email and run this at least once:
     # sns_access.subscribe("me@mydomain.com")
 
