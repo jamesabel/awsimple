@@ -2,16 +2,16 @@
 SNS Access
 """
 
-from typing import Union, Dict
+from typing import Union, Dict, Any
 
 from typeguard import typechecked
 
-from awsimple import AWSAccess, SQSAccess
+from awsimple import AWSAccess
 
 
 class SNSAccess(AWSAccess):
     @typechecked()
-    def __init__(self, topic_name: str, **kwargs):
+    def __init__(self, topic_name: str, auto_create: bool = False, **kwargs):
         """
         SNS Access
 
@@ -20,18 +20,22 @@ class SNSAccess(AWSAccess):
         """
         super().__init__(resource_name="sns", **kwargs)
         self.topic_name = topic_name
+        self.auto_create = auto_create
 
-    def get_topic(self):
+    def get_topic(self) -> Any:
         """
         gets the associated SNS Topic instance
 
-        :param topic_name: topic name
         :return: sns.Topic instance
         """
         topic = None
         for t in self.resource.topics.all():
             if t.arn.split(":")[-1] == self.topic_name:
                 topic = t
+        if self.auto_create and topic is None:
+            self.create_topic()
+            self.auto_create = False  # only do this once
+            topic = self.get_topic()
         return topic
 
     @typechecked()
@@ -39,7 +43,6 @@ class SNSAccess(AWSAccess):
         """
         get topic ARN from topic name
 
-        :param topic_name: topic name string
         :return: topic ARN
         """
         return self.get_topic().arn
@@ -64,22 +67,17 @@ class SNSAccess(AWSAccess):
         self.client.delete_topic(TopicArn=self.get_arn())
 
     @typechecked()
-    def subscribe(self, subscriber: Union[str, SQSAccess]) -> str:
+    def subscribe(self, subscriber: str) -> str:
         """
         Subscribe to an SNS topic
 
-        :param subscriber: email or SQS queue
+        :param subscriber: email
         :return: subscription ARN
         """
-        if isinstance(subscriber, str) and "@" in subscriber:
+        if "@" in subscriber:
             # email
             endpoint = subscriber
             protocol = "email"
-        elif isinstance(subscriber, SQSAccess):
-            # 'hooks up' provided SQS queue to this SNS topic
-            subscriber.add_permission(self.get_arn())
-            endpoint = subscriber.get_arn()
-            protocol = "sqs"
         else:
             raise ValueError(f"{subscriber=}")
         response = self.client.subscribe(TopicArn=self.get_arn(), Protocol=protocol, Endpoint=endpoint, ReturnSubscriptionArn=True)
