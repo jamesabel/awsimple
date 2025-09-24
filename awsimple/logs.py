@@ -1,22 +1,10 @@
 import time
-import getpass
-import platform
-from functools import lru_cache
 from typing import Union
 from pathlib import Path
 from datetime import datetime
 
-from awsimple import AWSAccess
-
-
-@lru_cache()
-def get_user_name() -> str:
-    return getpass.getuser()
-
-
-@lru_cache()
-def get_computer_name() -> str:
-    return platform.node()
+from .aws import AWSAccess
+from .platform import get_user_name, get_computer_name
 
 
 class LogsAccess(AWSAccess):

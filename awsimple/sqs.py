@@ -49,7 +49,7 @@ aws_sqs_max_messages = 10
 
 class SQSAccess(AWSAccess):
     @typechecked()
-    def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: Union[int, None] = None, minimum_visibility_timeout: int = 0, **kwargs):
+    def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: Union[int, None] = None, minimum_visibility_timeout: int = 0, auto_create: bool = False, **kwargs):
         """
         SQS access
 
@@ -66,6 +66,7 @@ class SQSAccess(AWSAccess):
         self.immediate_delete = immediate_delete  # True to immediately delete messages
         self.user_provided_timeout = visibility_timeout  # the queue will re-try a message (make it re-visible) if not deleted within this time
         self.user_provided_minimum_timeout = minimum_visibility_timeout  # the timeout will be at least this long
+        self.auto_create = auto_create  # automatically create the queue if it doesn't exist
         self.auto_timeout_multiplier = 10.0  # for automatic timeout calculations, multiply this times the median run time to get the timeout
 
         self.sqs_call_wait_time = 0  # short (0) or long poll (> 0, usually 20)
@@ -80,21 +81,37 @@ class SQSAccess(AWSAccess):
         # We write the history out as a file so don't make this too big. We take the median (for the nominal run time) so make this big enough to tolerate a fair number of outliers.
         self.max_history = 20
 
-    def _get_queue(self):
+        self.was_created = False
+
+    def _get_queue(self) -> Any:
+        """
+        Get the SQS queue instance. If the queue doesn't exist and auto_create is True, it will be created.
+
+        :return: SQS queue instance
+        """
         if self.queue is None:
-            try:
-                queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
-            except self.client.exceptions.QueueDoesNotExist as e:
-                log.debug(f"{self.queue_name},{e=}")
-                queue = None
-            except self.client.exceptions.ClientError as e:
-                error_code = e.response["Error"].get("Code")
-                if "NonExistentQueue" in error_code:
-                    log.debug(f"{self.queue_name},{e=},{error_code=}")
+            queue = None
+            try_count = 0
+            while self.queue is None and try_count < 3:
+                create_queue = False
+                try:
+                    queue = self.resource.get_queue_by_name(QueueName=self.queue_name)
+                except self.client.exceptions.QueueDoesNotExist as e:
+                    if self.auto_create:
+                        create_queue = True
+                    log.debug(f"{self.queue_name},{e=}")
                     queue = None
-                else:
-                    # other errors (e.g. connection errors, etc.)
-                    raise
+                except self.client.exceptions.ClientError as e:
+                    error_code = e.response["Error"].get("Code")
+                    if "NonExistentQueue" in error_code:
+                        log.debug(f"{self.queue_name},{e=},{error_code=}")
+                        queue = None
+                    else:
+                        # other errors (e.g. connection errors, etc.)
+                        raise
+                if create_queue and self.create_queue() is None:
+                    time.sleep(60)  # if we just deleted the queue, we may have to wait 60 seconds before we can re-create it
+                try_count += 1
 
             if queue is not None:
                 # kludge so when moto mocking we return None if it can't get the queue
@@ -119,14 +136,19 @@ class SQSAccess(AWSAccess):
         return p
 
     @typechecked()
-    def create_queue(self) -> str:
+    def create_queue(self) -> str | None:
         """
         create SQS queue
 
-        :return: queue URL
+        :return: queue URL or None if not successful
         """
-        response = self.client.create_queue(QueueName=self.queue_name)
-        url = response.get("QueueUrl", "")
+        try:
+            response = self.client.create_queue(QueueName=self.queue_name)
+            url = response.get("QueueUrl")
+            self.was_created = True
+        except self.client.exceptions.QueueDeletedRecently as e:
+            log.warning(f"{self.queue_name},{e}")  # can happen if a queue was recently deleted, and we try to re-create it too quickly
+            url = None
         return url
 
     def delete_queue(self):
@@ -367,6 +389,25 @@ class SQSAccess(AWSAccess):
 
 
 class SQSPollAccess(SQSAccess):
+    """
+    SQS Access with long polling.
+    """
+
     def __init__(self, queue_name: str, **kwargs):
-        super().__init__(queue_name, **kwargs)
+        super().__init__(queue_name=queue_name, **kwargs)
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
+
+def get_all_sqs_queues() -> List[str]:
+    """
+    get all SQS queues
+
+    :return: list of queue names
+    """
+    queue_names = []
+
+    sqs = AWSAccess("sqs")
+    for queue in list(sqs.resource.queues.all()):
+        queue_name = queue.url.split("/")[-1]
+        queue_names.append(queue_name)
+
+    return queue_names
