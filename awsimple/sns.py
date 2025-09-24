@@ -3,10 +3,11 @@ SNS Access
 """
 
 from typing import Union, Dict, Any
+from functools import cache
 
 from typeguard import typechecked
 
-from awsimple import AWSAccess
+from awsimple import AWSAccess, SQSAccess
 
 
 class SNSAccess(AWSAccess):
@@ -22,6 +23,7 @@ class SNSAccess(AWSAccess):
         self.topic_name = topic_name
         self.auto_create = auto_create
 
+    @cache
     def get_topic(self) -> Any:
         """
         gets the associated SNS Topic instance
@@ -38,7 +40,7 @@ class SNSAccess(AWSAccess):
             topic = self.get_topic()
         return topic
 
-    @typechecked()
+    @cache
     def get_arn(self) -> str:
         """
         get topic ARN from topic name
@@ -67,7 +69,7 @@ class SNSAccess(AWSAccess):
         self.client.delete_topic(TopicArn=self.get_arn())
 
     @typechecked()
-    def subscribe(self, subscriber: str) -> str:
+    def subscribe(self, subscriber: Union[str, SQSAccess]) -> str:
         """
         Subscribe to an SNS topic
 
@@ -78,6 +80,11 @@ class SNSAccess(AWSAccess):
             # email
             endpoint = subscriber
             protocol = "email"
+        elif isinstance(subscriber, SQSAccess):
+            # 'hooks up' provided SQS queue to this SNS topic
+            subscriber.add_permission(self.get_arn())
+            endpoint = subscriber.get_arn()
+            protocol = "sqs"
         else:
             raise ValueError(f"{subscriber=}")
         response = self.client.subscribe(TopicArn=self.get_arn(), Protocol=protocol, Endpoint=endpoint, ReturnSubscriptionArn=True)
