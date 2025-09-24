@@ -24,8 +24,3 @@ def test_pubsub_callback():
         pubsub.terminate()
         pubsub.join(60)
         assert not pubsub.is_alive()
-
-        # we still need to drain the sub queue
-        messages = pubsub.get_messages()
-        received_message = messages[0]
-        assert received_message == sent_message

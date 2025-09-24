@@ -162,8 +162,10 @@ class PubSub(Process):
             # sub
             try:
                 message_string = sqs_thread.sub_queue.get(False)
-                self._sub_queue.put(message_string)
-                if self.sub_callback is not None:
+                # if a callback is provided, call it, otherwise put the message in the sub queue for later retrieval
+                if self.sub_callback is None:
+                    self._sub_queue.put(message_string)
+                else:
                     message = json.loads(message_string)
                     self.sub_callback(message)
                 sqs_metadata.update_table_mtime()
