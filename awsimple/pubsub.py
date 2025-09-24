@@ -31,8 +31,8 @@ def remove_old_queues(channel: str) -> list[str]:
     Remove old SQS queues that have not been used recently.
     """
     removed = []
-    if  len(channel) < 2:  # avoid deleting all queues
-        log.warning(f'blank channel ({channel=}) - not deleting any queues')
+black    if len(channel) < 2:  # avoid deleting all queues
+        log.warning(f"blank channel ({channel=}) - not deleting any queues")
         return removed
     for sqs_queue_name in get_all_sqs_queues(channel):
         sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
