@@ -25,20 +25,27 @@ log = Logger(__application_name__)
 queue_timeout = timedelta(days=30).total_seconds()
 
 
-def remove_old_queues() -> None:
+@typechecked()
+def remove_old_queues(channel: str) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
     """
-    for sqs_queue_name in get_all_sqs_queues():
+    removed = []
+    if  len(channel) < 2:  # avoid deleting all queues
+        log.warning(f'blank channel ({channel=}) - not deleting any queues')
+        return removed
+    for sqs_queue_name in get_all_sqs_queues(channel):
         sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
         mtime = sqs_metadata.get_table_mtime_f()
         if mtime is not None and time.time() - mtime > queue_timeout:
-            log.info(f'deleting "{sqs_queue_name}",{mtime=}')
             sqs = SQSPollAccess(sqs_queue_name)
             try:
                 sqs.delete_queue()
+                log.info(f'deleted "{sqs_queue_name}",{mtime=}')
             except ClientError:
-                pass  # already doesn't exist
+                log.info(f'"{sqs_queue_name}" already does not exist,{mtime=}')  # already doesn't exist - this is benign
+            removed.append(sqs_queue_name)
+    return removed
 
 
 @typechecked()
@@ -133,7 +140,8 @@ class PubSub(Process):
 
     def run(self):
 
-        sqs_queue_name = f"{self.channel}_{self.node_name}"
+        sqs_prefix = f"{self.channel}-"
+        sqs_queue_name = f"{sqs_prefix}{self.node_name}"
 
         sns = SNSAccess(self.channel, auto_create=True)
         sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
@@ -144,7 +152,7 @@ class PubSub(Process):
             _connect_sns_to_sqs(self.channel, sqs_queue_name, sqs)
 
         sqs_metadata.update_table_mtime()  # update SQS use time (the existing infrastructure calls it a "table", but we're using it for the SQS queue)
-        remove_old_queues()  # clean up old queues
+        remove_old_queues(sqs_prefix)  # clean up old queues
 
         sqs_thread = _SubscriptionThread(sqs, self._new_event)
         sqs_thread.start()
