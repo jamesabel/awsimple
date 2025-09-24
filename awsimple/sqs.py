@@ -92,6 +92,7 @@ class SQSAccess(AWSAccess):
         if self.queue is None:
             queue = None
             try_count = 0
+            assert self.resource is not None
             while self.queue is None and try_count < 3:
                 create_queue = False
                 try:
@@ -396,6 +397,7 @@ class SQSPollAccess(SQSAccess):
     def __init__(self, queue_name: str, **kwargs):
         super().__init__(queue_name=queue_name, **kwargs)
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
+
 
 def get_all_sqs_queues() -> List[str]:
     """

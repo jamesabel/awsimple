@@ -31,6 +31,7 @@ class SNSAccess(AWSAccess):
         :return: sns.Topic instance
         """
         topic = None
+        assert self.resource is not None
         for t in self.resource.topics.all():
             if t.arn.split(":")[-1] == self.topic_name:
                 topic = t
@@ -76,7 +77,7 @@ class SNSAccess(AWSAccess):
         :param subscriber: email
         :return: subscription ARN
         """
-        if "@" in subscriber:
+        if isinstance(subscriber, str) and "@" in subscriber:
             # email
             endpoint = subscriber
             protocol = "email"

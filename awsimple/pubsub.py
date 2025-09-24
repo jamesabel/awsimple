@@ -1,11 +1,11 @@
 """
 pub/sub abstraction on top of AWS SNS and SQS using boto3.
 """
+
 import time
 from typing import Any, Dict, List
 from datetime import timedelta
-from multiprocessing import Process, Queue
-from multiprocessing import Event as MultiprocessingEvent
+from multiprocessing import Process, Queue, Event
 from threading import Thread
 from queue import Empty
 from logging import Logger
@@ -24,6 +24,7 @@ log = Logger(__application_name__)
 
 queue_timeout = timedelta(days=30).total_seconds()
 
+
 def remove_old_queues() -> None:
     """
     Remove old SQS queues that have not been used recently.
@@ -38,6 +39,7 @@ def remove_old_queues() -> None:
                 sqs.delete_queue()
             except ClientError:
                 pass  # already doesn't exist
+
 
 @typechecked()
 def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAccess) -> None:
@@ -56,6 +58,7 @@ def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAcce
     sns = SNSAccess(channel_name)
     sns.create_topic()
     topic_arn = sns.get_arn()
+    assert sns.resource is not None
     topic = sns.resource.Topic(topic_arn)
 
     # Subscribe queue to topic
@@ -78,21 +81,22 @@ def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAcce
             }
         ],
     }
+    assert sqs.queue is not None
     sqs.queue.set_attributes(Attributes={"Policy": json.dumps(policy)})
     log.debug(f"Queue {sqs_queue_name} policy updated to allow topic {topic_arn}.")
 
-class _SubscriptionThread(Thread):
 
+class _SubscriptionThread(Thread):
     """
     Thread to poll SQS for new messages and put them in a queue for the parent process to read.
     """
 
     @typechecked()
-    def __init__(self, sqs: SQSPollAccess, new_event: MultiprocessingEvent) -> None:
+    def __init__(self, sqs: SQSPollAccess, new_event) -> None:
         super().__init__()
         self._sqs = sqs
         self.new_event = new_event
-        self.sub_queue = Queue()
+        self.sub_queue = Queue()  # type: Queue[str]
 
     def run(self):
         # exit by terminating the parent process
@@ -102,6 +106,7 @@ class _SubscriptionThread(Thread):
                 message = json.loads(message.message)
                 self.sub_queue.put(message["Message"])
                 self.new_event.set()  # notify parent process that a new message is available
+
 
 class PubSub(Process):
 
@@ -117,10 +122,10 @@ class PubSub(Process):
         self.channel = channel
         self.node_name = node_name  # e.g., computer name
 
-        self._pub_queue = Queue()
-        self._sub_queue = Queue()
+        self._pub_queue = Queue()  # type: Queue[Dict[str, Any]]
+        self._sub_queue = Queue()  # type: Queue[str]
 
-        self._new_event = MultiprocessingEvent()  # pub or sub sets this when a new message is available or has been sent
+        self._new_event = Event()  # pub or sub sets this when a new message is available or has been sent
 
         super().__init__()
 
