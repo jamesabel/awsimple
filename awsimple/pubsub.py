@@ -30,7 +30,7 @@ def remove_old_queues(channel: str) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
     """
-    removed = []
+    removed = []  # type: list[str]
     if len(channel) < 2:  # avoid deleting all queues
         log.warning(f"blank channel ({channel=}) - not deleting any queues")
         return removed
