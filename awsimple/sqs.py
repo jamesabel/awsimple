@@ -81,6 +81,8 @@ class SQSAccess(AWSAccess):
         # We write the history out as a file so don't make this too big. We take the median (for the nominal run time) so make this big enough to tolerate a fair number of outliers.
         self.max_history = 20
 
+        self.was_created = False
+
     def _get_queue(self) -> Any:
         """
         Get the SQS queue instance. If the queue doesn't exist and auto_create is True, it will be created.
@@ -143,6 +145,7 @@ class SQSAccess(AWSAccess):
         try:
             response = self.client.create_queue(QueueName=self.queue_name)
             url = response.get("QueueUrl")
+            self.was_created = True
         except self.client.exceptions.QueueDeletedRecently as e:
             log.warning(f"{self.queue_name},{e}")  # can happen if a queue was recently deleted, and we try to re-create it too quickly
             url = None
@@ -386,6 +389,25 @@ class SQSAccess(AWSAccess):
 
 
 class SQSPollAccess(SQSAccess):
+    """
+    SQS Access with long polling.
+    """
+
     def __init__(self, queue_name: str, **kwargs):
         super().__init__(queue_name=queue_name, **kwargs)
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
+
+def get_all_sqs_queues() -> List[str]:
+    """
+    get all SQS queues
+
+    :return: list of queue names
+    """
+    queue_names = []
+
+    sqs = AWSAccess("sqs")
+    for queue in list(sqs.resource.queues.all()):
+        queue_name = queue.url.split("/")[-1]
+        queue_names.append(queue_name)
+
+    return queue_names
