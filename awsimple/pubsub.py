@@ -3,7 +3,7 @@ pub/sub abstraction on top of AWS SNS and SQS using boto3.
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 from datetime import timedelta
 from multiprocessing import Process, Queue, Event
 from threading import Thread
@@ -25,20 +25,27 @@ log = Logger(__application_name__)
 queue_timeout = timedelta(days=30).total_seconds()
 
 
-def remove_old_queues() -> None:
+@typechecked()
+def remove_old_queues(channel: str) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
     """
-    for sqs_queue_name in get_all_sqs_queues():
+    removed = []
+    if  len(channel) < 2:  # avoid deleting all queues
+        log.warning(f'blank channel ({channel=}) - not deleting any queues')
+        return removed
+    for sqs_queue_name in get_all_sqs_queues(channel):
         sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
         mtime = sqs_metadata.get_table_mtime_f()
         if mtime is not None and time.time() - mtime > queue_timeout:
-            log.info(f'deleting "{sqs_queue_name}",{mtime=}')
             sqs = SQSPollAccess(sqs_queue_name)
             try:
                 sqs.delete_queue()
+                log.info(f'deleted "{sqs_queue_name}",{mtime=}')
             except ClientError:
-                pass  # already doesn't exist
+                log.info(f'"{sqs_queue_name}" already does not exist,{mtime=}')  # already doesn't exist - this is benign
+            removed.append(sqs_queue_name)
+    return removed
 
 
 @typechecked()
@@ -111,16 +118,18 @@ class _SubscriptionThread(Thread):
 class PubSub(Process):
 
     @typechecked()
-    def __init__(self, channel: str, node_name: str = get_node_name()) -> None:
+    def __init__(self, channel: str, node_name: str = get_node_name(), sub_callback: Callable | None = None) -> None:
         """
         Pub and Sub.
         Create in a separate process to offload from main thread. Also facilitates use of moto mock in tests.
 
         :param channel: Channel name (SNS topic name).
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
+        :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
         """
         self.channel = channel
         self.node_name = node_name  # e.g., computer name
+        self.sub_callback = sub_callback
 
         self._pub_queue = Queue()  # type: Queue[Dict[str, Any]]
         self._sub_queue = Queue()  # type: Queue[str]
@@ -131,7 +140,8 @@ class PubSub(Process):
 
     def run(self):
 
-        sqs_queue_name = f"{self.channel}_{self.node_name}"
+        sqs_prefix = f"{self.channel}-"
+        sqs_queue_name = f"{sqs_prefix}{self.node_name}"
 
         sns = SNSAccess(self.channel, auto_create=True)
         sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
@@ -142,7 +152,7 @@ class PubSub(Process):
             _connect_sns_to_sqs(self.channel, sqs_queue_name, sqs)
 
         sqs_metadata.update_table_mtime()  # update SQS use time (the existing infrastructure calls it a "table", but we're using it for the SQS queue)
-        remove_old_queues()  # clean up old queues
+        remove_old_queues(sqs_prefix)  # clean up old queues
 
         sqs_thread = _SubscriptionThread(sqs, self._new_event)
         sqs_thread.start()
@@ -159,10 +169,16 @@ class PubSub(Process):
 
             # sub
             try:
-                message = sqs_thread.sub_queue.get(False)
-                self._sub_queue.put(message)
+                message_string = sqs_thread.sub_queue.get(False)
+                # if a callback is provided, call it, otherwise put the message in the sub queue for later retrieval
+                if self.sub_callback is None:
+                    self._sub_queue.put(message_string)
+                else:
+                    message = json.loads(message_string)
+                    self.sub_callback(message)
+                sqs_metadata.update_table_mtime()
             except Empty:
-                pass
+                pass  # no message
 
             # this helps responsiveness
             self._new_event.clear()

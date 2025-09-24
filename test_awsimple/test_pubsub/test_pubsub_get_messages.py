@@ -3,7 +3,7 @@ import time
 from awsimple import PubSub, is_mock
 
 
-def test_pubsub():
+def test_pubsub_get_messages():
 
     test_channel = "test_channel"
     sent_message = {"number": 1}

@@ -399,10 +399,13 @@ class SQSPollAccess(SQSAccess):
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
 
 
-def get_all_sqs_queues() -> List[str]:
+@typechecked()
+def get_all_sqs_queues(prefix: str = "") -> List[str]:
     """
     get all SQS queues
 
+
+    :param prefix: prefix to filter queue names (empty string for all queues)
     :return: list of queue names
     """
     queue_names = []
@@ -410,6 +413,7 @@ def get_all_sqs_queues() -> List[str]:
     sqs = AWSAccess("sqs")
     for queue in list(sqs.resource.queues.all()):
         queue_name = queue.url.split("/")[-1]
-        queue_names.append(queue_name)
+        if queue_name.startswith(prefix):
+            queue_names.append(queue_name)
 
     return queue_names
