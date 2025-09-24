@@ -4,3 +4,5 @@ omit =
         test_*/*
 
 branch = True
+parallel = True
+concurrency = multiprocessing
