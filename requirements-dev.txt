@@ -22,8 +22,8 @@ pytest
 moto[dynamodb,s3,sns,sqs]
 # moto apparently requires docker
 docker
-localstack
-localstack-client
+# localstack
+# localstack-client
 awscli
 awscli-local
 coverage
