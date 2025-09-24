@@ -36,26 +36,27 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 
 ### Features:
 
-- Simple Object Oriented API on top of boto3
-
-- One-line S3 file write, read, and delete
-
-- Automatic S3 retries
-
 - Locally cached S3 accesses
+
+- `pubsub` functionality (via SNS topics and SQS queues)
+
+- DynamoDB full table scans (with local cache option that only rescans if the table has changed)
 
 - True file hashing (SHA512) for S3 files (S3's etag is not a true file hash)
 
-- DynamoDB full table scans (with local cache option)
+- Supports moto mock and localstack. Handy for testing and CI
+
+- Automatic S3 retries
+
+- Simple Object Oriented API on top of boto3
+
+- One-line S3 file write, read, and delete
 
 - DynamoDB secondary indexes
 
 - Built-in pagination (e.g. for DynamoDB table scans and queries).  Always get everything you asked for.
 
 - Can automatically set SQS timeouts based on runtime data (can also be user-specified)
-
-- Supports moto mock and localstack. Handy for testing and CI.
-
 
 ## Usage
 
