@@ -17,25 +17,29 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        allow-prereleases: true   # enable pre-release versions, e.g. 3.14.0bX
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
+        pip install --pre pytest   # allow pytest pre-releases too
+        pip install flake8
         if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-# was for pytest-fly, but couldn't get CI to install a compatible libEGL
-#    - name: Install libEGL dependency
-#      run: |
-#        sudo apt-get update
-#        sudo apt-get install -y libegl-mesa0 libgl1
+    # was for pytest-fly, but couldn't get CI to install a compatible libEGL
+    # - name: Install libEGL dependency
+    #   run: |
+    #     sudo apt-get update
+    #     sudo apt-get install -y libegl-mesa0 libgl1
 
     - name: Lint with flake8
       run: |
@@ -48,7 +52,7 @@ jobs:
       run: |
         pytest -s test_awsimple
 
-#    - name: "Upload coverage to Codecov"
-#      uses: codecov/codecov-action@v1
-#      with:
-#        fail_ci_if_error: true
+    # - name: "Upload coverage to Codecov"
+    #   uses: codecov/codecov-action@v1
+    #   with:
+    #     fail_ci_if_error: true
