@@ -36,6 +36,9 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 
 ### Features:
 
+- Simple Object-Oriented API on top of boto3.
+  - Eliminates the need to worry about `clients`, `resources`, `sessions`, and pagination.
+
 - Locally cached S3 accesses
 
 - `pubsub` functionality (via SNS topics and SQS queues)
@@ -47,8 +50,6 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 - Supports moto mock and localstack. Handy for testing and CI
 
 - Automatic S3 retries
-
-- Simple Object Oriented API on top of boto3
 
 - One-line S3 file write, read, and delete
 
