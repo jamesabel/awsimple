@@ -897,7 +897,6 @@ class DynamoDBAccess(CacheAccess):
         log.info(f"wrote {len(filtered_rows)} rows to {file_path}")
 
 
-
 metadata_table_name = f"__{__application_name__}_metadata__"
 
 
