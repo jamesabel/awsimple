@@ -17,6 +17,7 @@ from enum import Enum
 import decimal
 from decimal import Decimal
 from functools import lru_cache
+from collections.abc import Iterable
 from logging import getLogger
 
 
@@ -857,6 +858,44 @@ class DynamoDBAccess(CacheAccess):
             count += 1
         self.metadata_table.update_table_mtime()
         return count
+
+    @typechecked()
+    def dump_to_csv(self, file_path: Path):
+        """
+        Dump the table to a CSV file.
+
+        :param file_path: output CSV file path
+        """
+        import csv
+
+        original_rows = self.scan_table()
+        if len(original_rows) == 0:
+            log.warning(f"table {self.table_name} is empty, not writing {file_path}")
+            return
+
+        # get all field names with simple data types (no iterables)
+        field_names_set = set()
+        filtered_rows = []
+        for original_row in original_rows:
+            filtered_row = {}
+            for key, value in original_row.items():
+                # only include "simple" data types (i.e. no lists, sets, dicts, etc.)
+                if not isinstance(value, Iterable) or isinstance(value, (str, bytes, bytearray)):
+                    field_names_set.add(key)
+                    filtered_row[key] = value
+            if len(filtered_row) > 0:
+                filtered_rows.append(filtered_row)
+        field_names = sorted(field_names_set)
+
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=field_names)
+            writer.writeheader()
+            for filtered_row in filtered_rows:
+                writer.writerow(dynamodb_to_dict(filtered_row))
+
+        log.info(f"wrote {len(filtered_rows)} rows to {file_path}")
+
 
 
 metadata_table_name = f"__{__application_name__}_metadata__"
