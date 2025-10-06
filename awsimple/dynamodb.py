@@ -28,7 +28,8 @@ from typeguard import typechecked
 from dictim import dictim  # type: ignore
 from yasf import sf
 
-from awsimple import CacheAccess, __application_name__, AWSimpleException
+from . import CacheAccess, __application_name__, AWSimpleException
+from .exceptions import DynamoDBItemAlreadyExists
 
 # don't require pillow, but convert images with it if it exists
 pil_exists = False
@@ -219,6 +220,10 @@ def _is_valid_db_pickled_file(file_path: Path, cache_life: Union[float, int, Non
 
 
 class DynamoDBAccess(CacheAccess):
+    """
+    AWS DynamoDB access
+    """
+
     @typechecked()
     def __init__(self, table_name: Union[str, None] = None, **kwargs):
         """
@@ -732,6 +737,36 @@ class DynamoDBAccess(CacheAccess):
             self.metadata_table.update_table_mtime()
         except self.client.exceptions.ResourceNotFoundException:
             raise DynamoDBTableNotFound(str(self.table_name))
+
+    def put_item_if_not_exists(self, item: dict):
+        """
+        Put (write) a DynamoDB table dict item if it doesn't already exist.  If the item already exists, it is not modified and DynamoDBItemAlreadyExists is raised.
+
+        :param item: item
+        """
+        assert self.resource is not None
+        primary_partition_key = self.get_primary_partition_key()
+        primary_sort_key = self.get_primary_sort_key()
+        try:
+            table = self.resource.Table(self.table_name)
+            if primary_sort_key is None:
+                table.put_item(Item=item, ConditionExpression="attribute_not_exists(#pk)", ExpressionAttributeNames={"#pk": primary_partition_key})
+            else:
+                table.put_item(
+                    Item=item,
+                    ConditionExpression="attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+                    ExpressionAttributeNames={"#pk": primary_partition_key, "#sk": primary_sort_key},
+                )
+            self.metadata_table.update_table_mtime()
+            already_exists = False
+        except self.client.exceptions.ResourceNotFoundException:
+            raise DynamoDBTableNotFound(str(self.table_name))
+        except self.client.exceptions.ConditionalCheckFailedException:
+            already_exists = True
+        if already_exists:
+            primary_partition_value = str(item.get(primary_partition_key, ""))
+            primary_sort_value = str(item.get(primary_sort_key, ""))
+            raise DynamoDBItemAlreadyExists(str(self.table_name), primary_partition_value, primary_sort_value)
 
     # cant' do a @typechecked() since optional item requires a single type
     def get_item(
