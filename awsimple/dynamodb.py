@@ -921,6 +921,9 @@ class DynamoDBAccess(CacheAccess):
             if len(filtered_row) > 0:
                 filtered_rows.append(filtered_row)
         field_names = sorted(field_names_set)
+        primary_partition_key = self.get_primary_partition_key()
+        primary_sort_key = self.get_primary_sort_key()
+        filtered_rows.sort(key=lambda x: (x[primary_partition_key], x.get(primary_sort_key)))  # sort by primary partition key, then sort key if it exists
 
         file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(file_path, "w", newline="") as csvfile:
