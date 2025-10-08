@@ -3,7 +3,7 @@ pub/sub abstraction on top of AWS SNS and SQS using boto3.
 """
 
 import time
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, Union
 from datetime import timedelta
 from multiprocessing import Process, Queue, Event
 from threading import Thread
@@ -24,9 +24,13 @@ log = Logger(__application_name__)
 
 queue_timeout = timedelta(days=30).total_seconds()
 
+sqs_name = "sqs"
+
 
 @typechecked()
-def remove_old_queues(channel: str) -> list[str]:
+def remove_old_queues(
+    channel: str, profile_name: Union[str, None] = None, aws_access_key_id: Union[str, None] = None, aws_secret_access_key: Union[str, None] = None, region_name: Union[str, None] = None
+) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
     """
@@ -35,10 +39,12 @@ def remove_old_queues(channel: str) -> list[str]:
         log.warning(f"blank channel ({channel=}) - not deleting any queues")
         return removed
     for sqs_queue_name in get_all_sqs_queues(channel):
-        sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
+        sqs_metadata = _DynamoDBMetadataTable(
+            sqs_name, sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name
+        )
         mtime = sqs_metadata.get_table_mtime_f()
         if mtime is not None and time.time() - mtime > queue_timeout:
-            sqs = SQSPollAccess(sqs_queue_name)
+            sqs = SQSPollAccess(sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name)
             try:
                 sqs.delete_queue()
                 log.info(f'deleted "{sqs_queue_name}",{mtime=}')
@@ -49,20 +55,18 @@ def remove_old_queues(channel: str) -> list[str]:
 
 
 @typechecked()
-def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAccess) -> None:
+def _connect_sns_to_sqs(sqs: SQSPollAccess, sns: SNSAccess) -> None:
     """
     Connect an SQS queue to an SNS topic.
 
-    :param channel_name: SNS topic name.
-    :param sqs_queue_name: SQS queue name.
-    :param sqs: SQSPollAccess instance for the SQS queue.
+    :param sqs: SQS access object
+    :param sns: SNS access object
     :return: None
     """
 
     sqs_arn = sqs.get_arn()
 
     # Find the topic by name
-    sns = SNSAccess(channel_name)
     sns.create_topic()
     topic_arn = sns.get_arn()
     assert sns.resource is not None
@@ -71,7 +75,7 @@ def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAcce
     # Subscribe queue to topic
     queue_arn = sqs.get_arn()
     subscription = topic.subscribe(Protocol="sqs", Endpoint=queue_arn)
-    log.info(f"Subscribed {sqs_queue_name} to topic {topic_arn}. Subscription ARN: {subscription.arn}")
+    log.info(f"Subscribed {sqs.queue_name} to topic {topic_arn}. Subscription ARN: {subscription.arn}")
 
     # Update queue policy to allow SNS -> SQS
     policy = {
@@ -90,7 +94,7 @@ def _connect_sns_to_sqs(channel_name: str, sqs_queue_name: str, sqs: SQSPollAcce
     }
     assert sqs.queue is not None
     sqs.queue.set_attributes(Attributes={"Policy": json.dumps(policy)})
-    log.debug(f"Queue {sqs_queue_name} policy updated to allow topic {topic_arn}.")
+    log.debug(f"Queue {sqs.queue_name} policy updated to allow topic {topic_arn}.")
 
 
 class _SubscriptionThread(Thread):
@@ -118,7 +122,16 @@ class _SubscriptionThread(Thread):
 class PubSub(Process):
 
     @typechecked()
-    def __init__(self, channel: str, node_name: str = get_node_name(), sub_callback: Callable | None = None) -> None:
+    def __init__(
+        self,
+        channel: str,
+        node_name: str = get_node_name(),
+        sub_callback: Callable | None = None,
+        profile_name: Union[str, None] = None,
+        aws_access_key_id: Union[str, None] = None,
+        aws_secret_access_key: Union[str, None] = None,
+        region_name: Union[str, None] = None,
+    ) -> None:
         """
         Pub and Sub.
         Create in a separate process to offload from main thread. Also facilitates use of moto mock in tests.
@@ -130,6 +143,11 @@ class PubSub(Process):
         self.channel = channel
         self.node_name = node_name  # e.g., computer name
         self.sub_callback = sub_callback
+
+        self.profile_name = profile_name
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.region_name = region_name
 
         self._pub_queue = Queue()  # type: Queue[Dict[str, Any]]
         self._sub_queue = Queue()  # type: Queue[str]
@@ -143,13 +161,31 @@ class PubSub(Process):
         sqs_prefix = f"{self.channel}-"
         sqs_queue_name = f"{sqs_prefix}{self.node_name}"
 
-        sns = SNSAccess(self.channel, auto_create=True)
-        sqs_metadata = _DynamoDBMetadataTable(sqs_queue_name)
+        sns = SNSAccess(
+            self.channel,
+            auto_create=True,
+            profile_name=self.profile_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            region_name=self.region_name,
+        )
+        sqs_metadata = _DynamoDBMetadataTable(
+            sqs_name, sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
+        )
 
-        sqs = SQSPollAccess(sqs_queue_name)
+        sqs = SQSPollAccess(
+            sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
+        )
         if not sqs.exists():
             sqs.create_queue()
-            _connect_sns_to_sqs(self.channel, sqs_queue_name, sqs)
+            sns = SNSAccess(
+                topic_name=self.channel,
+                profile_name=self.profile_name,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                region_name=self.region_name,
+            )
+            _connect_sns_to_sqs(sqs, sns)
 
         sqs_metadata.update_table_mtime()  # update SQS use time (the existing infrastructure calls it a "table", but we're using it for the SQS queue)
         remove_old_queues(sqs_prefix)  # clean up old queues

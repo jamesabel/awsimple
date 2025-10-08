@@ -9,7 +9,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 import datetime
 from pathlib import Path
 from os.path import getsize, getmtime
-from typing import List, Union, Any, Type, Dict, Callable, Literal
+from typing import List, Union, Any, Type, Dict, Callable
 from pprint import pformat
 from itertools import islice
 import json
@@ -21,12 +21,10 @@ from collections.abc import Iterable
 from logging import getLogger
 
 
-import boto3
 from botocore.exceptions import EndpointConnectionError, ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim  # type: ignore
-from yasf import sf
 
 from . import CacheAccess, __application_name__, AWSimpleException
 from .exceptions import DynamoDBItemAlreadyExists
@@ -47,6 +45,9 @@ handle_inexact_error = True
 
 # for scan to dict
 DictKey = namedtuple("DictKey", ["partition", "sort"])  # only for Primary Key with both partition and sort keys
+
+metadata_table_name = f"__{__application_name__}_metadata__"
+dynamodb_name = "dynamodb"
 
 log = getLogger(__application_name__)
 
@@ -237,8 +238,12 @@ class DynamoDBAccess(CacheAccess):
         self.secondary_index_postfix = "-index"
 
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
-        if self.table_name is not None:
-            self.metadata_table = _DynamoDBMetadataTable(self.table_name)
+
+        # avoid recursion
+        if self.table_name is not None and self.table_name != metadata_table_name:
+            self.metadata_table = _DynamoDBMetadataTable(dynamodb_name, self.table_name, **kwargs)
+        else:
+            self.metadata_table = None
 
         super().__init__(resource_name="dynamodb", **kwargs)
 
@@ -513,7 +518,8 @@ class DynamoDBAccess(CacheAccess):
                 created = True
             except ClientError as e:
                 log.warning(e)
-        self.metadata_table.update_table_mtime()
+        if self.metadata_table is not None:
+            self.metadata_table.update_table_mtime()
 
         return created
 
@@ -734,7 +740,8 @@ class DynamoDBAccess(CacheAccess):
         try:
             table = self.resource.Table(self.table_name)
             table.put_item(Item=item)
-            self.metadata_table.update_table_mtime()
+            if self.metadata_table is not None:
+                self.metadata_table.update_table_mtime()
         except self.client.exceptions.ResourceNotFoundException:
             raise DynamoDBTableNotFound(str(self.table_name))
 
@@ -757,7 +764,8 @@ class DynamoDBAccess(CacheAccess):
                     ConditionExpression="attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
                     ExpressionAttributeNames={"#pk": primary_partition_key, "#sk": primary_sort_key},
                 )
-            self.metadata_table.update_table_mtime()
+            if self.metadata_table is not None:
+                self.metadata_table.update_table_mtime()
             already_exists = False
         except self.client.exceptions.ResourceNotFoundException:
             raise DynamoDBTableNotFound(str(self.table_name))
@@ -935,37 +943,21 @@ class DynamoDBAccess(CacheAccess):
         log.info(f"wrote {len(filtered_rows)} rows to {file_path}")
 
 
-metadata_table_name = f"__{__application_name__}_metadata__"
-
-
-class _DynamoDBMetadataTable:
+class _DynamoDBMetadataTable(DynamoDBAccess):
     """
     Access metadata (e.g. most recent modification time) for DynamoDB tables.
     """
 
     @typechecked()
-    def __init__(self, table_name: str):
-        self.table_name = table_name  # table we're storing metadata *for* (not the name of this metadata table)
-        self.primary_partition_key = "service"
+    def __init__(self, service: str, service_name: str, **kwargs):
+        self.service = service  # DynamoDB, SNS, SQS, etc.
+        self.service_name = service_name  # table name, queue name, topic name, etc.
+        self.primary_partition_key = "service"  # e.g. "dynamodb", "sqs", "sns", etc.
         self.primary_sort_key = "name"  # e.g. table name
         self.mtime_f_string = "mtime_f"
         self.mtime_human_string = "mtime_human"
-        self.service = "dynamodb"  # type: Literal["dynamodb"]
-        self.client = boto3.client(self.service)
-        self.resource = boto3.resource(self.service)
-        self.table = self.resource.Table(metadata_table_name)
-
-    def create_table(self):
-        key_schema = [{"AttributeName": self.primary_partition_key, "KeyType": "HASH"}, {"AttributeName": self.primary_sort_key, "KeyType": "RANGE"}]  # Partition key  # Sort key
-
-        attribute_definitions = [{"AttributeName": self.primary_partition_key, "AttributeType": "S"}, {"AttributeName": self.primary_sort_key, "AttributeType": "S"}]
-
-        self.table = self.resource.create_table(
-            TableName=metadata_table_name, KeySchema=key_schema, AttributeDefinitions=attribute_definitions, BillingMode="PAY_PER_REQUEST"  # on-demand capacity mode
-        )
-
-        # Wait until the table exists
-        self.table.meta.client.get_waiter("table_exists").wait(TableName=metadata_table_name)
+        super().__init__(metadata_table_name, **kwargs)
+        self.create_table(partition_key=self.primary_partition_key, sort_key=self.primary_sort_key, partition_key_type=str, sort_key_type=str)
 
     def update_table_mtime(self):
         """
@@ -975,27 +967,12 @@ class _DynamoDBMetadataTable:
         item = dict_to_dynamodb(
             {
                 self.primary_partition_key: self.service,
-                self.primary_sort_key: self.table_name,
+                self.primary_sort_key: self.service_name,
                 self.mtime_f_string: m_time,
                 self.mtime_human_string: datetime.datetime.fromtimestamp(m_time).astimezone().isoformat(),
             }
         )
-        log.debug(sf(item=item))
-        retry_put = False
-        try:
-            self.table.put_item(Item=item)
-        except ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "ValidationException":
-                self.client.delete_table(TableName=metadata_table_name)
-                self.table.meta.client.get_waiter("table_not_exists").wait(TableName=metadata_table_name)
-            if error_code == "ValidationException" or error_code == "ResourceNotFoundException":
-                self.create_table()  # table doesn't exist, so create it
-                retry_put = True  # and retry the put
-            else:
-                raise  # some other exception, so re-raise it
-        if retry_put:
-            self.table.put_item(Item=item)
+        self.put_item(item=item)
 
     @typechecked()
     def get_table_mtime_f(self) -> Union[float | None]:
@@ -1003,13 +980,10 @@ class _DynamoDBMetadataTable:
         Get a table's mtime from the metadata table.
         :return: table's mtime as a float or None if table hasn't been written to
         """
-        mtime_f = None
-        key = {self.primary_partition_key: self.service, self.primary_sort_key: self.table_name}
-        try:
-            response = self.table.get_item(Key=key)
-            if (mtime_item := response.get("Item")) is not None and (mtime_f_as_decimal := mtime_item.get(self.mtime_f_string)) is not None:
-                assert isinstance(mtime_f_as_decimal, Decimal)  # mainly for mypy
-                mtime_f = float(mtime_f_as_decimal)  # boto3 uses Decimal for numbers, but we want a float
-        except DBItemNotFound:
-            pass
+        item = self.get_item(self.primary_partition_key, self.service, self.primary_sort_key, self.service_name)
+        if (mtime := item.get(self.mtime_f_string)) is None:
+            mtime_f = None
+        else:
+            mtime_f = float(mtime)
+
         return mtime_f

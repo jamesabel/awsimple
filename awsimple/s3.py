@@ -23,7 +23,7 @@ from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512
 from yasf import sf
 
-from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases
+from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases, S3BucketAlreadyExistsNotOwnedByYou
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
@@ -518,17 +518,18 @@ class S3Access(CacheAccess):
         else:
             location = {"LocationConstraint": region}
 
-        created = False
-        if not self.bucket_exists():
-            try:
-                if self.public_readable:
-                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL="public-read")
-                else:
-                    self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
-                self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
-                created = True
-            except ClientError as e:
-                log.warning(f"{self.bucket_name=} {e=}")
+        try:
+            if self.public_readable:
+                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL="public-read")
+            else:
+                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
+            self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
+            created = True
+        except self.client.exceptions.BucketAlreadyOwnedByYou:
+            created = False  # already exists and owned by you
+        except self.client.exceptions.BucketAlreadyExists as e:
+            # bucket already exists and is owned by someone else
+            raise S3BucketAlreadyExistsNotOwnedByYou(str(self.bucket_name)) from e
         return created
 
     @typechecked()
