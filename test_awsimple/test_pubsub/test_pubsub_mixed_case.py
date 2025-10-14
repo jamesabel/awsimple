@@ -3,12 +3,13 @@ import time
 from awsimple import PubSub
 
 
-def test_pubsub_get_messages():
+def test_pubsub_mixed_case():
 
-    test_channel = "test_channel"
-    sent_message = {"number": 1}
+    test_channel = "MyTestChannel"  # gets converted to lowercase for SNS topic and SQS queue
+    node_name = "MyNodeName"  # gets converted to lowercase for SNS topic and SQS queue
+    sent_message = {"MyNumber": 1, "MyBoolean": True, "MyFloat": 2.0 / 3.0}
 
-    pubsub = PubSub(test_channel)
+    pubsub = PubSub(test_channel, node_name)
     pubsub.start()
 
     pubsub.publish(sent_message)
