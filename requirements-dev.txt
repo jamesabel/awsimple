@@ -2,7 +2,7 @@
 # awsimple requirements
 hashy
 boto3
-typeguard<3
+typeguard
 dictim
 appdirs
 tobool
