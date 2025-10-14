@@ -140,8 +140,8 @@ class PubSub(Process):
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
         :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
         """
-        self.channel = channel
-        self.node_name = node_name  # e.g., computer name
+        self.channel = channel.lower()  # when subscribing SQS queues to SNS topics, the names must all be lowercase (bizarre AWS "gotcha")
+        self.node_name = node_name.lower()  # e.g., computer name or user and computer name
         self.sub_callback = sub_callback
 
         self.profile_name = profile_name
