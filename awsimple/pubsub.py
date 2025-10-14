@@ -3,6 +3,7 @@ pub/sub abstraction on top of AWS SNS and SQS using boto3.
 """
 
 import time
+from functools import lru_cache
 from typing import Any, Dict, List, Callable, Union
 from datetime import timedelta
 from multiprocessing import Process, Queue, Event
@@ -119,6 +120,20 @@ class _SubscriptionThread(Thread):
                 self.new_event.set()  # notify parent process that a new message is available
 
 
+@lru_cache
+def make_name_aws_safe(name: str) -> str:
+    """
+    Make a name safe for an SQS queue to subscribe to an SNS topic.
+
+    :param name: input name
+    :return: AWS safe name
+    """
+    safe_name = "".join([c for c in name.strip().lower() if c.isalnum()])  # only allow alphanumeric characters
+    if len(safe_name) < 1:
+        raise ValueError(f'"{name}" is not valid after making AWS safe - result must contain at least one alphanumeric character.')
+    return safe_name
+
+
 class PubSub(Process):
 
     @typechecked()
@@ -136,12 +151,13 @@ class PubSub(Process):
         Pub and Sub.
         Create in a separate process to offload from main thread. Also facilitates use of moto mock in tests.
 
-        :param channel: Channel name (SNS topic name).
+        :param channel: Channel name (used for SNS topic name). This must not be a prefix of other channel names to avoid collisions (don't name one channel "a" and another "ab").
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
         :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
         """
-        self.channel = channel.lower()  # when subscribing SQS queues to SNS topics, the names must all be lowercase (bizarre AWS "gotcha")
-        self.node_name = node_name.lower()  # e.g., computer name or user and computer name
+
+        self.channel = "ps" + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
+        self.node_name = make_name_aws_safe(node_name)
         self.sub_callback = sub_callback
 
         self.profile_name = profile_name
@@ -158,8 +174,7 @@ class PubSub(Process):
 
     def run(self):
 
-        sqs_prefix = f"{self.channel}-"
-        sqs_queue_name = f"{sqs_prefix}{self.node_name}"
+        sqs_queue_name = f"{self.channel}{self.node_name}"
 
         sns = SNSAccess(
             self.channel,
@@ -188,7 +203,7 @@ class PubSub(Process):
             _connect_sns_to_sqs(sqs, sns)
 
         sqs_metadata.update_table_mtime()  # update SQS use time (the existing infrastructure calls it a "table", but we're using it for the SQS queue)
-        remove_old_queues(sqs_prefix)  # clean up old queues
+        remove_old_queues(self.channel)  # clean up old queues
 
         sqs_thread = _SubscriptionThread(sqs, self._new_event)
         sqs_thread.start()
