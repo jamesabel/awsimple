@@ -2,7 +2,7 @@ import time
 from multiprocessing import Queue
 from queue import Empty
 
-from awsimple import PubSub
+from awsimple import Pub, Sub, is_mock
 
 
 def test_pubsub_callback():
@@ -12,10 +12,13 @@ def test_pubsub_callback():
 
     message_queue = Queue()
 
-    pubsub = PubSub(test_channel, sub_callback=message_queue.put)  # the callback puts messages in the queue
-    pubsub.start()
+    pub = Pub(test_channel)
+    pub.start()
 
-    pubsub.publish(sent_message)
+    sub = Sub(test_channel, sub_callback=message_queue.put)  # the callback puts messages in the queue
+    sub.start()
+
+    pub.publish(sent_message)
 
     # test the callback
     count = 100
@@ -28,6 +31,10 @@ def test_pubsub_callback():
         count -= 1
     assert message_from_queue == sent_message
 
-    pubsub.terminate()
-    pubsub.join(60)
-    assert not pubsub.is_alive()
+    pub.request_exit()
+    sub.request_exit()
+
+    pub.join(60)
+    assert not pub.is_alive()
+    sub.join(60)
+    assert not sub.is_alive()

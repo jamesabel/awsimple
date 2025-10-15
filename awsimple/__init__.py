@@ -9,5 +9,5 @@ from .dynamodb_miv import DynamoDBMIVUI, miv_string, get_time_us, miv_us_to_time
 from .s3 import S3Access, S3DownloadStatus, S3ObjectMetadata, BucketNotFound
 from .sqs import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time, aws_sqs_max_messages, get_all_sqs_queues
 from .sns import SNSAccess
-from .pubsub import PubSub
+from .pubsub import Pub, Sub
 from .logs import LogsAccess
