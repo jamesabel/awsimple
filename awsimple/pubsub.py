@@ -14,6 +14,7 @@ import json
 
 from typeguard import typechecked
 from botocore.exceptions import ClientError
+import strif
 
 from .sns import SNSAccess
 from .sqs import SQSPollAccess, get_all_sqs_queues
@@ -121,17 +122,17 @@ class _SubscriptionThread(Thread):
 
 
 @lru_cache
-def make_name_aws_safe(name: str) -> str:
+def make_name_aws_safe(*args: str) -> str:
     """
-    Make a name safe for an SQS queue to subscribe to an SNS topic.
+    Make a name safe for an SQS queue to subscribe to an SNS topic. AWS has a bunch of undocumented restrictions on names, so we just hash the name to a base36 string.
 
-    :param name: input name
+    :params: input name(s)
     :return: AWS safe name
     """
-    safe_name = "".join([c for c in name.strip().lower() if c.isalnum()])  # only allow alphanumeric characters
-    if len(safe_name) < 1:
-        raise ValueError(f'"{name}" is not valid after making AWS safe - result must contain at least one alphanumeric character.')
-    return safe_name
+
+    base36 = strif.hash_string("".join(args)).base36
+    assert len(base36) == 31
+    return base36
 
 
 class PubSub(Process):
@@ -155,9 +156,10 @@ class PubSub(Process):
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
         :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
         """
-
-        self.channel = "ps" + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
-        self.node_name = make_name_aws_safe(node_name)
+        self.aws_resource_prefix = "ps"  # for pubsub
+        self.channel = self.aws_resource_prefix + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
+        self.node_name = node_name
+        self.sqs_queue_name = self.aws_resource_prefix + make_name_aws_safe(self.channel, self.node_name)
         self.sub_callback = sub_callback
 
         self.profile_name = profile_name
@@ -174,8 +176,6 @@ class PubSub(Process):
 
     def run(self):
 
-        sqs_queue_name = f"{self.channel}{self.node_name}"
-
         sns = SNSAccess(
             self.channel,
             auto_create=True,
@@ -185,11 +185,16 @@ class PubSub(Process):
             region_name=self.region_name,
         )
         sqs_metadata = _DynamoDBMetadataTable(
-            sqs_name, sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
+            sqs_name,
+            self.sqs_queue_name,
+            profile_name=self.profile_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            region_name=self.region_name,
         )
 
         sqs = SQSPollAccess(
-            sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
+            self.sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
         )
         if not sqs.exists():
             sqs.create_queue()

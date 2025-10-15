@@ -9,6 +9,7 @@ tobool
 urllib3
 python-dateutil
 yasf
+strif
 #
 # examples
 ismain
