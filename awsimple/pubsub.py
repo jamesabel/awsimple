@@ -26,7 +26,7 @@ log = Logger(__application_name__)
 
 queue_timeout = timedelta(days=30).total_seconds()
 
-sqs_name = "sqs"
+SQS_NAME = "sqs"
 
 AWS_RESOURCE_PREFIX = "ps"  # for pubsub
 
@@ -44,7 +44,7 @@ def remove_old_queues(
         return removed
     for sqs_queue_name in get_all_sqs_queues(channel):
         sqs_metadata = _DynamoDBMetadataTable(
-            sqs_name, sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name
+            SQS_NAME, sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name
         )
         mtime = sqs_metadata.get_table_mtime_f()
         if mtime is not None and time.time() - mtime > queue_timeout:
@@ -103,7 +103,7 @@ def _connect_sns_to_sqs(sqs: SQSPollAccess, sns: SNSAccess) -> None:
 
 class _SubscriptionThread(Thread):
     """
-    Thread to poll SQS for new messages and put them in a queue for the parent process to read.
+    Thread to poll SQS for new messages and put them in a queue for the parent thread to read.
     """
 
     @typechecked()
@@ -129,7 +129,7 @@ class _SubscriptionThread(Thread):
 @lru_cache
 def make_name_aws_safe(*args: str) -> str:
     """
-    Make a name safe for an SQS queue to subscribe to an SNS topic. AWS has a bunch of undocumented restrictions on names, so we just hash the name to a base36 string.
+    Make a name safe for an SQS queue to subscribe to an SNS topic. This ensures we adhere to name restrictions such as acceptable characters and length.
 
     :params: input name(s)
     :return: AWS safe name
@@ -146,13 +146,13 @@ class _PubSub(Thread):
     def __init__(
         self,
         channel: str,
-        node_name: str = get_node_name(),
-        sub_callback: Callable | None = None,
-        sub_poll: bool = False,
-        profile_name: Union[str, None] = None,
-        aws_access_key_id: Union[str, None] = None,
-        aws_secret_access_key: Union[str, None] = None,
-        region_name: Union[str, None] = None,
+        node_name: str,
+        sub_callback: Callable | None,
+        use_sub_queue: bool,
+        profile_name: Union[str, None],
+        aws_access_key_id: Union[str, None],
+        aws_secret_access_key: Union[str, None],
+        region_name: Union[str, None],
     ) -> None:
         """
         Pub and Sub.
@@ -161,13 +161,13 @@ class _PubSub(Thread):
         :param channel: Channel name (used for SNS topic name). This must not be a prefix of other channel names to avoid collisions (don't name one channel "a" and another "ab").
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
         :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
-        :param sub_poll: If True, use an internal queue to store received messages. If False, messages must be handled by the callback function. Default is False.
+        :param use_sub_queue: If True, use an internal queue to store received messages. If False, messages must be handled by the callback function. Default is False.
         """
         self.channel = AWS_RESOURCE_PREFIX + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
         self.node_name = node_name
         self.sqs_queue_name = AWS_RESOURCE_PREFIX + make_name_aws_safe(self.channel, self.node_name)
         self.sub_callback = sub_callback
-        self.use_sub_queue = sub_poll
+        self.use_sub_queue = use_sub_queue
 
         self.profile_name = profile_name
         self.aws_access_key_id = aws_access_key_id
@@ -179,8 +179,9 @@ class _PubSub(Thread):
 
         self._exit_event = Event()  # set this to request exit
         self._new_event = Event()
+        self._new_event_wait_time = 10  # seconds
 
-        super().__init__()
+        super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
     def run(self):
 
@@ -192,8 +193,10 @@ class _PubSub(Thread):
             aws_secret_access_key=self.aws_secret_access_key,
             region_name=self.region_name,
         )
+        sns.create_topic()
+
         sqs_metadata = _DynamoDBMetadataTable(
-            sqs_name,
+            SQS_NAME,
             self.sqs_queue_name,
             profile_name=self.profile_name,
             aws_access_key_id=self.aws_access_key_id,
@@ -248,14 +251,44 @@ class _PubSub(Thread):
                 except Empty:
                     pass  # no message
 
-            self._new_event.wait(10)
-            self._new_event.clear()
+            if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
+                self._new_event.clear()
 
         if sqs_thread is not None:
             sqs_thread.request_exit()
             sqs_thread.join(30)
             if sqs_thread.is_alive():
                 log.error("sqs_thread did not exit cleanly")
+
+    @typechecked()
+    def publish(self, message: dict) -> None:
+        """
+        Publish a message.
+
+        :param message: message as a dictionary
+        """
+        self._pub_queue.put(message)
+        self._new_event.set()
+
+    @typechecked()
+    def get_messages(self) -> List[Dict[str, Any]]:
+        """
+        Get all available messages. Muse set sub_poll=True when creating the PubSub object to use this function.
+
+        :return: list of messages as dictionaries
+        """
+        if not self.use_sub_queue:
+            raise RuntimeError("use_sub_queue must be True to use get_messages()")
+        messages = []
+        while True:
+            try:
+                message_string = self._sub_queue.get(block=False)
+                message = json.loads(message_string)
+                log.debug(f"{message=}")
+                messages.append(message)
+            except Empty:
+                break
+        return messages
 
     def request_exit(self) -> None:
         """
@@ -267,7 +300,8 @@ class _PubSub(Thread):
 
 class Pub(_PubSub):
 
-    def __init___(
+    @typechecked()
+    def __init__(
         self,
         channel: str,
         node_name: str = get_node_name(),
@@ -285,33 +319,23 @@ class Pub(_PubSub):
         super().__init__(
             channel=channel,
             node_name=node_name,
-            sub_callback=None,
-            sub_poll=False,
+            sub_callback=None,  # pub only
+            use_sub_queue=False,  # pub only
             profile_name=profile_name,
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name,
         )
 
-    @typechecked()
-    def publish(self, message: dict) -> None:
-        """
-        Publish a message.
-
-        :param message: message as a dictionary
-        """
-        self._pub_queue.put(message)
-        self._new_event.set()
-
 
 class Sub(_PubSub):
 
-    def __init___(
+    @typechecked()
+    def __init__(
         self,
         channel: str,
         node_name: str = get_node_name(),
         sub_callback: Callable | None = None,
-        sub_poll: bool = False,
         profile_name: Union[str, None] = None,
         aws_access_key_id: Union[str, None] = None,
         aws_secret_access_key: Union[str, None] = None,
@@ -323,36 +347,16 @@ class Sub(_PubSub):
 
         :param channel: Channel name (used for SNS topic name). This must not be a prefix of other channel names to avoid collisions (don't name one channel "a" and another "ab").
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
-        :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
-        :param sub_poll: If True, use an internal queue to store received messages. If False, messages must be handled by the callback function. Default is False.
+        :param sub_callback: Optional callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
+                             If this is not used, then get_messages() should be used to retrieve messages.
         """
         super().__init__(
             channel=channel,
             node_name=node_name,
             sub_callback=sub_callback,
-            sub_poll=sub_poll,
+            use_sub_queue=sub_callback is None,  # if no callback, use internal queue
             profile_name=profile_name,
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name,
         )
-
-    @typechecked()
-    def get_messages(self) -> List[Dict[str, Any]]:
-        """
-        Get all available messages. Muse set sub_poll=True when creating the PubSub object to use this function.
-
-        :return: list of messages as dictionaries
-        """
-        if not self.use_sub_queue:
-            raise RuntimeError("sub_poll must be True to use get_messages()")
-        messages = []
-        while True:
-            try:
-                message_string = self._sub_queue.get(block=False)
-                message = json.loads(message_string)
-                log.debug(f"{message=}")
-                messages.append(message)
-            except Empty:
-                break
-        return messages

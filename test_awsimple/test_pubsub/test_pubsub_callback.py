@@ -2,7 +2,7 @@ import time
 from multiprocessing import Queue
 from queue import Empty
 
-from awsimple import Pub, Sub, is_mock
+from awsimple import Pub, Sub
 
 
 def test_pubsub_callback():

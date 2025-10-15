@@ -1,6 +1,6 @@
 import time
 
-from awsimple import Pub, Sub
+from awsimple.pubsub import Pub, Sub
 
 
 def test_pubsub_get_messages():
@@ -11,7 +11,7 @@ def test_pubsub_get_messages():
     pub = Pub(test_channel)
     pub.start()
 
-    sub = Sub(test_channel, sub_poll=True)
+    sub = Sub(test_channel)
     sub.start()
 
     pub.publish(sent_message)
@@ -27,7 +27,8 @@ def test_pubsub_get_messages():
     pub.request_exit()
     sub.request_exit()
     pub.join(60)
-    assert not pub.is_alive()
     sub.join(60)
+    assert not pub.is_alive()
+    assert not sub.is_alive()
 
     assert received_message == sent_message
