@@ -76,10 +76,8 @@ def test_actually_timeout():
         assert q.receive_message() is None  # make sure the message is now invisible
         time.sleep(work_time)  # will take "too long", so message should be available again on next receive_message
 
-        if not is_mock():
-            # not working for mock todo: fix
-            assert qp.receive_message().message == send_message
-            receive_message.delete()  # now we delete it
+        assert qp.receive_message().message == send_message
+        receive_message.delete()  # now we delete it
 
         assert q.receive_message() is None
 

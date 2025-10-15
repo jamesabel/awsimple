@@ -230,9 +230,9 @@ class SQSAccess(AWSAccess):
                 if (queue := self._get_queue()) is None:
                     log.warning(f"could not get queue {self.queue_name}")
                 else:
-                    aws_messages = queue.receive_messages(
-                        MaxNumberOfMessages=min(max_number_of_messages, aws_sqs_max_messages), VisibilityTimeout=self.calculate_visibility_timeout(), WaitTimeSeconds=call_wait_time
-                    )
+                    visibility_timeout = self.calculate_visibility_timeout()
+                    max_number_of_messages = min(max_number_of_messages, aws_sqs_max_messages)  # AWS limit
+                    aws_messages = queue.receive_messages(MaxNumberOfMessages=max_number_of_messages, VisibilityTimeout=visibility_timeout, WaitTimeSeconds=call_wait_time)
 
                     for m in aws_messages:
                         if self.immediate_delete:
