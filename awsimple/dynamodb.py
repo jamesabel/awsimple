@@ -519,6 +519,7 @@ class DynamoDBAccess(CacheAccess):
             except ClientError as e:
                 log.warning(e)
         if self.metadata_table is not None:
+            self.metadata_table.create_metadata_table()
             self.metadata_table.update_table_mtime()
 
         return created
@@ -957,6 +958,8 @@ class _DynamoDBMetadataTable(DynamoDBAccess):
         self.mtime_f_string = "mtime_f"
         self.mtime_human_string = "mtime_human"
         super().__init__(metadata_table_name, **kwargs)
+
+    def create_metadata_table(self):
         self.create_table(partition_key=self.primary_partition_key, sort_key=self.primary_sort_key, partition_key_type=str, sort_key_type=str)
 
     def update_table_mtime(self):
