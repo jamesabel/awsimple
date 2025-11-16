@@ -154,6 +154,8 @@ def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_except
         for k, v in input_value.items():
             if type(k) is int:
                 k = str(k)  # allow int as key since it is unambiguous (e.g. bool and float are ambiguous)
+            elif isinstance(k, Enum):
+                k = dict_to_dynamodb(k, False, raise_exception)  # convert Enum, including StrEnum, etc. as keys
             resp[k] = dict_to_dynamodb(v, convert_images, raise_exception)
     elif type(input_value) is list or type(input_value) is tuple:
         # converts tuple to list
