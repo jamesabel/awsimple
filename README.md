@@ -45,6 +45,9 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 
 - DynamoDB full table scans (with local cache option that only rescans if the table has changed).
 
+- Convert back and forth between DynamoDB items and Python dictionaries automatically. Converts many common data types to DynamoDB compatible types,
+including nested structures, sets, images (PIL), and Enum/StrEnum.
+
 - True file hashing (SHA512) for S3 files (S3's etag is not a true file hash).
 
 - Supports moto mock and localstack. Handy for testing and CI.

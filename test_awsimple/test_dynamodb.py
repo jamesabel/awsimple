@@ -8,6 +8,7 @@ from datetime import timedelta, timezone
 import pickle
 from pathlib import Path
 import time
+from enum import Enum, StrEnum, auto
 
 from PIL import Image
 from ismain import is_main
@@ -31,6 +32,17 @@ od["b"] = 2
 dd = defaultdict(int)
 dd[1] = 2
 
+
+class TestEnum(Enum):
+    A = 1
+    B = 2
+
+
+class TestStrEnum(StrEnum):
+    X = auto()
+    Y = auto()
+
+
 sample_input = {
     id_str: dict_id,
     "sample1": "Test Data",
@@ -53,6 +65,8 @@ sample_input = {
     "test_date_time": datetime.datetime.fromtimestamp(1559679535, tz=timezone.utc),  # 2019-06-04T20:18:55+00:00
     "zero_len_string": "",
     "dictim": dictim({"HI": dictim({"there": 1})}),  # nested
+    TestEnum.A: "i am A",  # Enum key
+    TestStrEnum.Y: "why",  # StrEnum key
 }
 
 
@@ -90,6 +104,8 @@ def test_dynamodb():
     assert dynamodb_dict["42"] == "my_key_is_an_int"  # test conversion of an int key to a string
     assert dynamodb_dict["test_date_time"] == "2019-06-04T20:18:55+00:00"
     assert dynamodb_dict["zero_len_string"] is None
+    assert dynamodb_dict["A"] == "i am A"  # Enum key (conversion uses the Enum name)
+    assert dynamodb_dict["Y"] == "why"  # StrEnum key
 
     # while dictim is case-insensitive, when we convert to dict for DynamoDB it becomes case-sensitive
     assert list(dynamodb_dict["dictim"]["HI"])[0] == "there"
