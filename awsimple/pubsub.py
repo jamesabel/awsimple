@@ -273,7 +273,7 @@ class _PubSub(Thread):
     @typechecked()
     def get_messages(self) -> List[Dict[str, Any]]:
         """
-        Get all available messages. Muse set sub_poll=True when creating the PubSub object to use this function.
+        Get all available messages. Use set sub_poll=True when creating the PubSub object to use this function.
 
         :return: list of messages as dictionaries
         """
