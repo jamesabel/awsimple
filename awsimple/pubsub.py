@@ -135,8 +135,8 @@ def make_name_aws_safe(*args: str) -> str:
     :return: AWS safe name
     """
 
-    base36 = strif.hash_string("".join(args)).base36
-    assert len(base36) == 31
+    base36 = strif.hash_string("".join(args)).base36.strip()
+    assert 30 <= len(base36) <= 31
     return base36
 
 
