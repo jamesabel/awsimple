@@ -389,7 +389,10 @@ class DynamoDBAccess(CacheAccess):
                 if self.metadata_table is None:
                     table_mtime_f = None
                 else:
-                    table_mtime_f = self.metadata_table.get_table_mtime_f()
+                    try:
+                        table_mtime_f = self.metadata_table.get_table_mtime_f()
+                    except DBItemNotFound:
+                        table_mtime_f = None
                 log.info(f"{self.table_name=},{cache_file_path=},{cache_file_mtime=},{table_mtime_f=}")
                 # determine if table has been updated since local cache file was written
                 # (assumes the clock of the system that wrote the table is in sync with the clock of this system within the clock skew)
