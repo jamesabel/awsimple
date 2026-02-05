@@ -519,11 +519,19 @@ class S3Access(CacheAccess):
             location = {"LocationConstraint": region}
 
         try:
-            if self.public_readable:
-                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location, ACL="public-read")
-            else:
-                self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
+            self.client.create_bucket(Bucket=self.bucket_name, CreateBucketConfiguration=location)
             self.client.get_waiter("bucket_exists").wait(Bucket=self.bucket_name)
+            if self.public_readable:
+                # Enable per-object ACLs by setting ObjectOwnership to BucketOwnerPreferred (the default BucketOwnerEnforced disallows ACLs).
+                # This allows mixing public and private objects in the same bucket via per-object ACL on upload.
+                self.client.put_bucket_ownership_controls(
+                    Bucket=self.bucket_name,
+                    OwnershipControls={"Rules": [{"ObjectOwnership": "BucketOwnerPreferred"}]},
+                )
+                self.client.put_public_access_block(
+                    Bucket=self.bucket_name,
+                    PublicAccessBlockConfiguration={"BlockPublicAcls": False, "IgnorePublicAcls": False, "BlockPublicPolicy": False, "RestrictPublicBuckets": False},
+                )
             created = True
         except self.client.exceptions.BucketAlreadyOwnedByYou:
             created = False  # already exists and owned by you
