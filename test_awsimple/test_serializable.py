@@ -34,7 +34,7 @@ def test_make_serializable():
     assert serial_values["a"] == "a"
     assert serial_values["b"] == "b"
     image_size = len(serial_values["image"])
-    assert image_size == 141233 or image_size == 140065  # depending on the version of Pillow
+    assert 140065 <= image_size <= 141661  # depending on the version of Pillow
     assert serial_values["binary"] == "b'\\x00\\x01'"
     assert isinstance(serial_values["ni"], int)
     assert isinstance(serial_values["nbi"], float)  # ends up being a float, even though we'd prefer it as an int

@@ -146,7 +146,7 @@ class _PubSub(Thread):
     def __init__(
         self,
         channel: str,
-        node_name: str,
+        node_name: str | None,
         sub_callback: Callable | None,
         use_sub_queue: bool,
         profile_name: Union[str, None],
@@ -164,7 +164,7 @@ class _PubSub(Thread):
         :param use_sub_queue: If True, use an internal queue to store received messages. If False, messages must be handled by the callback function. Default is False.
         """
         self.channel = AWS_RESOURCE_PREFIX + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
-        self.node_name = node_name
+        self.node_name = get_node_name() if node_name is None else node_name
         self.sqs_queue_name = AWS_RESOURCE_PREFIX + make_name_aws_safe(self.channel, self.node_name)
         self.sub_callback = sub_callback
         self.use_sub_queue = use_sub_queue
@@ -304,7 +304,7 @@ class Pub(_PubSub):
     def __init__(
         self,
         channel: str,
-        node_name: str = get_node_name(),
+        node_name: str | None = None,
         profile_name: Union[str, None] = None,
         aws_access_key_id: Union[str, None] = None,
         aws_secret_access_key: Union[str, None] = None,
@@ -334,7 +334,7 @@ class Sub(_PubSub):
     def __init__(
         self,
         channel: str,
-        node_name: str = get_node_name(),
+        node_name: str | None = None,
         sub_callback: Callable | None = None,
         profile_name: Union[str, None] = None,
         aws_access_key_id: Union[str, None] = None,
