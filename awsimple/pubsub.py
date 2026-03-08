@@ -4,7 +4,7 @@ pub/sub abstraction on top of AWS SNS and SQS using boto3.
 
 import time
 from functools import lru_cache
-from typing import Any, Dict, List, Callable, Union
+from typing import Any, Dict, List, Callable
 from datetime import timedelta
 from threading import Thread, Event
 from queue import Queue
@@ -33,7 +33,7 @@ AWS_RESOURCE_PREFIX = "ps"  # for pubsub
 
 @typechecked()
 def remove_old_queues(
-    channel: str, profile_name: Union[str, None] = None, aws_access_key_id: Union[str, None] = None, aws_secret_access_key: Union[str, None] = None, region_name: Union[str, None] = None
+    channel: str, profile_name: str | None = None, aws_access_key_id: str | None = None, aws_secret_access_key: str | None = None, region_name: str | None = None
 ) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
@@ -77,8 +77,7 @@ def _connect_sns_to_sqs(sqs: SQSPollAccess, sns: SNSAccess) -> None:
     topic = sns.resource.Topic(topic_arn)
 
     # Subscribe queue to topic
-    queue_arn = sqs.get_arn()
-    subscription = topic.subscribe(Protocol="sqs", Endpoint=queue_arn)
+    subscription = topic.subscribe(Protocol="sqs", Endpoint=sqs_arn)
     log.info(f"Subscribed {sqs.queue_name} to topic {topic_arn}. Subscription ARN: {subscription.arn}")
 
     # Update queue policy to allow SNS -> SQS
@@ -107,8 +106,8 @@ class _SubscriptionThread(Thread):
     """
 
     @typechecked()
-    def __init__(self, sqs: SQSPollAccess, new_event) -> None:
-        super().__init__()
+    def __init__(self, sqs: SQSPollAccess, new_event: Event) -> None:
+        super().__init__(daemon=True)
         self._sqs = sqs
         self.sub_queue = Queue()  # type: Queue[str]
         self._exit_event = Event()
@@ -118,8 +117,8 @@ class _SubscriptionThread(Thread):
         while not self._exit_event.is_set():
             messages = self._sqs.receive_messages()  # long poll
             for message in messages:
-                message = json.loads(message.message)
-                self.sub_queue.put(message["Message"])
+                parsed = json.loads(message.message)
+                self.sub_queue.put(parsed["Message"])
                 self._new_event.set()
 
     def request_exit(self):
@@ -149,10 +148,10 @@ class _PubSub(Thread):
         node_name: str | None,
         sub_callback: Callable | None,
         use_sub_queue: bool,
-        profile_name: Union[str, None],
-        aws_access_key_id: Union[str, None],
-        aws_secret_access_key: Union[str, None],
-        region_name: Union[str, None],
+        profile_name: str | None,
+        aws_access_key_id: str | None,
+        aws_secret_access_key: str | None,
+        region_name: str | None,
     ) -> None:
         """
         Pub and Sub.
@@ -305,10 +304,10 @@ class Pub(_PubSub):
         self,
         channel: str,
         node_name: str | None = None,
-        profile_name: Union[str, None] = None,
-        aws_access_key_id: Union[str, None] = None,
-        aws_secret_access_key: Union[str, None] = None,
-        region_name: Union[str, None] = None,
+        profile_name: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+        region_name: str | None = None,
     ) -> None:
         """
         Pub only.
@@ -336,10 +335,10 @@ class Sub(_PubSub):
         channel: str,
         node_name: str | None = None,
         sub_callback: Callable | None = None,
-        profile_name: Union[str, None] = None,
-        aws_access_key_id: Union[str, None] = None,
-        aws_secret_access_key: Union[str, None] = None,
-        region_name: Union[str, None] = None,
+        profile_name: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+        region_name: str | None = None,
     ) -> None:
         """
         Sub only.
