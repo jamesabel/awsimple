@@ -236,6 +236,8 @@ class _PubSub(Thread):
                 sns.publish(message_string)
             except Empty:
                 pass
+            except RuntimeError as e:
+                log.info(f"SQS,{self.sqs_queue_name=},{e}")
 
             # sub
             if sqs_thread is not None:
@@ -249,6 +251,8 @@ class _PubSub(Thread):
                     sqs_metadata.update_table_mtime()
                 except Empty:
                     pass  # no message
+                except RuntimeError as e:
+                    log.info(f"SQS,{self.sqs_queue_name=},{e}")
 
             if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
                 self._new_event.clear()
