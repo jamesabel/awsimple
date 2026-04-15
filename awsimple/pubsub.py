@@ -234,8 +234,10 @@ class _PubSub(Thread):
                 message = self._pub_queue.get(False)
                 message_string = json.dumps(message)
                 sns.publish(message_string)
-            except Empty, RuntimeError:
+            except Empty:
                 pass
+            except RuntimeError as e:
+                log.info(f"SQS,{self.sqs_queue_name=},{e}")
 
             # sub
             if sqs_thread is not None:
@@ -247,8 +249,10 @@ class _PubSub(Thread):
                         message = json.loads(message_string)
                         self.sub_callback(message)
                     sqs_metadata.update_table_mtime()
-                except Empty, RuntimeError:
+                except Empty:
                     pass  # no message
+                except RuntimeError as e:
+                    log.info(f"SQS,{self.sqs_queue_name=},{e}")
 
             if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
                 self._new_event.clear()
