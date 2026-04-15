@@ -247,7 +247,7 @@ class _PubSub(Thread):
                         message = json.loads(message_string)
                         self.sub_callback(message)
                     sqs_metadata.update_table_mtime()
-                except Empty:
+                except Empty, RuntimeError:
                     pass  # no message
 
             if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
