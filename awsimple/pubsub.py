@@ -234,7 +234,7 @@ class _PubSub(Thread):
                 message = self._pub_queue.get(False)
                 message_string = json.dumps(message)
                 sns.publish(message_string)
-            except Empty:
+            except Empty, RuntimeError:
                 pass
 
             # sub
