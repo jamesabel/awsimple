@@ -8,6 +8,7 @@ import time
 from collections import OrderedDict, defaultdict, namedtuple
 import datetime
 from pathlib import Path
+import os
 from os.path import getsize, getmtime
 from typing import List, Union, Any, Type, Dict, Callable
 from pprint import pformat
@@ -16,12 +17,11 @@ import json
 from enum import Enum
 import decimal
 from decimal import Decimal
-from functools import lru_cache
 from collections.abc import Iterable
 from logging import getLogger
 
 
-from botocore.exceptions import EndpointConnectionError, ClientError
+from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim  # type: ignore
@@ -161,9 +161,8 @@ def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_except
         # converts tuple to list
         resp = [dict_to_dynamodb(v, convert_images, raise_exception) for v in input_value]
     elif type(input_value) is str:
-        # DynamoDB does not allow zero length strings
-        if len(input_value) > 0:
-            resp = input_value
+        # DynamoDB supports zero length strings for non-key attributes (since May 2020)
+        resp = input_value
     elif type(input_value) is bool or input_value is None or type(input_value) is decimal.Decimal:
         resp = input_value  # native DynamoDB types
     elif type(input_value) is float or type(input_value) is int:
@@ -238,6 +237,10 @@ class DynamoDBAccess(CacheAccess):
 
         self.cache_hit = False
         self.secondary_index_postfix = "-index"
+
+        # per-instance caches (do not use functools.lru_cache on methods - it holds a global reference to self, so instances are never garbage collected)
+        self._primary_keys_cache = None  # type: Union[Dict[KeyType, str], None]
+        self._secondary_indexes_cache = None  # type: Union[List[Dict[KeyType, str]], None]
 
         self.table_name = table_name  # can be None (the default) if we're only doing things that don't require a table name such as get_table_names()
 
@@ -322,25 +325,19 @@ class DynamoDBAccess(CacheAccess):
         assert self.resource is not None
         table = self.resource.Table(self.table_name)
 
+        # connection errors are deliberately not caught here - returning partial results as if they were the complete table would silently corrupt caller data (and caches)
         more_to_evaluate = True
         exclusive_start_key = None
         while more_to_evaluate:
-            try:
-                if exclusive_start_key is None:
-                    response = table.scan()
-                else:
-                    response = table.scan(ExclusiveStartKey=exclusive_start_key)
-            except EndpointConnectionError as e:
-                log.warning(e)
-                response = None
+            if exclusive_start_key is None:
+                response = table.scan()
+            else:
+                response = table.scan(ExclusiveStartKey=exclusive_start_key)
+            items.extend(response["Items"])
+            if "LastEvaluatedKey" not in response:
                 more_to_evaluate = False
-
-            if response is not None:
-                items.extend(response["Items"])
-                if "LastEvaluatedKey" not in response:
-                    more_to_evaluate = False
-                else:
-                    exclusive_start_key = response["LastEvaluatedKey"]
+            else:
+                exclusive_start_key = response["LastEvaluatedKey"]
 
         log.info(f"read {len(items)} items from {self.table_name}")
 
@@ -383,9 +380,9 @@ class DynamoDBAccess(CacheAccess):
         self.cache_hit = False
         now = time.time()
         try:
-            if now <= getmtime(str(cache_file_path)) + self.cache_life:
+            cache_file_mtime = getmtime(str(cache_file_path))
+            if now <= cache_file_mtime + self.cache_life:
                 # cache file exists and is current, see if it has expired
-                cache_file_mtime = getmtime(str(cache_file_path))
                 if self.metadata_table is None:
                     table_mtime_f = None
                 else:
@@ -397,10 +394,12 @@ class DynamoDBAccess(CacheAccess):
                 # determine if table has been updated since local cache file was written
                 # (assumes the clock of the system that wrote the table is in sync with the clock of this system within the clock skew)
                 self.cache_hit = table_mtime_f is not None and table_mtime_f + get_accommodated_clock_skew() <= cache_file_mtime
-                with open(cache_file_path, "rb") as f:
-                    log.info(f"{self.table_name=},{cache_file_path=}")
-                    table_data = pickle.load(f)
-                    log.debug(f"done reading {cache_file_path=}")
+                if self.cache_hit:
+                    # only unpickle if we're actually going to use the cached data
+                    with open(cache_file_path, "rb") as f:
+                        log.info(f"{self.table_name=},{cache_file_path=}")
+                        table_data = pickle.load(f)
+                        log.debug(f"done reading {cache_file_path=}")
         except FileNotFoundError:
             self.cache_hit = False  # simple cache miss
         except (EOFError, OSError, pickle.PickleError) as e:
@@ -416,6 +415,10 @@ class DynamoDBAccess(CacheAccess):
                 # update local data cache
                 with open(cache_file_path, "wb") as f:
                     pickle.dump(table_data, f)
+                # stamp the cache file with the same clock used for the metadata table mtimes - on Windows the filesystem's own timestamp can lag
+                # time.time() by a clock tick (~15 mS), which can make a just-written cache file appear older than the table's metadata mtime
+                write_time = time.time()
+                os.utime(cache_file_path, (write_time, write_time))
             except (DynamoDBTableNotFound, self.client.exceptions.ResourceNotFoundException) as e:
                 log.debug(f"{self.table_name=},{e}")
                 table_data = []
@@ -453,9 +456,9 @@ class DynamoDBAccess(CacheAccess):
         partition_key: str,
         sort_key: Union[str, None] = None,
         secondary_index: Union[str, None] = None,
-        partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
-        sort_key_type: Union[Type[str], Type[int], Type[bool]] = str,
-        secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
+        partition_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
+        sort_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
+        secondary_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
     ) -> bool:
         """
         Create a DynamoDB table.
@@ -463,14 +466,14 @@ class DynamoDBAccess(CacheAccess):
         :param partition_key: DynamoDB partition key (AKA hash key)
         :param sort_key: DynamoDB sort key
         :param secondary_index: secondary index key
-        :param partition_key_type: partition key type of str, int, bool (str default)
-        :param sort_key_type: sort key type of str, int, bool (str default)
-        :param secondary_key_type: secondary key type of str, int, bool (str default)
+        :param partition_key_type: partition key type of str, int, bytes (str default)
+        :param sort_key_type: sort key type of str, int, bytes (str default)
+        :param secondary_key_type: secondary key type of str, int, bytes (str default)
         :return: True if table created
         """
 
         def add_key(k, t, kt):
-            assert t in ("S", "N", "B")  # DynamoDB key types (string, number, bool)
+            assert t in ("S", "N", "B")  # DynamoDB key types (string, number, binary)
             assert kt in ("HASH", "RANGE")
             definition = {"AttributeName": k, "AttributeType": t}
             schema = {"AttributeName": k, "KeyType": kt}
@@ -481,8 +484,11 @@ class DynamoDBAccess(CacheAccess):
                 ts = "S"
             elif t is int:
                 ts = "N"
+            elif t is bytes:
+                ts = "B"  # binary
             elif t is bool:
-                ts = "B"
+                # DynamoDB "B" is *binary*, not boolean - booleans are not a valid DynamoDB key type
+                raise ValueError("DynamoDB does not support boolean key attributes - key types are str ('S'), int ('N'), and bytes ('B' binary)")
             else:
                 raise ValueError(t)
             return ts
@@ -538,45 +544,44 @@ class DynamoDBAccess(CacheAccess):
             key_schema[aws_name_to_key_type[table_key_schema["KeyType"]]] = table_key_schema["AttributeName"]
         return key_schema
 
-    @lru_cache()
     def get_primary_keys_dict(self) -> Dict[KeyType, str]:
         """
-        Get the table's primary keys. Raise TableNotFound if table does not exist.
+        Get the table's primary keys (cached per instance). Raise TableNotFound if table does not exist.
 
         :return: a dict with the primary key partition key and (optionally) sort key
         """
 
-        assert self.resource is not None
-        try:
-            table = self.resource.Table(self.table_name)
-            key_schema = table.key_schema
-        except self.client.exceptions.ResourceNotFoundException:
-            raise DynamoDBTableNotFound(str(self.table_name))
-        keys = self._get_keys_from_schema(key_schema)
-        return keys
+        if self._primary_keys_cache is None:
+            assert self.resource is not None
+            try:
+                table = self.resource.Table(self.table_name)
+                key_schema = table.key_schema
+            except self.client.exceptions.ResourceNotFoundException:
+                raise DynamoDBTableNotFound(str(self.table_name))
+            self._primary_keys_cache = self._get_keys_from_schema(key_schema)
+        return self._primary_keys_cache
 
-    @lru_cache()
     def get_primary_partition_key(self) -> str:
         primary_keys = self.get_primary_keys_dict()
         return primary_keys[KeyType.partition]
 
-    @lru_cache()
     def get_primary_sort_key(self) -> Union[str, None]:
         primary_keys = self.get_primary_keys_dict()
         return primary_keys.get(KeyType.sort)
 
-    @lru_cache()
     def get_secondary_indexes(self) -> List[Dict[KeyType, str]]:
         """
-        Get the secondary indexes as a list of dicts with the key as the KeyType.
+        Get the secondary indexes as a list of dicts with the key as the KeyType (cached per instance).
 
         :return: list of dicts with secondary keys
         """
-        secondary_indexes = []
-        assert self.resource is not None
-        for table_secondary_index in self.resource.Table(self.table_name).global_secondary_indexes:
-            secondary_indexes.append(self._get_keys_from_schema(table_secondary_index["KeySchema"]))
-        return secondary_indexes
+        if self._secondary_indexes_cache is None:
+            secondary_indexes = []
+            assert self.resource is not None
+            for table_secondary_index in self.resource.Table(self.table_name).global_secondary_indexes:
+                secondary_indexes.append(self._get_keys_from_schema(table_secondary_index["KeySchema"]))
+            self._secondary_indexes_cache = secondary_indexes
+        return self._secondary_indexes_cache
 
     def _query(self, comp: str, *args) -> List[dict]:
         """
@@ -839,7 +844,8 @@ class DynamoDBAccess(CacheAccess):
         if sort_key is not None:
             key[sort_key] = sort_value
         table.delete_item(Key=key)
-        self.metadata_table.update_table_mtime()
+        if self.metadata_table is not None:
+            self.metadata_table.update_table_mtime()
 
     # cant' do a @typechecked() since optional item requires a single type
     def upsert_item(
@@ -866,22 +872,32 @@ class DynamoDBAccess(CacheAccess):
             sort_key = self.get_primary_sort_key()
 
         if item is None:
-            AWSimpleException(f"{item=}")
-        else:
-            assert self.resource is not None
-            table = self.resource.Table(self.table_name)
-            key = {partition_key: partition_value}  # type: dict[str, Any]
-            if sort_key is not None:
-                key[sort_key] = sort_value
+            raise AWSimpleException(f"no item given ({item=})")
 
-            # create the required boto3 strings and dict for the update
-            update_expression = "SET "
-            expression_attribute_values = {}
-            for k, v in item.items():
-                update_expression += f"{k} = :{k} "
-                expression_attribute_values[f":{k}"] = v
+        assert self.resource is not None
+        table = self.resource.Table(self.table_name)
+        key = {partition_key: partition_value}  # type: dict[str, Any]
+        if sort_key is not None:
+            key[sort_key] = sort_value
 
-            table.update_item(Key=key, UpdateExpression=update_expression, ExpressionAttributeValues=expression_attribute_values)
+        if len(item) == 0:
+            raise AWSimpleException(f"empty item ({item=})")
+
+        # create the required boto3 strings and dicts for the update
+        # (use expression attribute name placeholders so DynamoDB reserved words like "name" or "status" work, and separate clauses with commas)
+        update_clauses = []
+        expression_attribute_names = {}
+        expression_attribute_values = {}
+        for attribute_number, (k, v) in enumerate(item.items()):
+            name_placeholder = f"#a{attribute_number}"
+            value_placeholder = f":v{attribute_number}"
+            expression_attribute_names[name_placeholder] = k
+            expression_attribute_values[value_placeholder] = v
+            update_clauses.append(f"{name_placeholder} = {value_placeholder}")
+        update_expression = "SET " + ", ".join(update_clauses)
+
+        table.update_item(Key=key, UpdateExpression=update_expression, ExpressionAttributeNames=expression_attribute_names, ExpressionAttributeValues=expression_attribute_values)
+        if self.metadata_table is not None:
             self.metadata_table.update_table_mtime()
 
     def delete_all_items(self) -> int:
@@ -908,7 +924,8 @@ class DynamoDBAccess(CacheAccess):
                 key[sort_key] = item[sort_key]
             table.delete_item(Key=key)
             count += 1
-        self.metadata_table.update_table_mtime()
+        if self.metadata_table is not None:
+            self.metadata_table.update_table_mtime()
         return count
 
     @typechecked()
@@ -983,10 +1000,14 @@ class _DynamoDBMetadataTable(DynamoDBAccess):
                 self.mtime_human_string: datetime.datetime.fromtimestamp(m_time).astimezone().isoformat(),
             }
         )
-        self.put_item(item=item)
+        try:
+            self.put_item(item=item)
+        except DynamoDBTableNotFound:
+            self.create_metadata_table()
+            self.put_item(item=item)
 
     @typechecked()
-    def get_table_mtime_f(self) -> Union[float | None]:
+    def get_table_mtime_f(self) -> Union[float, None]:
         """
         Get a table's mtime from the metadata table.
         :return: table's mtime as a float or None if table hasn't been written to

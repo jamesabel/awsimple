@@ -51,7 +51,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
     wrote_to_cache = False
 
     try:
-        max_free_absolute = max_free_portion * get_disk_free() if max_free_portion is not None else None
+        max_free_absolute = max_free_portion * get_disk_free(cache_dir) if max_free_portion is not None else None
         values = [v for v in [max_free_absolute, max_absolute_cache_size] if v is not None]
         max_cache_size = min(values) if len(values) > 0 else None
         log.info(f"{max_cache_size=}")
@@ -81,6 +81,8 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
                 least_recently_used_access_time = None
                 least_recently_used_size = None
                 for file_path in cache_dir.rglob("*"):
+                    if not file_path.is_file():
+                        continue  # only files are evicted (rglob can also return directories)
                     access_time = os.path.getatime(file_path)
                     if least_recently_used_path is None or least_recently_used_access_time is None or access_time < least_recently_used_access_time:
                         least_recently_used_path = file_path
@@ -91,9 +93,8 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
                     log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=}")
                     least_recently_used_path.unlink()
                     if least_recently_used_size is None:
-                        AWSimpleException(f"{least_recently_used_size=}")
-                    else:
-                        overage -= least_recently_used_size
+                        raise AWSimpleException(f"{least_recently_used_size=}")
+                    overage -= least_recently_used_size
 
                 if overage == starting_overage:
                     # tried to free up space but were unsuccessful, so give up

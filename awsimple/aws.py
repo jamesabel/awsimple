@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import Union, Any
 from logging import getLogger
 
@@ -8,16 +9,51 @@ from boto3.session import Session
 from botocore.credentials import Credentials
 
 from awsimple import __application_name__, is_mock, is_using_localstack
+from .exceptions import AWSimpleException  # noqa: F401  (re-exported for backwards compatibility)
 
 log = getLogger(__application_name__)
 
+# Process-wide moto mock state. Multiple AWSAccess instances share one moto mock and one saved copy of the AWS
+# environment variables, so instance creation/deletion order can't corrupt the environment or stop a mock another
+# instance still needs.
+_moto_lock = threading.Lock()
+_moto_state = {"count": 0, "mock": None, "saved_env": {}}  # type: dict
+_mock_env_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]
 
-class AWSimpleException(Exception):
-    pass
+
+def _moto_acquire():
+    with _moto_lock:
+        if _moto_state["count"] == 0:
+            for aws_key in _mock_env_keys:
+                _moto_state["saved_env"][aws_key] = os.environ.get(aws_key)  # will be None if not set
+                os.environ[aws_key] = "testing"
+
+            from moto import mock_aws
+
+            _moto_state["mock"] = mock_aws()
+            _moto_state["mock"].start()
+        _moto_state["count"] += 1
+
+
+def _moto_release():
+    with _moto_lock:
+        if _moto_state["count"] > 0:
+            _moto_state["count"] -= 1
+            if _moto_state["count"] == 0:
+                if _moto_state["mock"] is not None:
+                    _moto_state["mock"].stop()
+                    _moto_state["mock"] = None
+                for aws_key, value in _moto_state["saved_env"].items():
+                    if value is None:
+                        os.environ.pop(aws_key, None)
+                    else:
+                        os.environ[aws_key] = value
+                _moto_state["saved_env"] = {}
 
 
 def boto_error_to_string(boto_error) -> Union[str, None]:
-    if (response := boto_error.response) is None:
+    # BotoCoreError subclasses (e.g. HTTPClientError) don't have a .response attribute - only ClientError does
+    if (response := getattr(boto_error, "response", None)) is None:
         most_recent_error = str(boto_error)
     else:
         if (response_error := response.get("Error")) is None:
@@ -61,8 +97,7 @@ class AWSAccess:
         # string representation of AWS most recent error code
         self.most_recent_error = None  # type: Union[str, None]
 
-        self._moto_mock = None
-        self._aws_keys_save = {}
+        self._is_mocked = False
 
         # use keys in AWS config
         # https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
@@ -75,14 +110,8 @@ class AWSAccess:
         self.client = None  # type: Any
         if is_mock():
             # moto mock AWS
-            for aws_key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]:
-                self._aws_keys_save[aws_key] = os.environ.get(aws_key)  # will be None if not set
-                os.environ[aws_key] = "testing"
-
-            from moto import mock_aws
-
-            self._moto_mock = mock_aws()
-            self._moto_mock.start()
+            _moto_acquire()
+            self._is_mocked = True
             region = "us-east-1"
             if self.resource_name == "logs" or self.resource_name is None:
                 # logs don't have a resource
@@ -100,7 +129,11 @@ class AWSAccess:
             self.aws_access_key_id = "test"
             self.aws_secret_access_key = "test"
             self.region_name = "us-west-2"
-            if self.resource_name is not None:
+            if self.resource_name is None:
+                # just the session, but not the client or resource
+                self.client = None
+                self.resource = None
+            else:
                 if self.resource_name == "logs":
                     # logs don't have resource
                     self.resource = None
@@ -161,14 +194,16 @@ class AWSAccess:
 
     def test(self) -> bool:
         """
-        Basic connection/capability test
+        Basic connection/credentials test. Calls STS GetCallerIdentity, which requires no special permissions but does require valid credentials.
+        Raises an exception (e.g. botocore's ClientError, NoCredentialsError, or ProfileNotFound) if the connection or credentials are bad.
 
         :return: True if connection OK
         """
-
-        resources = self.session.get_available_resources()  # boto3 will throw an error if there's an issue here
-        if self.resource_name is not None and self.resource_name not in resources:
-            raise PermissionError(self.resource_name)  # we don't have permission to the specified resource
+        if is_using_localstack():
+            sts_client = self.session.client("sts", endpoint_url=self._get_localstack_endpoint_url())
+        else:
+            sts_client = self.session.client("sts")
+        sts_client.get_caller_identity()  # raises if credentials are invalid
         return True  # if we got here, we were successful
 
     def is_mocked(self) -> bool:
@@ -177,20 +212,15 @@ class AWSAccess:
 
         :return: True if mocked
         """
-        return self._moto_mock is not None
+        return self._is_mocked
 
     def clear_most_recent_error(self):
         self.most_recent_error = None
 
     def __del__(self):
-        if self._moto_mock is not None:
-            # if mocking, put everything back
-
-            for aws_key, value in self._aws_keys_save.items():
-                if value is None:
-                    del os.environ[aws_key]
-                else:
-                    os.environ[aws_key] = value
-
-            self._moto_mock.stop()
-            self._moto_mock = None  # mock is "done"
+        if getattr(self, "_is_mocked", False):
+            self._is_mocked = False
+            try:
+                _moto_release()
+            except Exception:  # noqa: S110 - interpreter may be shutting down
+                pass

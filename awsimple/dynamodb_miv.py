@@ -48,8 +48,8 @@ class DynamoDBMIVUI(DynamoDBAccess):
         self,
         partition_key: str,
         secondary_index: Union[str, None] = None,
-        partition_key_type: Union[Type[str], Type[int], Type[bool]] = str,
-        secondary_key_type: Union[Type[str], Type[int], Type[bool]] = str,
+        partition_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
+        secondary_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
     ) -> bool:
         return super().create_table(partition_key, miv_string, secondary_index, partition_key_type, int, secondary_key_type)
 
@@ -64,30 +64,46 @@ class DynamoDBMIVUI(DynamoDBAccess):
         assert self.resource is not None
         table = self.resource.Table(self.table_name)
 
+        new_item = deepcopy(item)
+
         # Determine new miv. The miv is an int to avoid comparison or specification problems that can arise with floats. For example, when it comes time to delete an item.
         if time_us is None:
-            # get the miv for the existing entries
             partition_key = self.get_primary_partition_key()
             partition_value = item[partition_key]
-            try:
-                existing_most_senior_item = self.get_most_senior_item(partition_key, partition_value)
-                existing_miv_ui = existing_most_senior_item[miv_string]
-            except DBItemNotFound:
-                existing_miv_ui = None
 
-            current_time_us = get_time_us()
-            if existing_miv_ui is None or current_time_us > existing_miv_ui:
-                new_miv_ui = current_time_us
-            else:
-                # the prior writer seems to be from the future (from our perspective), so just increment the existing miv by the smallest increment and go with that
-                new_miv_ui = existing_miv_ui + 1
+            # A conditional put makes the read-compute-write sequence safe against concurrent writers: if another writer takes our miv first, the condition
+            # fails and we recompute rather than silently overwriting their item.
+            retries_remaining = 10
+            while True:
+                # get the miv for the existing entries
+                try:
+                    existing_most_senior_item = self.get_most_senior_item(partition_key, partition_value)
+                    existing_miv_ui = existing_most_senior_item[miv_string]
+                except DBItemNotFound:
+                    existing_miv_ui = None
+
+                current_time_us = get_time_us()
+                if existing_miv_ui is None or current_time_us > existing_miv_ui:
+                    new_miv_ui = current_time_us
+                else:
+                    # the prior writer seems to be from the future (from our perspective), so just increment the existing miv by the smallest increment and go with that
+                    new_miv_ui = existing_miv_ui + 1
+
+                new_item[miv_string] = new_miv_ui
+                try:
+                    table.put_item(Item=new_item, ConditionExpression="attribute_not_exists(#miv)", ExpressionAttributeNames={"#miv": miv_string})
+                    break
+                except self.client.exceptions.ConditionalCheckFailedException:
+                    retries_remaining -= 1
+                    if retries_remaining <= 0:
+                        raise
         else:
-            new_miv_ui = time_us
+            new_item[miv_string] = time_us
+            table.put_item(Item=new_item)
 
-        # make the new item with the new miv and put it into the DB table
-        new_item = deepcopy(item)
-        new_item[miv_string] = new_miv_ui
-        table.put_item(Item=new_item)
+        # keep the metadata table's mtime current so scan_table_cached() invalidates properly (DynamoDBAccess.put_item does this too, but we write directly to the table here)
+        if self.metadata_table is not None:
+            self.metadata_table.update_table_mtime()
 
     @typechecked()
     def get_most_senior_item(self, partition_key: str, partition_value: Union[str, int]) -> dict:

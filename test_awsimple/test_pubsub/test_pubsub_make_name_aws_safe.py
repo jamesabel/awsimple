@@ -13,4 +13,6 @@ def test_pubsub_make_name_aws_safe():
     assert make_name_aws_safe("Invalid#Name$With%Special&Chars*") == "jbudqy4oq2aqhcxgs40b0nmahou3pgq"
 
     assert make_name_aws_safe("ab") == "phbce4exwcst2t3d0hqd8k81nc27kd8"
-    assert make_name_aws_safe("a", "b") == "phbce4exwcst2t3d0hqd8k81nc27kd8"
+    # multiple args must hash differently than their concatenation, otherwise e.g. channel "ab" collides with channel "a" + node "b"
+    assert make_name_aws_safe("a", "b") != make_name_aws_safe("ab")
+    assert 30 <= len(make_name_aws_safe("a", "b")) <= 31

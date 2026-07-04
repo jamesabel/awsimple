@@ -103,7 +103,7 @@ def test_dynamodb():
     assert dynamodb_dict["a_tuple"] == [1, 2, 3]
     assert dynamodb_dict["42"] == "my_key_is_an_int"  # test conversion of an int key to a string
     assert dynamodb_dict["test_date_time"] == "2019-06-04T20:18:55+00:00"
-    assert dynamodb_dict["zero_len_string"] is None
+    assert dynamodb_dict["zero_len_string"] == ""  # DynamoDB supports zero length strings for non-key attributes (since May 2020)
     assert dynamodb_dict["A"] == "i am A"  # Enum key (conversion uses the Enum name)
     assert dynamodb_dict["Y"] == "why"  # StrEnum key
 

@@ -9,7 +9,7 @@ from datetime import timedelta
 from threading import Thread, Event
 from queue import Queue
 from queue import Empty
-from logging import Logger
+from logging import getLogger
 import json
 
 from typeguard import typechecked
@@ -18,11 +18,11 @@ import strif
 
 from .sns import SNSAccess
 from .sqs import SQSPollAccess, get_all_sqs_queues
-from .dynamodb import _DynamoDBMetadataTable
+from .dynamodb import _DynamoDBMetadataTable, DBItemNotFound, DynamoDBTableNotFound
 from .platform import get_node_name
 from .__version__ import __application_name__
 
-log = Logger(__application_name__)
+log = getLogger(__application_name__)  # getLogger (not a raw Logger instance) so the application's logging configuration applies
 
 queue_timeout = timedelta(days=30).total_seconds()
 
@@ -42,11 +42,14 @@ def remove_old_queues(
     if len(channel) < 2:  # avoid deleting all queues
         log.warning(f"blank channel ({channel=}) - not deleting any queues")
         return removed
-    for sqs_queue_name in get_all_sqs_queues(channel):
+    for sqs_queue_name in get_all_sqs_queues(channel, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name):
         sqs_metadata = _DynamoDBMetadataTable(
             SQS_NAME, sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name
         )
-        mtime = sqs_metadata.get_table_mtime_f()
+        try:
+            mtime = sqs_metadata.get_table_mtime_f()
+        except (DBItemNotFound, DynamoDBTableNotFound):
+            mtime = None  # queue has no metadata entry (e.g. it was never used) - leave it alone
         if mtime is not None and time.time() - mtime > queue_timeout:
             sqs = SQSPollAccess(sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name)
             try:
@@ -80,22 +83,24 @@ def _connect_sns_to_sqs(sqs: SQSPollAccess, sns: SNSAccess) -> None:
     subscription = topic.subscribe(Protocol="sqs", Endpoint=sqs_arn)
     log.info(f"Subscribed {sqs.queue_name} to topic {topic_arn}. Subscription ARN: {subscription.arn}")
 
-    # Update queue policy to allow SNS -> SQS
-    policy = {
-        "Version": "2012-10-17",
-        "Id": "sns-sqs-subscription-policy",
-        "Statement": [
-            {
-                "Sid": "Allow-SNS-SendMessage",
-                "Effect": "Allow",
-                "Principal": {"Service": "sns.amazonaws.com"},
-                "Action": "sqs:SendMessage",
-                "Resource": sqs_arn,
-                "Condition": {"ArnEquals": {"aws:SourceArn": topic_arn}},
-            }
-        ],
+    # Update queue policy to allow SNS -> SQS (merge into any existing policy - replacing it would revoke other topics' permissions)
+    statement = {
+        "Sid": f"AllowSNSSendMessage{topic_arn.split(':')[-1]}",  # Sid must be unique within the policy, so include the topic name
+        "Effect": "Allow",
+        "Principal": {"Service": "sns.amazonaws.com"},
+        "Action": "sqs:SendMessage",
+        "Resource": sqs_arn,
+        "Condition": {"ArnEquals": {"aws:SourceArn": topic_arn}},
     }
     assert sqs.queue is not None
+    existing_policy_string = sqs.client.get_queue_attributes(QueueUrl=sqs.queue.url, AttributeNames=["Policy"]).get("Attributes", {}).get("Policy")
+    if existing_policy_string is None:
+        policy = {"Version": "2012-10-17", "Id": "sns-sqs-subscription-policy", "Statement": [statement]}
+    else:
+        policy = json.loads(existing_policy_string)
+        statements = policy.setdefault("Statement", [])
+        if statement not in statements:
+            statements.append(statement)
     sqs.queue.set_attributes(Attributes={"Policy": json.dumps(policy)})
     log.debug(f"Queue {sqs.queue_name} policy updated to allow topic {topic_arn}.")
 
@@ -115,11 +120,21 @@ class _SubscriptionThread(Thread):
 
     def run(self):
         while not self._exit_event.is_set():
-            messages = self._sqs.receive_messages()  # long poll
+            try:
+                messages = self._sqs.receive_messages()  # long poll
+            except Exception as e:
+                # don't let a transient AWS error silently kill the polling thread
+                log.warning(f"{self._sqs.queue_name=} receive failed : {e}")
+                time.sleep(1.0)
+                continue
             for message in messages:
-                parsed = json.loads(message.message)
-                self.sub_queue.put(parsed["Message"])
-                self._new_event.set()
+                try:
+                    parsed = json.loads(message.message)
+                    self.sub_queue.put(parsed["Message"])
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    log.warning(f"{self._sqs.queue_name=} malformed message : {e}")
+                else:
+                    self._new_event.set()
 
     def request_exit(self):
         self._exit_event.set()
@@ -134,7 +149,8 @@ def make_name_aws_safe(*args: str) -> str:
     :return: AWS safe name
     """
 
-    base36 = strif.hash_string("".join(args)).base36.strip()
+    # join with a separator so e.g. ("a", "b") and ("ab",) hash differently (the separator can't appear in the hash output, avoiding cross-boundary collisions)
+    base36 = strif.hash_string("\x1f".join(args)).base36.strip()
     assert 30 <= len(base36) <= 31
     return base36
 
@@ -164,7 +180,8 @@ class _PubSub(Thread):
         """
         self.channel = AWS_RESOURCE_PREFIX + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
         self.node_name = get_node_name() if node_name is None else node_name
-        self.sqs_queue_name = AWS_RESOURCE_PREFIX + make_name_aws_safe(self.channel, self.node_name)
+        # queue name is the channel name plus a node hash, so all of a channel's queues share the channel name as a prefix (this is what lets remove_old_queues() find them)
+        self.sqs_queue_name = self.channel + make_name_aws_safe(self.node_name)
         self.sub_callback = sub_callback
         self.use_sub_queue = use_sub_queue
 
@@ -183,6 +200,13 @@ class _PubSub(Thread):
         super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
     def run(self):
+        try:
+            self._run()
+        except Exception:
+            # a daemon thread that dies silently leaves publish() queueing into the void, so at least make the failure visible
+            log.exception(f"pubsub thread failed,{self.channel=}")
+
+    def _run(self):
 
         sns = SNSAccess(
             self.channel,
@@ -218,7 +242,14 @@ class _PubSub(Thread):
             _connect_sns_to_sqs(sqs, sns)
 
         sqs_metadata.update_table_mtime()  # update SQS use time (the existing infrastructure calls it a "table", but we're using it for the SQS queue)
-        remove_old_queues(self.channel)  # clean up old queues
+        # clean up old queues (using the same credentials as this instance)
+        remove_old_queues(
+            self.channel,
+            profile_name=self.profile_name,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            region_name=self.region_name,
+        )
 
         if self.sub_callback is None and not self.use_sub_queue:
             # not being used as a subscriber
@@ -229,30 +260,9 @@ class _PubSub(Thread):
 
         while not self._exit_event.is_set():
 
-            # pub
-            try:
-                message = self._pub_queue.get(False)
-                message_string = json.dumps(message)
-                sns.publish(message_string)
-            except Empty:
-                pass
-            except RuntimeError as e:
-                log.info(f"SQS,{self.sqs_queue_name=},{e}")
-
-            # sub
+            self._drain_pub_queue(sns)
             if sqs_thread is not None:
-                try:
-                    message_string = sqs_thread.sub_queue.get(False)
-                    if self.use_sub_queue:
-                        self._sub_queue.put(message_string)
-                    if self.sub_callback is not None:
-                        message = json.loads(message_string)
-                        self.sub_callback(message)
-                    sqs_metadata.update_table_mtime()
-                except Empty:
-                    pass  # no message
-                except RuntimeError as e:
-                    log.info(f"SQS,{self.sqs_queue_name=},{e}")
+                self._drain_sub_queue(sqs_thread, sqs_metadata)
 
             if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
                 self._new_event.clear()
@@ -262,6 +272,42 @@ class _PubSub(Thread):
             sqs_thread.join(30)
             if sqs_thread.is_alive():
                 log.error("sqs_thread did not exit cleanly")
+
+    def _drain_pub_queue(self, sns: SNSAccess) -> None:
+        # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
+        while True:
+            try:
+                message = self._pub_queue.get(False)
+            except Empty:
+                break
+            try:
+                message_string = json.dumps(message)
+                sns.publish(message_string)
+            except Exception as e:
+                log.warning(f"SNS publish failed,{self.channel=},{e}")
+
+    def _drain_sub_queue(self, sqs_thread: _SubscriptionThread, sqs_metadata: _DynamoDBMetadataTable) -> None:
+        # drain all received messages
+        got_message = False
+        while True:
+            try:
+                message_string = sqs_thread.sub_queue.get(False)
+            except Empty:
+                break
+            got_message = True
+            try:
+                if self.use_sub_queue:
+                    self._sub_queue.put(message_string)
+                if self.sub_callback is not None:
+                    message = json.loads(message_string)
+                    self.sub_callback(message)
+            except Exception as e:
+                log.warning(f"SQS,{self.sqs_queue_name=},{e}")
+        if got_message:
+            try:
+                sqs_metadata.update_table_mtime()
+            except Exception as e:
+                log.warning(f"SQS metadata update failed,{self.sqs_queue_name=},{e}")
 
     @typechecked()
     def publish(self, message: dict) -> None:

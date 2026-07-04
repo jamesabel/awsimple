@@ -3,7 +3,6 @@ SNS Access
 """
 
 from typing import Union, Dict, Any
-from functools import cache
 
 from typeguard import typechecked
 
@@ -22,26 +21,30 @@ class SNSAccess(AWSAccess):
         super().__init__(resource_name="sns", **kwargs)
         self.topic_name = topic_name
         self.auto_create = auto_create
+        # per-instance cache (do not use functools.cache on methods - it holds a global reference to self, so instances are never garbage collected)
+        self._topic = None  # type: Any
 
-    @cache
-    def get_topic(self) -> Any:
-        """
-        gets the associated SNS Topic instance
-
-        :return: sns.Topic instance
-        """
-        topic = None
+    def _find_topic(self) -> Any:
         assert self.resource is not None
         for t in self.resource.topics.all():
             if t.arn.split(":")[-1] == self.topic_name:
-                topic = t
-        if self.auto_create and topic is None:
-            self.create_topic()
-            self.auto_create = False  # only do this once
-            topic = self.get_topic()
-        return topic
+                return t
+        return None
 
-    @cache
+    def get_topic(self) -> Any:
+        """
+        gets the associated SNS Topic instance (cached per instance)
+
+        :return: sns.Topic instance
+        """
+        if self._topic is None:
+            topic = self._find_topic()
+            if self.auto_create and topic is None:
+                self.create_topic()
+                topic = self._find_topic()
+            self._topic = topic
+        return self._topic
+
     def get_arn(self) -> str:
         """
         get topic ARN from topic name

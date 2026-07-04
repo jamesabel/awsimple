@@ -5,7 +5,7 @@ import logging
 
 from botocore.exceptions import EndpointConnectionError
 
-from awsimple import is_mock, use_moto_mock_env_var, S3Access, is_using_localstack, dynamodb
+from awsimple import is_mock, use_moto_mock_env_var, AWSAccess, S3Access, is_using_localstack, dynamodb
 
 from test_awsimple import test_awsimple_str, temp_dir, cache_dir
 
@@ -40,6 +40,14 @@ class TestAWSimpleLoggingHandler(logging.Handler):
     def emit(self, record):
         print(record.getMessage())
         assert False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def moto_session():
+    # Hold one AWSAccess instance for the whole session so the (reference counted) moto mock and its state persist across all tests.
+    # Without this, moto state would reset whenever no AWSAccess instances happen to be alive, and tests that build on prior tests' AWS state would fail.
+    _aws_access = AWSAccess() if is_mock() else None
+    yield _aws_access
 
 
 @pytest.fixture(scope="session", autouse=True)

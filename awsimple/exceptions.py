@@ -1,5 +1,11 @@
-class AWSimpleExceptionBase(Exception):
-    """Base exception for AWSimple errors."""
+class AWSimpleException(Exception):
+    """Base exception for all AWSimple errors."""
+
+    pass
+
+
+class AWSimpleExceptionBase(AWSimpleException):
+    """Deprecated intermediate base exception, retained for backwards compatibility. Use AWSimpleException."""
 
     pass
 
