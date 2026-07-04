@@ -23,7 +23,7 @@ setup(
     keywords=["aws", "cloud", "storage", "database", "dynamodb", "s3"],
     packages=[__title__],
     package_data={__title__: [readme_file_path, "py.typed"]},
-    install_requires=["boto3>=1.43.0", "typeguard", "hashy>=0.1.1", "dictim", "appdirs", "tobool", "urllib3", "python-dateutil", "yasf", "strif"],  # boto3>=1.43.0 for S3 SHA-512 checksum support
+    install_requires=["boto3[crt]>=1.43.0", "typeguard", "hashy>=0.1.1", "dictim", "appdirs", "tobool", "urllib3", "python-dateutil", "yasf", "strif"],  # boto3[crt]>=1.43.0 for CRC64NVME checksum support (crt provides awscrt)
     project_urls={"Documentation": "https://awsimple.readthedocs.io/"},
     classifiers=[],
     python_requires=">3.10",

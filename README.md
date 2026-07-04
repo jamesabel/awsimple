@@ -48,7 +48,7 @@ Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/
 - Convert back and forth between DynamoDB items and Python dictionaries automatically. Converts many common data types to DynamoDB compatible types,
 including nested structures, sets, images (PIL), and Enum/StrEnum.
 
-- True file hashing (SHA512) for S3 files (S3's etag is not a true file hash).
+- Full-object checksums (CRC64NVME) for S3 files (S3's etag is not a true file hash).
 
 - Supports moto mock and localstack. Handy for testing and CI.
 
@@ -106,12 +106,14 @@ level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve progra
 
 ## S3
 
-`awsimple` uses SHA-512 hashes to test for file equivalency (e.g. to avoid re-uploading unchanged files).
-Uploads use S3's native SHA-512 checksum (server-validated on upload and returned on `head_object`).
-Objects written by older awsimple versions (which stored the hash in custom object metadata) are detected
-and always re-uploaded, so every object awsimple writes ends up with the native checksum. Objects without
-any full-object hash (e.g. multipart uploads, whose native checksum is composite, or objects written by
-other tools) fall back to modification-time and file-size comparison.
+`awsimple` uses S3's native full-object checksums to test for file equivalency (e.g. to avoid re-uploading
+unchanged files). Uploads use CRC64NVME - the algorithm S3 itself defaults to, and the only one S3 computes
+as a full-object value for both single-part and multipart uploads - and S3 validates the data against the
+checksum server-side before storing. Objects written by other tools with a native full-object SHA-512
+checksum are also recognized and compared. Objects written by older awsimple versions (which stored a
+SHA-512 in custom object metadata) are detected and always re-uploaded, so every object awsimple writes
+ends up with the native checksum. Objects without any recognizable full-object hash fall back to
+modification-time and file-size comparison.
 
 ## Caching
 

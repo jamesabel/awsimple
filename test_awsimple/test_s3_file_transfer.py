@@ -6,7 +6,7 @@ import os
 from shutil import rmtree
 from logging import getLogger
 
-from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack
+from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack, get_bytes_crc64nvme
 from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
 
 big_file_name = "big.txt"
@@ -95,7 +95,7 @@ def test_s3_z_metadata(s3_access):
     test_file_name = "test.txt"
     s3_object_metadata = s3_access.get_s3_object_metadata(test_file_name)
     # "hello world" uploaded with awsimple
-    assert s3_object_metadata.sha512 == "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
+    assert s3_object_metadata.crc64nvme == get_bytes_crc64nvme(b"hello world")
     assert s3_object_metadata.size == 11
 
 

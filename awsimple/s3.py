@@ -39,9 +39,11 @@ from awsimple import (
 # detect objects written by older awsimple versions, which are always re-uploaded so that every object gains the native checksum.
 sha512_string = f"{__application_name__}-sha512"
 
-# S3's maximum single-part object size. Uploads are kept single-part up to this size so the native SHA-512 checksum is a
-# full-object checksum - multipart uploads get a composite checksum-of-part-checksums, which can't be compared to a local file hash.
-max_single_part_size = 5 * 1024**3  # 5 GiB
+# Uploads at or above this size use multipart (the boto3 default threshold). awsimple uses CRC64NVME checksums everywhere since
+# it's the only checksum family S3 computes as a full-object value for both single-part and multipart uploads (SHA-family multipart
+# checksums are composite and can't be compared to a local file hash), and it's also S3's own default - so objects written by other
+# modern tools are usually comparable too.
+default_multipart_threshold = 8 * 1024 * 1024  # 8 MiB
 
 json_extension = ".json"
 
@@ -77,20 +79,23 @@ class S3ObjectMetadata:
     sha512: Union[str, None]  # hex string - S3's native full-object SHA-512 checksum (None if the object doesn't have one, e.g. multipart uploads or objects written by other tools)
     url: str  # URL of S3 object
     legacy_sha512: Union[str, None] = None  # hex string from awsimple's legacy custom metadata - only present on objects written by awsimple versions before native checksum support
+    crc64nvme: Union[str, None] = None  # hex string - S3's native full-object CRC64NVME checksum (awsimple uses this for multipart uploads)
 
     def get_sha512(self) -> str:
         """
-        Get hash used to compare S3 objects. If the native SHA512 is available (recommended), then use that. If not (e.g. an S3 object wasn't written with AWSimple), create a "substitute"
-        SHA512 hash that should change if the object contents change.
-        :return: SHA512 hash (as string)
+        Get a content-derived value used to compare and cache S3 objects. If the native SHA512 is available (recommended), then use that. Otherwise use the native full-object
+        CRC64NVME (e.g. multipart uploads). If neither is available (e.g. an S3 object wasn't written with AWSimple), create a "substitute" hash that should change if the object
+        contents change.
+        :return: hash (as string)
         """
         if (sha512_value := self.sha512) is None:
-            # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
-            mtime_as_int = int(round(self.mtime.timestamp()))
-            metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
-            if self.etag is not None and len(self.etag) > 0:
-                metadata_list.append(self.etag)
-            sha512_value = get_dls_sha512(metadata_list)
+            if (sha512_value := self.crc64nvme) is None:
+                # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
+                mtime_as_int = int(round(self.mtime.timestamp()))
+                metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
+                if self.etag is not None and len(self.etag) > 0:
+                    metadata_list.append(self.etag)
+                sha512_value = get_dls_sha512(metadata_list)
 
         return sha512_value
 
@@ -112,6 +117,36 @@ def _native_checksum_to_hex(checksum_base64: Union[str, None]) -> Union[str, Non
     if checksum_base64 is None or "-" in checksum_base64:
         return None
     return base64.b64decode(checksum_base64).hex()
+
+
+@typechecked()
+def get_bytes_crc64nvme(data: bytes) -> str:
+    """
+    Compute the CRC64NVME checksum of bytes as a hex string (comparable with S3's native full-object CRC64NVME checksum).
+
+    :param data: input bytes
+    :return: CRC64NVME as a hex string
+    """
+    from awscrt import checksums as awscrt_checksums  # awscrt comes in via boto3[crt] (also required by botocore to compute CRC64NVME checksums on upload)
+
+    return awscrt_checksums.crc64nvme(data, 0).to_bytes(8, "big").hex()
+
+
+@typechecked()
+def get_file_crc64nvme(file_path: Union[str, Path]) -> str:
+    """
+    Compute the CRC64NVME checksum of a file as a hex string (comparable with S3's native full-object CRC64NVME checksum).
+
+    :param file_path: path to the file
+    :return: CRC64NVME as a hex string
+    """
+    from awscrt import checksums as awscrt_checksums  # awscrt comes in via boto3[crt] (also required by botocore to compute CRC64NVME checksums on upload)
+
+    crc = 0
+    with open(file_path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            crc = awscrt_checksums.crc64nvme(chunk, crc)
+    return crc.to_bytes(8, "big").hex()
 
 
 def _get_json_key(s3_key: str):
@@ -144,22 +179,21 @@ class S3Access(CacheAccess):
 
     def _upload_extra_args(self) -> Dict[str, Any]:
         """
-        ExtraArgs for uploads: the native SHA-512 checksum and an optional public-read ACL.
+        ExtraArgs for uploads: the native full-object CRC64NVME checksum and an optional public-read ACL.
 
         :return: ExtraArgs dict
         """
         # S3 validates the data against the (SDK computed) checksum before storing
-        extra_args: Dict[str, Any] = {"ChecksumAlgorithm": "SHA512"}
+        extra_args: Dict[str, Any] = {"ChecksumAlgorithm": "CRC64NVME"}
         if self.public_readable:
             extra_args["ACL"] = "public-read"
         return extra_args
 
     def get_s3_transfer_config(self) -> TransferConfig:
         # workaround threading issue https://github.com/boto/s3transfer/issues/197
-        # keep uploads single-part up to S3's 5 GiB single-part limit so the native SHA-512 checksum is full-object (see max_single_part_size);
-        # derived class can overload this if a different config is desired (e.g. multipart for very large files - those fall back to
-        # awsimple's custom metadata for change detection since their native checksum is composite)
-        s3_transfer_config = TransferConfig(use_threads=False, multipart_threshold=max_single_part_size)
+        # derived class can overload this if a different config is desired (the multipart threshold also determines which native
+        # checksum algorithm uploads use - see _upload_extra_args)
+        s3_transfer_config = TransferConfig(use_threads=False, multipart_threshold=default_multipart_threshold)
         return s3_transfer_config
 
     @typechecked()
@@ -209,7 +243,7 @@ class S3Access(CacheAccess):
         log.debug(f"writing {self.bucket_name}/{s3_key}")
         assert self.resource is not None
         # S3 validates the data against the (SDK computed) checksum before storing
-        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, ChecksumAlgorithm="SHA512")
+        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, ChecksumAlgorithm="CRC64NVME")
 
     @typechecked()
     def write_lines(self, input_lines: List[str], s3_key: str):
@@ -249,22 +283,24 @@ class S3Access(CacheAccess):
             file_path = Path(file_path)
 
         file_mtime = os.path.getmtime(file_path)
-        file_sha512 = get_file_sha512(file_path)
+        file_crc64nvme = get_file_crc64nvme(file_path)
         if force:
             upload_flag = True
         else:
             if self.object_exists(s3_key):
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.sha512 is not None:
-                    # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
-                    upload_flag = file_sha512 != s3_object_metadata.sha512
+                if s3_object_metadata.crc64nvme is not None:
+                    # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
+                    upload_flag = file_crc64nvme != s3_object_metadata.crc64nvme
+                elif s3_object_metadata.sha512 is not None:
+                    # the object was written by another tool with a native full-object SHA-512 checksum
+                    upload_flag = get_file_sha512(file_path) != s3_object_metadata.sha512
                 elif s3_object_metadata.legacy_sha512 is not None:
                     # the object was written by an older awsimple using the legacy metadata hash - always re-upload it so it gains the native checksum
                     upload_flag = True
                 else:
-                    # no hash is available (e.g. the object was written by another tool, or by a multipart upload whose native checksum is composite),
-                    # so compare modification time and file size
+                    # no hash is available, so compare modification time and file size (free and robust, but weaker than a hash)
                     sizes_equal = os.path.getsize(file_path) == s3_object_metadata.size
                     mtimes_equal = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
                     upload_flag = not (sizes_equal and mtimes_equal)
@@ -273,7 +309,7 @@ class S3Access(CacheAccess):
 
         uploaded_flag = False
         if upload_flag:
-            log.info(f"local file : {file_sha512=},force={force} - uploading")
+            log.info(f"local file : {file_crc64nvme=},force={force} - uploading")
 
             transfer_retry_count = 0
             extra_args = self._upload_extra_args()
@@ -296,7 +332,7 @@ class S3Access(CacheAccess):
                 raise AWSimpleException(f"couldn't upload {file_path} to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
 
         else:
-            log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
+            log.info(f"file checksum of {file_crc64nvme} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
@@ -313,19 +349,22 @@ class S3Access(CacheAccess):
 
         s3_key = _get_json_key(s3_key)
         json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
-        json_sha512 = get_bytes_sha512(json_as_bytes)
+        json_crc64nvme = get_bytes_crc64nvme(json_as_bytes)
         upload_flag = True
         if not force and self.object_exists(s3_key):
             s3_object_metadata = self.get_s3_object_metadata(s3_key)
             log.info(f"{s3_object_metadata=}")
-            if s3_object_metadata.sha512 is not None:
-                # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
-                upload_flag = json_sha512 != s3_object_metadata.sha512
+            if s3_object_metadata.crc64nvme is not None:
+                # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
+                upload_flag = json_crc64nvme != s3_object_metadata.crc64nvme
+            elif s3_object_metadata.sha512 is not None:
+                # the object was written by another tool with a native full-object SHA-512 checksum
+                upload_flag = get_bytes_sha512(json_as_bytes) != s3_object_metadata.sha512
             # otherwise upload_flag stays True - objects written by older awsimple (legacy metadata hash) or without any hash are always re-uploaded so they gain the native checksum
 
         uploaded_flag = False
         if upload_flag:
-            log.info(f"{json_sha512=},force={force} - uploading")
+            log.info(f"{json_crc64nvme=},force={force} - uploading")
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
@@ -333,7 +372,7 @@ class S3Access(CacheAccess):
                 try:
                     s3_object = self.resource.Object(self.bucket_name, s3_key)
                     # S3 validates the data against the (SDK computed) checksum before storing
-                    put_kwargs: Dict[str, Any] = {"Body": json_as_bytes, "ChecksumAlgorithm": "SHA512"}
+                    put_kwargs: Dict[str, Any] = {"Body": json_as_bytes, "ChecksumAlgorithm": "CRC64NVME"}
                     if self.public_readable:
                         put_kwargs["ACL"] = "public-read"
                     s3_object.put(**put_kwargs)
@@ -347,7 +386,7 @@ class S3Access(CacheAccess):
                 raise AWSimpleException(f"couldn't upload JSON to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
 
         else:
-            log.info(f"file hash of {json_sha512} is the same as is already on S3 and force={force} - not uploading")
+            log.info(f"checksum of {json_crc64nvme} is the same as is already on S3 and force={force} - not uploading")
 
         return uploaded_flag
 
@@ -515,8 +554,8 @@ class S3Access(CacheAccess):
                 raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist") from e
             raise
         assert isinstance(self.bucket_name, str)  # mainly for mypy
-        # sha512 is S3's native (server-validated) full-object SHA-512 checksum; legacy_sha512 is awsimple's legacy custom metadata,
-        # kept readable so objects written by older awsimple versions can be detected (and re-uploaded to gain the native checksum)
+        # sha512 and crc64nvme are S3's native (server-validated) full-object checksums; legacy_sha512 is awsimple's legacy custom
+        # metadata, kept readable so objects written by older awsimple versions can be detected (and re-uploaded to gain the native checksum)
         s3_object_metadata = S3ObjectMetadata(
             self.bucket_name,
             s3_key,
@@ -526,6 +565,7 @@ class S3Access(CacheAccess):
             _native_checksum_to_hex(head.get("ChecksumSHA512")),
             self.get_s3_object_url(s3_key),
             head.get("Metadata", {}).get(sha512_string),
+            _native_checksum_to_hex(head.get("ChecksumCRC64NVME")),
         )
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata

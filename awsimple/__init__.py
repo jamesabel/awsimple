@@ -6,7 +6,7 @@ from .cache import get_disk_free, get_directory_size, lru_cache_write, CacheAcce
 from .dynamodb import DynamoDBAccess, dict_to_dynamodb, DBItemNotFound, DynamoDBTableNotFound, dynamodb_to_json, dynamodb_to_dict, QuerySelection, DictKey, convert_serializable_special_cases
 from .dynamodb import KeyType, aws_name_to_key_type
 from .dynamodb_miv import DynamoDBMIVUI, miv_string, get_time_us, miv_us_to_timestamp
-from .s3 import S3Access, S3DownloadStatus, S3ObjectMetadata, BucketNotFound
+from .s3 import S3Access, S3DownloadStatus, S3ObjectMetadata, BucketNotFound, get_bytes_crc64nvme, get_file_crc64nvme
 from .sqs import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time, aws_sqs_max_messages, get_all_sqs_queues
 from .sns import SNSAccess
 from .pubsub import Pub, Sub
