@@ -1,7 +1,7 @@
 #
 # awsimple requirements
 hashy
-boto3
+boto3>=1.43.0
 typeguard
 dictim
 appdirs

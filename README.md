@@ -106,8 +106,12 @@ level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve progra
 
 ## S3
 
-`awsimple` calculates the local file hash (sha512) and inserts it into the S3 object metadata.  This is used
-to test for file equivalency.
+`awsimple` uses SHA-512 hashes to test for file equivalency (e.g. to avoid re-uploading unchanged files).
+Uploads use S3's native SHA-512 checksum (server-validated on upload and returned on `head_object`).
+Objects written by older awsimple versions (which stored the hash in custom object metadata) are detected
+and always re-uploaded, so every object awsimple writes ends up with the native checksum. Objects without
+any full-object hash (e.g. multipart uploads, whose native checksum is composite, or objects written by
+other tools) fall back to modification-time and file-size comparison.
 
 ## Caching
 

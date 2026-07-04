@@ -2,6 +2,7 @@
 S3 Access
 """
 
+import base64
 import os
 import shutil
 import time
@@ -9,7 +10,7 @@ from math import isclose
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 import json
 from logging import getLogger
 
@@ -19,7 +20,7 @@ from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
 import urllib3.exceptions
 from typeguard import typechecked
-from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512
+from hashy import get_file_sha512, get_bytes_sha512, get_dls_sha512
 from yasf import sf
 
 from awsimple import (
@@ -34,7 +35,13 @@ from awsimple import (
 )
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
+# This custom metadata predates S3's native SHA-512 checksum support (April 2026). It is no longer written - it is only read to
+# detect objects written by older awsimple versions, which are always re-uploaded so that every object gains the native checksum.
 sha512_string = f"{__application_name__}-sha512"
+
+# S3's maximum single-part object size. Uploads are kept single-part up to this size so the native SHA-512 checksum is a
+# full-object checksum - multipart uploads get a composite checksum-of-part-checksums, which can't be compared to a local file hash.
+max_single_part_size = 5 * 1024**3  # 5 GiB
 
 json_extension = ".json"
 
@@ -67,12 +74,13 @@ class S3ObjectMetadata:
     size: int
     mtime: datetime
     etag: str  # generally not used
-    sha512: Union[str, None]  # hex string - only entries written with awsimple will have this
+    sha512: Union[str, None]  # hex string - S3's native full-object SHA-512 checksum (None if the object doesn't have one, e.g. multipart uploads or objects written by other tools)
     url: str  # URL of S3 object
+    legacy_sha512: Union[str, None] = None  # hex string from awsimple's legacy custom metadata - only present on objects written by awsimple versions before native checksum support
 
     def get_sha512(self) -> str:
         """
-        Get hash used to compare S3 objects. If the SHA512 is available (recommended), then use that. If not (e.g. an S3 object wasn't written with AWSimple), create a "substitute"
+        Get hash used to compare S3 objects. If the native SHA512 is available (recommended), then use that. If not (e.g. an S3 object wasn't written with AWSimple), create a "substitute"
         SHA512 hash that should change if the object contents change.
         :return: SHA512 hash (as string)
         """
@@ -90,6 +98,20 @@ class S3ObjectMetadata:
 @typechecked()
 def serializable_object_to_json_as_bytes(json_serializable_object: Union[List, Dict]) -> bytes:
     return bytes(json.dumps(json_serializable_object, default=convert_serializable_special_cases).encode("UTF-8"))
+
+
+@typechecked()
+def _native_checksum_to_hex(checksum_base64: Union[str, None]) -> Union[str, None]:
+    """
+    Convert an S3 native checksum (base64 encoded) to a hex string comparable with locally computed hashes.
+    Composite (multipart) checksums have a "-<part count>" suffix and do not represent the whole object, so they convert to None.
+
+    :param checksum_base64: base64 encoded checksum from S3 (or None)
+    :return: hex string, or None if no full-object checksum available
+    """
+    if checksum_base64 is None or "-" in checksum_base64:
+        return None
+    return base64.b64decode(checksum_base64).hex()
 
 
 def _get_json_key(s3_key: str):
@@ -120,10 +142,24 @@ class S3Access(CacheAccess):
         self._bucket_region = None  # type: Union[str, None]  # lazily determined and cached
         super().__init__(resource_name="s3", **kwargs)
 
+    def _upload_extra_args(self) -> Dict[str, Any]:
+        """
+        ExtraArgs for uploads: the native SHA-512 checksum and an optional public-read ACL.
+
+        :return: ExtraArgs dict
+        """
+        # S3 validates the data against the (SDK computed) checksum before storing
+        extra_args: Dict[str, Any] = {"ChecksumAlgorithm": "SHA512"}
+        if self.public_readable:
+            extra_args["ACL"] = "public-read"
+        return extra_args
+
     def get_s3_transfer_config(self) -> TransferConfig:
         # workaround threading issue https://github.com/boto/s3transfer/issues/197
-        # derived class can overload this if a different config is desired
-        s3_transfer_config = TransferConfig(use_threads=False)
+        # keep uploads single-part up to S3's 5 GiB single-part limit so the native SHA-512 checksum is full-object (see max_single_part_size);
+        # derived class can overload this if a different config is desired (e.g. multipart for very large files - those fall back to
+        # awsimple's custom metadata for change detection since their native checksum is composite)
+        s3_transfer_config = TransferConfig(use_threads=False, multipart_threshold=max_single_part_size)
         return s3_transfer_config
 
     @typechecked()
@@ -172,7 +208,8 @@ class S3Access(CacheAccess):
         """
         log.debug(f"writing {self.bucket_name}/{s3_key}")
         assert self.resource is not None
-        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, Metadata={sha512_string: get_string_sha512(input_str)})
+        # S3 validates the data against the (SDK computed) checksum before storing
+        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, ChecksumAlgorithm="SHA512")
 
     @typechecked()
     def write_lines(self, input_lines: List[str], s3_key: str):
@@ -220,11 +257,17 @@ class S3Access(CacheAccess):
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.info(f"{s3_object_metadata=}")
                 if s3_object_metadata.sha512 is not None:
-                    # use the hash provided by awsimple, if it exists (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
+                    # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
                     upload_flag = file_sha512 != s3_object_metadata.sha512
+                elif s3_object_metadata.legacy_sha512 is not None:
+                    # the object was written by an older awsimple using the legacy metadata hash - always re-upload it so it gains the native checksum
+                    upload_flag = True
                 else:
-                    # if not, use mtime
-                    upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
+                    # no hash is available (e.g. the object was written by another tool, or by a multipart upload whose native checksum is composite),
+                    # so compare modification time and file size
+                    sizes_equal = os.path.getsize(file_path) == s3_object_metadata.size
+                    mtimes_equal = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
+                    upload_flag = not (sizes_equal and mtimes_equal)
             else:
                 upload_flag = True
 
@@ -233,11 +276,9 @@ class S3Access(CacheAccess):
             log.info(f"local file : {file_sha512=},force={force} - uploading")
 
             transfer_retry_count = 0
+            extra_args = self._upload_extra_args()
+            log.info(f"{extra_args=}")
             while not uploaded_flag and transfer_retry_count < self.retry_count:
-                extra_args = {"Metadata": {sha512_string: file_sha512}}
-                if self.public_readable:
-                    extra_args["ACL"] = "public-read"  # type: ignore
-                log.info(f"{extra_args=}")
 
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args, Config=self.get_s3_transfer_config())
@@ -278,8 +319,9 @@ class S3Access(CacheAccess):
             s3_object_metadata = self.get_s3_object_metadata(s3_key)
             log.info(f"{s3_object_metadata=}")
             if s3_object_metadata.sha512 is not None:
-                # use the hash provided by awsimple, if it exists (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
+                # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
                 upload_flag = json_sha512 != s3_object_metadata.sha512
+            # otherwise upload_flag stays True - objects written by older awsimple (legacy metadata hash) or without any hash are always re-uploaded so they gain the native checksum
 
         uploaded_flag = False
         if upload_flag:
@@ -287,15 +329,14 @@ class S3Access(CacheAccess):
 
             transfer_retry_count = 0
             while not uploaded_flag and transfer_retry_count < self.retry_count:
-                meta_data = {sha512_string: json_sha512}
-                log.info(f"{meta_data=}")
                 assert self.resource is not None
                 try:
                     s3_object = self.resource.Object(self.bucket_name, s3_key)
+                    # S3 validates the data against the (SDK computed) checksum before storing
+                    put_kwargs: Dict[str, Any] = {"Body": json_as_bytes, "ChecksumAlgorithm": "SHA512"}
                     if self.public_readable:
-                        s3_object.put(Body=json_as_bytes, Metadata=meta_data, ACL="public-read")
-                    else:
-                        s3_object.put(Body=json_as_bytes, Metadata=meta_data)
+                        put_kwargs["ACL"] = "public-read"
+                    s3_object.put(**put_kwargs)
                     uploaded_flag = True
                 except connection_errors as e:
                     log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -468,20 +509,23 @@ class S3Access(CacheAccess):
         :return: S3ObjectMetadata
         """
         try:
-            head = self.client.head_object(Bucket=self.bucket_name, Key=s3_key)
+            head = self.client.head_object(Bucket=self.bucket_name, Key=s3_key, ChecksumMode="ENABLED")
         except ClientError as e:
             if boto_error_to_string(e) in ("404", "NoSuchKey", "NotFound"):
                 raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist") from e
             raise
         assert isinstance(self.bucket_name, str)  # mainly for mypy
+        # sha512 is S3's native (server-validated) full-object SHA-512 checksum; legacy_sha512 is awsimple's legacy custom metadata,
+        # kept readable so objects written by older awsimple versions can be detected (and re-uploaded to gain the native checksum)
         s3_object_metadata = S3ObjectMetadata(
             self.bucket_name,
             s3_key,
             head["ContentLength"],
             head["LastModified"],
             head["ETag"][1:-1].lower(),
-            head.get("Metadata", {}).get(sha512_string),
+            _native_checksum_to_hex(head.get("ChecksumSHA512")),
             self.get_s3_object_url(s3_key),
+            head.get("Metadata", {}).get(sha512_string),
         )
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
