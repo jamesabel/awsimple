@@ -170,12 +170,16 @@ class SQSAccess(AWSAccess):
         """
         return self._get_queue() is not None
 
-    def calculate_nominal_work_time(self) -> int:
+    def calculate_nominal_work_time(self) -> float:
         response_times = []
         for begin, end in self.response_history.values():
             if end is not None:
                 response_times.append(end - begin)
-        nominal_work_time = max(statistics.median(response_times), self.minimum_nominal_work_time)  # tolerate in case the measured work is very short
+        if len(response_times) == 0:
+            # no completed messages in the history yet, so be conservative
+            nominal_work_time = timedelta(hours=1).total_seconds()
+        else:
+            nominal_work_time = max(statistics.median(response_times), self.minimum_nominal_work_time)  # tolerate in case the measured work is very short
         log.debug(f"{nominal_work_time=}")
         return nominal_work_time
 
@@ -211,7 +215,8 @@ class SQSAccess(AWSAccess):
                 log.warning(f'JSONDecodeError : "{self._get_response_history_file_path()}" : {e}')
             if len(self.response_history) == 0:
                 now = time.time()
-                self.response_history[None] = (now, now + timedelta(hours=1).total_seconds())  # we have no history, so the initial nominal run time is a long time
+                # we have no history, so the initial nominal run time is a long time (a string sentinel key is used since this dict is JSON round-tripped and None would become "null")
+                self.response_history["__initial__"] = (now, now + timedelta(hours=1).total_seconds())
 
         # receive the message(s)
         messages = []  # type: List[Any]
@@ -352,18 +357,25 @@ class SQSAccess(AWSAccess):
 
         """
 
-        # a little brute-force, but this is the only way I could assign SQS policy to accept messages from SNS
-        policy = {
-            "Version": "2012-10-17",
-            "Statement": [{"Effect": "Allow", "Principal": "*", "Action": "SQS:SendMessage", "Resource": self.get_arn(), "Condition": {"StringEquals": {"aws:SourceArn": source_arn}}}],
-        }
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+            return
+
+        statement = {"Effect": "Allow", "Principal": "*", "Action": "SQS:SendMessage", "Resource": self.get_arn(), "Condition": {"StringEquals": {"aws:SourceArn": source_arn}}}
+
+        # merge into any existing policy - replacing the whole policy would revoke permissions granted to other sources (e.g. other SNS topics)
+        existing_policy_string = self.client.get_queue_attributes(QueueUrl=queue.url, AttributeNames=["Policy"]).get("Attributes", {}).get("Policy")
+        if existing_policy_string is None:
+            policy = {"Version": "2012-10-17", "Statement": [statement]}
+        else:
+            policy = json.loads(existing_policy_string)
+            statements = policy.setdefault("Statement", [])
+            if statement not in statements:
+                statements.append(statement)
 
         policy_string = json.dumps(policy)
         log.info(f"{policy_string=}")
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-        else:
-            self.client.set_queue_attributes(QueueUrl=queue.url, Attributes={"Policy": policy_string})
+        self.client.set_queue_attributes(QueueUrl=queue.url, Attributes={"Policy": policy_string})
 
     def purge(self):
         """
@@ -400,17 +412,18 @@ class SQSPollAccess(SQSAccess):
 
 
 @typechecked()
-def get_all_sqs_queues(prefix: str = "") -> List[str]:
+def get_all_sqs_queues(prefix: str = "", **kwargs) -> List[str]:
     """
     get all SQS queues
 
 
     :param prefix: prefix to filter queue names (empty string for all queues)
+    :param kwargs: kwargs for AWSAccess (e.g. profile_name, region_name) so the listing uses the same credentials as the caller
     :return: list of queue names
     """
     queue_names = []
 
-    sqs = AWSAccess("sqs")
+    sqs = AWSAccess("sqs", **kwargs)
     for queue in list(sqs.resource.queues.all()):
         queue_name = queue.url.split("/")[-1]
         if queue_name.startswith(prefix):

@@ -1,2 +1,7 @@
 [tool.black]
 line-length = 192
+
+[tool.pytest.ini_options]
+# only collect the test suite - the examples directory contains scripts (e.g. aws_access_test.py) that match
+# pytest's *_test.py pattern and hit real AWS at import time
+testpaths = ["test_awsimple"]

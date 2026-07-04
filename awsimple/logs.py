@@ -3,6 +3,8 @@ from typing import Union
 from pathlib import Path
 from datetime import datetime
 
+from botocore.exceptions import ClientError
+
 from .aws import AWSAccess
 from .platform import get_user_name, get_computer_name
 
@@ -42,6 +44,11 @@ class LogsAccess(AWSAccess):
             self.client.create_log_stream(logGroupName=self.log_group, logStreamName=self.get_stream_name())
             self._put(message)
 
+    def _put_log_events(self, stream_name: str, log_events: list, sequence_token: Union[str, None]):
+        if sequence_token is None:
+            return self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events)
+        return self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events, sequenceToken=sequence_token)
+
     def _put(self, message: str):
         """
         Perform the put log event. Internal method to enable try/except in the regular .put() method.
@@ -61,15 +68,16 @@ class LogsAccess(AWSAccess):
         # timestamp defined by AWS to be mS since epoch
         log_events = [{"timestamp": int(round(time.time() * 1000)), "message": message}]
         try:
-            if self._upload_sequence_token is None:
-                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events)
-            else:
-                put_response = self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events, sequenceToken=self._upload_sequence_token)
+            put_response = self._put_log_events(stream_name, log_events, self._upload_sequence_token)
         except self.client.exceptions.InvalidSequenceTokenException as e:
-            # something went terribly wrong in logging, so write what happened somewhere safe
-            with Path(Path.home(), "awsimple_exception.txt").open("w") as f:
-                f.write(f"{datetime.now().astimezone().isoformat()},{self.log_group=},{stream_name=},{self._upload_sequence_token=},{e}\n")
-            put_response = None
+            # our token is stale - retry once with the token AWS says it expects, so the message isn't lost
+            try:
+                put_response = self._put_log_events(stream_name, log_events, e.response.get("expectedSequenceToken"))
+            except ClientError as retry_exception:
+                # something went terribly wrong in logging, so write what happened somewhere safe (append so prior records aren't lost)
+                with Path(Path.home(), "awsimple_exception.txt").open("a") as f:
+                    f.write(f"{datetime.now().astimezone().isoformat()},{self.log_group=},{stream_name=},{self._upload_sequence_token=},{e},{retry_exception}\n")
+                put_response = None
 
         if put_response is None:
             self._upload_sequence_token = None

@@ -13,7 +13,6 @@ from typing import Dict, List, Union
 import json
 from logging import getLogger
 
-import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
 from boto3.s3.transfer import TransferConfig
@@ -23,7 +22,16 @@ from typeguard import typechecked
 from hashy import get_string_sha512, get_file_sha512, get_bytes_sha512, get_dls_sha512
 from yasf import sf
 
-from awsimple import CacheAccess, __application_name__, lru_cache_write, AWSimpleException, convert_serializable_special_cases, S3BucketAlreadyExistsNotOwnedByYou
+from awsimple import (
+    CacheAccess,
+    __application_name__,
+    lru_cache_write,
+    AWSimpleException,
+    convert_serializable_special_cases,
+    S3BucketAlreadyExistsNotOwnedByYou,
+    is_using_localstack,
+    boto_error_to_string,
+)
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
 sha512_string = f"{__application_name__}-sha512"
@@ -109,6 +117,7 @@ class S3Access(CacheAccess):
         self.retry_count = 10
         self.public_readable = False
         self.download_status = S3DownloadStatus()
+        self._bucket_region = None  # type: Union[str, None]  # lazily determined and cached
         super().__init__(resource_name="s3", **kwargs)
 
     def get_s3_transfer_config(self) -> TransferConfig:
@@ -194,7 +203,7 @@ class S3Access(CacheAccess):
         :param file_path: path to file to upload
         :param s3_key: S3 key
         :param force: True to force the upload, even if the file hash matches the S3 contents
-        :return: True if uploaded
+        :return: True if uploaded, False if the S3 object was already up to date. Raises AWSimpleException if the upload fails after all retries.
         """
 
         log.info(f'S3 upload : "{file_path}" to {self.bucket_name}/{s3_key}')
@@ -210,9 +219,9 @@ class S3Access(CacheAccess):
             if self.object_exists(s3_key):
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.get_sha512() is not None and file_sha512 is not None:
-                    # use the hash provided by awsimple, if it exists
-                    upload_flag = file_sha512 != s3_object_metadata.get_sha512()
+                if s3_object_metadata.sha512 is not None:
+                    # use the hash provided by awsimple, if it exists (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
+                    upload_flag = file_sha512 != s3_object_metadata.sha512
                 else:
                     # if not, use mtime
                     upload_flag = not isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
@@ -242,6 +251,9 @@ class S3Access(CacheAccess):
 
                 transfer_retry_count += 1
 
+            if not uploaded_flag:
+                raise AWSimpleException(f"couldn't upload {file_path} to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
+
         else:
             log.info(f"file hash of {file_sha512} is the same as is already on S3 and force={force} - not uploading")
 
@@ -265,9 +277,9 @@ class S3Access(CacheAccess):
         if not force and self.object_exists(s3_key):
             s3_object_metadata = self.get_s3_object_metadata(s3_key)
             log.info(f"{s3_object_metadata=}")
-            if s3_object_metadata.get_sha512() is not None and json_sha512 is not None:
-                # use the hash provided by awsimple, if it exists
-                upload_flag = json_sha512 != s3_object_metadata.get_sha512()
+            if s3_object_metadata.sha512 is not None:
+                # use the hash provided by awsimple, if it exists (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check .sha512 itself)
+                upload_flag = json_sha512 != s3_object_metadata.sha512
 
         uploaded_flag = False
         if upload_flag:
@@ -290,6 +302,9 @@ class S3Access(CacheAccess):
                     transfer_retry_count += 1
                     time.sleep(self.retry_sleep_time)
 
+            if not uploaded_flag:
+                raise AWSimpleException(f"couldn't upload JSON to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
+
         else:
             log.info(f"file hash of {json_sha512} is the same as is already on S3 and force={force} - not uploading")
 
@@ -302,13 +317,13 @@ class S3Access(CacheAccess):
 
         :param s3_key: S3 key
         :param dest_path: destination file or directory path. If the path is a directory, the file will be downloaded to that directory with the same name as the S3 key.
-        :return: True if downloaded successfully
+        :return: True if downloaded successfully. Raises AWSimpleException if the download fails after all retries.
         """
 
         if isinstance(dest_path, str):
             log.info(f"{dest_path} is not Path object.  Non-Path objects will be deprecated in the future")
+            dest_path = Path(dest_path)
 
-        assert isinstance(dest_path, Path)
         if dest_path.is_dir():
             dest_path = Path(dest_path, s3_key)
 
@@ -334,6 +349,8 @@ class S3Access(CacheAccess):
                 time.sleep(self.retry_sleep_time)
                 transfer_retry_count += 1
         log.debug(sf(transfer_retry_count=transfer_retry_count, success=success, bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
+        if not success:
+            raise AWSimpleException(f"couldn't download {self.bucket_name}/{s3_key} to {dest_path} after {self.retry_count} attempts")
         return success
 
     @typechecked()
@@ -369,7 +386,7 @@ class S3Access(CacheAccess):
 
         if not self.download_status.cache_hit:
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
-            self.download(s3_key, dest_path)
+            self.download(s3_key, dest_path)  # raises AWSimpleException on failure, so we don't write a bad cache entry or falsely report success
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
             self.download_status.success = True
@@ -436,36 +453,36 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         :return: object URL
         """
-        bucket_location = self.client.get_bucket_location(Bucket=self.bucket_name)
-        location = bucket_location["LocationConstraint"]
-        url = f"https://{self.bucket_name}.s3-{location}.amazonaws.com/{s3_key}"
+        if self._bucket_region is None:
+            bucket_location = self.client.get_bucket_location(Bucket=self.bucket_name)
+            self._bucket_region = bucket_location["LocationConstraint"] or "us-east-1"  # LocationConstraint is None for us-east-1
+        url = f"https://{self.bucket_name}.s3.{self._bucket_region}.amazonaws.com/{s3_key}"
         return url
 
     @typechecked()
     def get_s3_object_metadata(self, s3_key: str) -> S3ObjectMetadata:
         """
-        Get S3 object metadata
+        Get S3 object metadata. Raises AWSimpleException if the object does not exist.
 
         :param s3_key: S3 key
-        :return: S3ObjectMetadata or None if object does not exist
+        :return: S3ObjectMetadata
         """
-        assert self.resource is not None
-        bucket_resource = self.resource.Bucket(self.bucket_name)
-        if self.object_exists(s3_key):
-            bucket_object = bucket_resource.Object(s3_key)
-            assert isinstance(self.bucket_name, str)  # mainly for mypy
-            s3_object_metadata = S3ObjectMetadata(
-                self.bucket_name,
-                s3_key,
-                bucket_object.content_length,
-                bucket_object.last_modified,
-                bucket_object.e_tag[1:-1].lower(),
-                bucket_object.metadata.get(sha512_string),
-                self.get_s3_object_url(s3_key),
-            )
-
-        else:
-            raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist")
+        try:
+            head = self.client.head_object(Bucket=self.bucket_name, Key=s3_key)
+        except ClientError as e:
+            if boto_error_to_string(e) in ("404", "NoSuchKey", "NotFound"):
+                raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist") from e
+            raise
+        assert isinstance(self.bucket_name, str)  # mainly for mypy
+        s3_object_metadata = S3ObjectMetadata(
+            self.bucket_name,
+            s3_key,
+            head["ContentLength"],
+            head["LastModified"],
+            head["ETag"][1:-1].lower(),
+            head.get("Metadata", {}).get(sha512_string),
+            self.get_s3_object_url(s3_key),
+        )
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata
 
@@ -493,8 +510,11 @@ class S3Access(CacheAccess):
         """
 
         # use a "custom" config so that .head_bucket() doesn't take a really long time if the bucket does not exist
-        config = Config(connect_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
-        s3 = boto3.client("s3", config=config)
+        if self.is_mocked() or is_using_localstack():
+            s3 = self.client  # the existing client is already pointed at the mock or localstack endpoint
+        else:
+            config = Config(connect_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
+            s3 = self.session.client("s3", config=config)  # use the session so the configured profile/keys/region are honored
         assert self.bucket_name is not None
         try:
             s3.head_bucket(Bucket=self.bucket_name)
