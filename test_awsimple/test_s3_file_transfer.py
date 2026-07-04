@@ -6,7 +6,9 @@ import os
 from shutil import rmtree
 from logging import getLogger
 
-from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack, get_bytes_crc64nvme
+from hashy import get_bytes_crc64nvme
+
+from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack
 from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
 
 big_file_name = "big.txt"

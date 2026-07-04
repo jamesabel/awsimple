@@ -1,4 +1,6 @@
-from awsimple import S3Access, get_bytes_crc64nvme
+from hashy import get_bytes_crc64nvme
+
+from awsimple import S3Access
 
 from test_awsimple import test_awsimple_str
 

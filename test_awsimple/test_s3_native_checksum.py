@@ -2,7 +2,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from awsimple import get_bytes_crc64nvme, get_file_crc64nvme
+from hashy import get_bytes_crc64nvme, get_file_crc64nvme
 
 from test_awsimple import temp_dir
 

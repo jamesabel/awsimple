@@ -20,7 +20,7 @@ from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
 import urllib3.exceptions
 from typeguard import typechecked
-from hashy import get_file_sha512, get_bytes_sha512, get_dls_sha512
+from hashy import get_file_sha512, get_bytes_sha512, get_dls_sha512, get_file_crc64nvme, get_bytes_crc64nvme
 from yasf import sf
 
 from awsimple import (
@@ -117,36 +117,6 @@ def _native_checksum_to_hex(checksum_base64: Union[str, None]) -> Union[str, Non
     if checksum_base64 is None or "-" in checksum_base64:
         return None
     return base64.b64decode(checksum_base64).hex()
-
-
-@typechecked()
-def get_bytes_crc64nvme(data: bytes) -> str:
-    """
-    Compute the CRC64NVME checksum of bytes as a hex string (comparable with S3's native full-object CRC64NVME checksum).
-
-    :param data: input bytes
-    :return: CRC64NVME as a hex string
-    """
-    from awscrt import checksums as awscrt_checksums  # awscrt comes in via boto3[crt] (also required by botocore to compute CRC64NVME checksums on upload)
-
-    return awscrt_checksums.crc64nvme(data, 0).to_bytes(8, "big").hex()
-
-
-@typechecked()
-def get_file_crc64nvme(file_path: Union[str, Path]) -> str:
-    """
-    Compute the CRC64NVME checksum of a file as a hex string (comparable with S3's native full-object CRC64NVME checksum).
-
-    :param file_path: path to the file
-    :return: CRC64NVME as a hex string
-    """
-    from awscrt import checksums as awscrt_checksums  # awscrt comes in via boto3[crt] (also required by botocore to compute CRC64NVME checksums on upload)
-
-    crc = 0
-    with open(file_path, "rb") as f:
-        while chunk := f.read(1 << 20):
-            crc = awscrt_checksums.crc64nvme(chunk, crc)
-    return crc.to_bytes(8, "big").hex()
 
 
 def _get_json_key(s3_key: str):
