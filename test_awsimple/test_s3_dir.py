@@ -1,6 +1,8 @@
 from pprint import pprint
 from pathlib import Path
 
+from hashy import get_bytes_crc64nvme
+
 from awsimple import S3Access
 
 from test_awsimple import test_awsimple_str, temp_dir
@@ -20,7 +22,7 @@ def test_s3_dir():
     pprint(s3_dir)
     md = s3_dir[test_file_name]
     assert md.key == test_file_name
-    assert md.sha512 == "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"  # "hello world"
+    assert md.crc64nvme == get_bytes_crc64nvme(b"hello world")
 
 
 def test_s3_dir_prefix():
@@ -37,4 +39,4 @@ def test_s3_dir_prefix():
     pprint(s3_dir)
     md = s3_dir[test_file_name]
     assert md.key == test_file_name
-    assert md.sha512 == "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"  # "hello world"
+    assert md.crc64nvme == get_bytes_crc64nvme(b"hello world")
