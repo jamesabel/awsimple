@@ -195,15 +195,22 @@ class AWSAccess:
     def test(self) -> bool:
         """
         Basic connection/credentials test. Calls STS GetCallerIdentity, which requires no special permissions but does require valid credentials.
-        Raises an exception (e.g. botocore's ClientError, NoCredentialsError, or ProfileNotFound) if the connection or credentials are bad.
+        Returns False if the credentials are invalid. Configuration errors (e.g. botocore's ProfileNotFound) still raise.
 
-        :return: True if connection OK
+        :return: True if connection OK, False if the credentials are invalid
         """
+        from botocore.exceptions import ClientError, NoCredentialsError  # import here to facilitate mocking
+
         if is_using_localstack():
             sts_client = self.session.client("sts", endpoint_url=self._get_localstack_endpoint_url())
         else:
             sts_client = self.session.client("sts")
-        sts_client.get_caller_identity()  # raises if credentials are invalid
+        try:
+            sts_client.get_caller_identity()  # raises if credentials are invalid
+        except (ClientError, NoCredentialsError) as e:
+            log.info(f"{self.profile_name=} {e}")
+            self.most_recent_error = boto_error_to_string(e)
+            return False
         return True  # if we got here, we were successful
 
     def is_mocked(self) -> bool:
