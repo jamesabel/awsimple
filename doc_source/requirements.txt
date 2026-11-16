@@ -1,7 +1,13 @@
-boto3
+sphinx
+# awsimple runtime requirements (autodoc imports the package) - keep in sync with install_requires in setup.py
+boto3[crt]>=1.43.0
 typeguard
-hashy
+hashy>=0.14.0
 dictim
 appdirs
-ismain
 tobool
+urllib3
+python-dateutil
+yasf
+strif
+ismain

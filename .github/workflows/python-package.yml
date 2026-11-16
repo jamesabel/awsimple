@@ -15,6 +15,9 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for the tokenless Codecov upload
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
@@ -50,9 +53,15 @@ jobs:
 
     - name: Test with pytest
       run: |
-        pytest -s test_awsimple
+        pytest -s --cov=awsimple --cov-report=xml test_awsimple
 
-    # - name: "Upload coverage to Codecov"
-    #   uses: codecov/codecov-action@v1
-    #   with:
-    #     fail_ci_if_error: true
+    # Tokenless (OIDC) upload, so no CODECOV_TOKEN secret is needed. A pull request from a fork gets no OIDC token,
+    # so the upload is skipped there; coverage for it is reported once it is merged.
+    - name: Upload coverage to Codecov
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      uses: codecov/codecov-action@v5
+      with:
+        use_oidc: true
+        files: coverage.xml
+        flags: python-${{ matrix.python-version }}
+        fail_ci_if_error: true
