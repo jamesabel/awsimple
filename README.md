@@ -1,25 +1,30 @@
 <p align="center">
-    <!--
-    <a href="https://app.circleci.com/pipelines/github/jamesabel/awsimple" alt="build">
-        <img src="https://img.shields.io/circleci/build/gh/jamesabel/awsimple" />
+    <a href="https://github.com/jamesabel/awsimple/actions/workflows/python-package.yml">
+        <img src="https://img.shields.io/github/actions/workflow/status/jamesabel/awsimple/python-package.yml?branch=main&label=tests" alt="tests" />
     </a>
-    -->
-    <a href="https://codecov.io/gh/jamesabel/awsimple" alt="codecov">
-        <img src="https://img.shields.io/codecov/c/github/jamesabel/awsimple/master" />
+    <a href="https://codecov.io/gh/jamesabel/awsimple">
+        <img src="https://img.shields.io/codecov/c/github/jamesabel/awsimple/main" alt="coverage" />
     </a>
-    <a href="https://pypi.org/project/awsimple/" alt="pypi">
-        <img src="https://img.shields.io/pypi/v/awsimple" />
+    <a href="https://awsimple.readthedocs.io/">
+        <img src="https://img.shields.io/readthedocs/awsimple" alt="documentation" />
     </a>
-    <a href="https://pypi.org/project/awsimple/" alt="downloads">
-        <img src="https://img.shields.io/pypi/dm/awsimple" />
+    <a href="https://pypi.org/project/awsimple/">
+        <img src="https://img.shields.io/pypi/v/awsimple" alt="PyPI version" />
     </a>
-    <!--
-    <a alt="python">
-        <img src="https://img.shields.io/pypi/pyversions/awsimple" />
+    <a href="https://pypi.org/project/awsimple/">
+        <img src="https://img.shields.io/pypi/pyversions/awsimple" alt="Python versions" />
     </a>
-    -->
-    <a alt="license">
-        <img src="https://img.shields.io/github/license/jamesabel/awsimple" />
+    <a href="https://pypi.org/project/awsimple/">
+        <img src="https://img.shields.io/pypi/dm/awsimple" alt="downloads per month" />
+    </a>
+    <a href="https://github.com/jamesabel/awsimple/blob/main/LICENSE">
+        <img src="https://img.shields.io/github/license/jamesabel/awsimple" alt="license" />
+    </a>
+    <a href="https://pypi.org/project/awsimple/">
+        <img src="https://img.shields.io/pypi/types/awsimple" alt="typed" />
+    </a>
+    <a href="https://github.com/psf/black">
+        <img src="https://img.shields.io/badge/code%20style-black-000000.svg" alt="code style: black" />
     </a>
 </p>
 
