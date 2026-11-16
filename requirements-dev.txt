@@ -15,6 +15,7 @@ strif
 ismain
 #
 # packaging
+setuptools
 twine
 wheel
 #
