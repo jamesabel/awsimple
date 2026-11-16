@@ -5,8 +5,8 @@
     <a href="https://codecov.io/gh/jamesabel/awsimple">
         <img src="https://img.shields.io/codecov/c/github/jamesabel/awsimple/main" alt="coverage" />
     </a>
-    <a href="https://awsimple.readthedocs.io/">
-        <img src="https://img.shields.io/readthedocs/awsimple" alt="documentation" />
+    <a href="https://jamesabel.github.io/awsimple/">
+        <img src="https://img.shields.io/github/actions/workflow/status/jamesabel/awsimple/docs.yml?branch=main&label=docs" alt="documentation" />
     </a>
     <a href="https://pypi.org/project/awsimple/">
         <img src="https://img.shields.io/pypi/v/awsimple" alt="PyPI version" />
@@ -37,7 +37,7 @@ and SQS (Simple Queuing Service).
 
 Project featured on [PythonBytes Podcast Episode #224](https://pythonbytes.fm/episodes/show/224/join-us-on-a-python-adventure-back-to-1977).
 
-Full documentation available on [Read the Docs](https://awsimple.readthedocs.io/) .
+Full documentation available at [jamesabel.github.io/awsimple](https://jamesabel.github.io/awsimple/).
 
 ### Features:
 

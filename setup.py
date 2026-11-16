@@ -22,7 +22,7 @@ setup(
     packages=[__title__],
     package_data={__title__: ["py.typed"]},
     install_requires=["boto3[crt]>=1.43.0", "typeguard", "hashy>=0.14.0", "dictim", "appdirs", "tobool", "urllib3", "python-dateutil", "yasf", "strif"],  # boto3[crt]>=1.43.0 and hashy>=0.14.0 for CRC64NVME checksum support
-    project_urls={"Documentation": "https://awsimple.readthedocs.io/"},
+    project_urls={"Documentation": "https://jamesabel.github.io/awsimple/"},
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",

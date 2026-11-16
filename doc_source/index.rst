@@ -45,4 +45,4 @@ Indices and tables
 * :ref:`search`
 
 
-The `AWSimple documentation <https://awsimple.readthedocs.io/>`_ is hosted on `Read the Docs <https://www.readthedocs.org/>`_ .
+The `AWSimple documentation <https://jamesabel.github.io/awsimple/>`_ is hosted on `GitHub Pages <https://pages.github.com/>`_ .
