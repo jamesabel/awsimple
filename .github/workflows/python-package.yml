@@ -63,5 +63,6 @@ jobs:
       with:
         use_oidc: true
         files: coverage.xml
+        disable_search: true   # upload only coverage.xml (the search also picks up doc_source/coverage.txt)
         flags: python-${{ matrix.python-version }}
         fail_ci_if_error: true
