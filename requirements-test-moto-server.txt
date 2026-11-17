@@ -1,5 +1,5 @@
 #
-# Test requirements for running the test suite against a moto server (see the build-moto-server job in
+# Test requirements for running the test suite against a moto server (requirements-moto-server.txt, see the build-moto-server job in
 # .github/workflows/python-package.yml). Used for Python versions where requirements-dev.txt can not be installed from
 # wheels: moto runs in a separate process, so moto (and the PyYAML it needs) is not installed in the test environment.
 # Everything here must install with "pip install --only-binary :all:".

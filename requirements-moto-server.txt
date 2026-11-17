@@ -1,0 +1,6 @@
+#
+# The moto server the build-moto-server CI job tests against (see .github/workflows/python-package.yml). It is
+# installed in its own environment, on a Python version where all of this installs from wheels.
+moto[server,dynamodb,s3,sns,sqs]
+# awscrt - moto needs it to compute CRC64NVME checksums
+botocore[crt]

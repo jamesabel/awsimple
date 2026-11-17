@@ -75,35 +75,47 @@ jobs:
         fail_ci_if_error: true
 
   # Tests on Python versions where moto can not be installed from wheels (see the policy comment above). moto runs
-  # as a server in its own container and awsimple talks to it over HTTP in its LocalStack mode (moto listens on the
-  # LocalStack port), so the test environment needs only requirements-test-moto-server.txt. This is slower than the
-  # in-process mock because the tests use real waits.
+  # as a server in a separate Python environment (a version it does install on) and awsimple talks to it over HTTP in
+  # its LocalStack mode (the moto server listens on the LocalStack port). The test environment therefore needs only
+  # requirements-test-moto-server.txt. This is slower than the in-process mock because the tests use real waits.
   build-moto-server:
 
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
       contents: read
     strategy:
       matrix:
         python-version: ["3.15"]
-    services:
-      moto:
-        image: motoserver/moto:latest
-        ports:
-          - 4566:5000   # LocalStack's port on the runner -> moto server's port in the container
     env:
       AWSIMPLE_USE_LOCALSTACK: "1"
       AWSIMPLE_USE_MOTO_MOCK: "0"
-      # belt and braces: send every boto3 client to the moto server and never use real credentials
+      # belt and braces: send every boto3 client to the moto server and never use real credentials. The fake keys have
+      # the length of real ones (test_get_access_key checks that).
       AWS_ENDPOINT_URL: http://localhost:4566
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
+      AWS_ACCESS_KEY_ID: AAAAAAAAAAAAAAAAAAAA
+      AWS_SECRET_ACCESS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
       AWS_DEFAULT_REGION: us-west-2
 
     steps:
     - uses: actions/checkout@v4
 
+    # The moto server's own Python: the newest version requirements-moto-server.txt installs on from wheels. The
+    # stock motoserver/moto container image is not used because it lacks awscrt, which moto needs to compute
+    # CRC64NVME checksums (without it, multipart uploads get a wrong full-object checksum).
+    - name: Set up Python 3.14 for the moto server
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+
+    - name: Install and start the moto server
+      run: |
+        python -m venv "$RUNNER_TEMP/moto-server"
+        "$RUNNER_TEMP/moto-server/bin/pip" install --only-binary :all: -r requirements-moto-server.txt
+        nohup "$RUNNER_TEMP/moto-server/bin/moto_server" -H 127.0.0.1 -p 4566 > "$RUNNER_TEMP/moto-server.log" 2>&1 &
+        curl --silent --fail --retry 30 --retry-delay 2 --retry-connrefused --output /dev/null http://localhost:4566/moto-api/
+
+    # set up after the moto server's Python, so this is the "python" the remaining steps use
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -115,15 +127,22 @@ jobs:
         python -m pip install --upgrade pip
         pip install --only-binary :all: -r requirements-test-moto-server.txt
 
-    - name: Create the AWS profiles the tests use
+    - name: Create the AWS profiles and buckets the tests expect
+      # - conftest.py only creates the profiles in mock mode
+      # - the testawsimple bucket exists up front, as it does on real AWS (in mock mode awsimple creates it)
+      # - a bucket called "google" is owned by another account, as on real AWS (test_s3_bucket_owned_by_someone_else)
       run: |
         mkdir -p ~/.aws
-        printf '%s\n' '[default]' 'aws_access_key_id=test' 'aws_secret_access_key=test' '[testawsimple]' 'aws_access_key_id=test' 'aws_secret_access_key=test' > ~/.aws/credentials
+        printf '%s\n' '[default]' "aws_access_key_id=$AWS_ACCESS_KEY_ID" "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY" '[testawsimple]' "aws_access_key_id=$AWS_ACCESS_KEY_ID" "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY" > ~/.aws/credentials
         printf '%s\n' '[default]' 'region=us-west-2' '[profile testawsimple]' 'region=us-west-2' > ~/.aws/config
-
-    - name: Wait for the moto server
-      run: curl --silent --fail --retry 30 --retry-delay 2 --retry-connrefused --output /dev/null http://localhost:4566/moto-api/
+        curl --silent --fail --output /dev/null -X PUT --data '<CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><LocationConstraint>us-west-2</LocationConstraint></CreateBucketConfiguration>' http://localhost:4566/testawsimple
+        curl --silent --fail --output /dev/null -X PUT -H 'x-moto-account-id: 111111111111' http://localhost:4566/google
 
     - name: Test with pytest
       run: |
+        python --version
         pytest -s test_awsimple
+
+    - name: Show the moto server log
+      if: failure()
+      run: tail -n 200 "$RUNNER_TEMP/moto-server.log"

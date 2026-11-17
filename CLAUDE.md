@@ -54,7 +54,7 @@ Controlled by environment variables (auto-set in conftest.py):
 - **Moto mock** (default in CI): `AWSIMPLE_USE_MOTO_MOCK=1` — fast, no AWS needed
 - **Real AWS**: unset both env vars — requires AWS credentials
 - **LocalStack**: `AWSIMPLE_USE_LOCALSTACK=1` — requires running LocalStack
-- **Moto server** (CI, Python 3.15): LocalStack mode pointed at a moto server on port 4566, for Python versions where moto has no wheels — see the `build-moto-server` job and `requirements-test-moto-server.txt`
+- **Moto server** (CI, Python 3.15): LocalStack mode pointed at a moto server on port 4566, for Python versions where moto has no wheels — see the `build-moto-server` job, `requirements-moto-server.txt` (the server) and `requirements-test-moto-server.txt` (the tests)
 
 ## Code Style
 
