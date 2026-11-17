@@ -30,12 +30,11 @@ jobs:
         with:
           python-version: "3.14"
       - name: Build wheel
-        # setup.py imports the package to read its version, so the runtime dependencies must be installed and the
-        # build must run in this environment (--no-isolation) rather than in an isolated one.
+        # pyproject.toml (hatchling) reads the version from awsimple/__version__.py without importing the package,
+        # so the build runs in an isolated environment and the package's dependencies are not needed here.
         run: |
-          python -m pip install --upgrade pip build twine setuptools wheel
-          python -m pip install -r requirements-dev.txt
-          python -m build --wheel --no-isolation
+          python -m pip install --upgrade pip build twine
+          python -m build --wheel
           python -m twine check dist/*
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1

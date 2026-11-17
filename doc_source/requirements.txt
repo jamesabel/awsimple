@@ -1,5 +1,5 @@
 sphinx
-# awsimple runtime requirements (autodoc imports the package) - keep in sync with install_requires in setup.py
+# awsimple runtime requirements (autodoc imports the package) - keep in sync with dependencies in pyproject.toml
 boto3[crt]>=1.43.0
 typeguard
 hashy>=0.14.0
