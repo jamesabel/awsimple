@@ -60,7 +60,7 @@ Controlled by environment variables (auto-set in conftest.py):
 - **black** formatting with line-length=192 (pyproject.toml)
 - **flake8** with max-line-length=127, max-complexity=10
 - All public functions use `@typechecked()` decorator from typeguard
-- Python >=3.10 required
+- Python >=3.12 required
 
 ## Key Patterns
 
