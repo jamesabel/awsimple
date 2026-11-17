@@ -24,5 +24,6 @@ hatchling
 #
 # testing
 pytest
+pytest-socket
 pillow
 requests
