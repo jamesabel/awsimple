@@ -15,9 +15,9 @@ strif
 ismain
 #
 # packaging
-setuptools
+build
+hatchling
 twine
-wheel
 #
 # testing
 pytest

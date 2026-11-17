@@ -1,13 +1,25 @@
 """
-Package metadata tests. All tests in this file are AI-generated (Claude Code).
+Package metadata tests. All tests (and the private helpers) in this file are AI-generated (Claude Code).
 """
 
+import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+from awsimple.__version__ import __version__, __title__, __author__, __author_email__, __url__, __description__
+
 REPO_ROOT = Path(__file__).parent.parent
+
+
+def _package_metadata() -> dict:
+    """
+    The package metadata as the build backend (hatchling) resolves it from pyproject.toml, including the dynamic version.
+    """
+    result = subprocess.run([sys.executable, "-m", "hatchling", "metadata"], cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
@@ -15,42 +27,33 @@ def test_package_classifiers():
     """
     The README's PyPI badges (Python versions, typed) are generated from the trove classifiers, so they must be present.
     """
-    result = subprocess.run([sys.executable, "setup.py", "--classifiers"], cwd=REPO_ROOT, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    classifiers = result.stdout.splitlines()
+    metadata = _package_metadata()
+    classifiers = metadata["classifiers"]
     assert "Typing :: Typed" in classifiers
-    assert "License :: OSI Approved :: MIT License" in classifiers
+    assert metadata["license"] == "MIT"  # an SPDX license expression, which replaces the license classifier
     python_versions = [c for c in classifiers if c.startswith("Programming Language :: Python :: 3.")]
     assert len(python_versions) >= 3
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-def test_package_documentation_url(tmp_path):
+def test_package_documentation_url():
     """
     The documentation link shown on PyPI must point at the GitHub Pages site.
     """
-    result = subprocess.run([sys.executable, "setup.py", "--quiet", "dist_info", "--output-dir", str(tmp_path)], cwd=REPO_ROOT, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    metadata_files = list(tmp_path.glob("*.dist-info/METADATA"))
-    assert len(metadata_files) == 1
-    assert "Project-URL: Documentation, https://jamesabel.github.io/awsimple/" in metadata_files[0].read_text(encoding="utf-8").splitlines()
+    assert _package_metadata()["urls"]["Documentation"] == "https://jamesabel.github.io/awsimple/"
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-def test_package_python_floor(tmp_path):
+def test_package_python_floor():
     """
     The minimum supported Python version must be stated the same way everywhere: Requires-Python, the lowest trove classifier and the lowest version in the CI test matrix.
     """
-    result = subprocess.run([sys.executable, "setup.py", "--quiet", "dist_info", "--output-dir", str(tmp_path)], cwd=REPO_ROOT, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    metadata_lines = next(tmp_path.glob("*.dist-info/METADATA")).read_text(encoding="utf-8").splitlines()
-
-    requires_python = [line.split(": ", 1)[1] for line in metadata_lines if line.startswith("Requires-Python: ")]
-    assert requires_python == [">=3.12"]
+    metadata = _package_metadata()
+    assert metadata["requires-python"] == ">=3.12"
     floor = (3, 12)
 
-    classifier_prefix = "Classifier: Programming Language :: Python :: 3."
-    classifier_versions = sorted((3, int(line.removeprefix(classifier_prefix))) for line in metadata_lines if line.startswith(classifier_prefix))
+    classifier_prefix = "Programming Language :: Python :: 3."
+    classifier_versions = sorted((3, int(c.removeprefix(classifier_prefix))) for c in metadata["classifiers"] if c.startswith(classifier_prefix))
     assert classifier_versions[0] == floor
 
     workflow = (REPO_ROOT / ".github" / "workflows" / "python-package.yml").read_text(encoding="utf-8")
@@ -58,3 +61,27 @@ def test_package_python_floor(tmp_path):
     assert matrix_match is not None
     matrix_versions = sorted(tuple(int(part) for part in version.split(".")) for version in re.findall(r'"(\d+\.\d+)"', matrix_match.group(1)))
     assert matrix_versions[0] == floor
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_package_metadata_matches_version_module():
+    """
+    pyproject.toml takes the version from awsimple/__version__.py, and the values it repeats from that module (which the package also uses at runtime) must agree with it.
+    """
+    metadata = _package_metadata()
+    assert metadata["version"] == __version__
+    assert metadata["name"] == __title__
+    assert metadata["description"] == __description__
+    assert metadata["authors"] == [{"name": __author__, "email": __author_email__}]
+    assert metadata["urls"]["Homepage"] == __url__
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_package_dependencies_match_requirements():
+    """
+    The runtime dependencies are listed in pyproject.toml and repeated in the dev and docs requirements files, which must not drift apart.
+    """
+    dependencies = set(_package_metadata()["dependencies"])
+    for requirements_file in ("requirements-dev.txt", "doc_source/requirements.txt"):
+        requirements = {line.strip() for line in (REPO_ROOT / requirements_file).read_text(encoding="utf-8").splitlines()}
+        assert dependencies <= requirements, f"{requirements_file} is missing {sorted(dependencies - requirements)}"

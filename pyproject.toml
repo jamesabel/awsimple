@@ -1,3 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "awsimple"
+dynamic = ["version"]  # read from awsimple/__version__.py, see [tool.hatch.version]
+description = "Simple AWS API for S3, DynamoDB, SNS, and SQS"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "abel", email = "j@abel.co" }]
+keywords = ["aws", "cloud", "storage", "database", "dynamodb", "s3"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+# keep in sync with requirements-dev.txt and doc_source/requirements.txt
+dependencies = [
+    "boto3[crt]>=1.43.0",  # >=1.43.0 for CRC64NVME checksum support
+    "typeguard",
+    "hashy>=0.14.0",  # >=0.14.0 for CRC64NVME checksum support
+    "dictim",
+    "appdirs",
+    "tobool",
+    "urllib3",
+    "python-dateutil",
+    "yasf",
+    "strif",
+]
+
+[project.urls]
+Homepage = "https://github.com/jamesabel/awsimple"
+Documentation = "https://jamesabel.github.io/awsimple/"
+Download = "https://github.com/jamesabel/awsimple"
+
+[tool.hatch.version]
+# parsed from the file as text, so building does not import the package (or need its dependencies)
+path = "awsimple/__version__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["awsimple"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/awsimple", "/README.md", "/LICENSE"]
+
 [tool.black]
 line-length = 192
 

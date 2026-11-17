@@ -64,7 +64,7 @@ Controlled by environment variables (auto-set in conftest.py):
 
 ## Key Patterns
 
-- Version is defined in `awsimple/__version__.py` and read by `setup.py`
+- Packaging metadata is in `pyproject.toml` (hatchling); the version is defined in `awsimple/__version__.py` and read from there at build time
 - Public API is exported from `awsimple/__init__.py`
 - DynamoDB uses a hidden metadata table to track modification times for cache invalidation
 - Mock detection functions (`is_mock()`, `is_using_localstack()`) are in `mock.py`
