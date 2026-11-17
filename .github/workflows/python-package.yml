@@ -20,6 +20,12 @@ jobs:
       id-token: write   # OIDC token for the tokenless Codecov upload
     strategy:
       matrix:
+        # Policy: test the minimum supported version, the latest fully released version and the upcoming pre-release
+        # (as of 2026-11: 3.12, 3.15 and 3.16). 3.15 and 3.16 are not in the matrix yet because the dev dependencies
+        # do not all ship wheels for them and must never be built from source: PyYAML (needed by moto and awscli)
+        # has no cp315 or cp316 wheel, and Pillow has no cp316 wheel. Until they do, the matrix is the minimum (3.12)
+        # up to the newest version the full dependency set installs on from wheels (3.14). Re-check with:
+        #   uv pip compile requirements-dev.txt --python-version 3.15 --python-platform linux --only-binary :all:
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
