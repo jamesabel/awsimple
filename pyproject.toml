@@ -21,10 +21,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-# keep in sync with requirements-dev.txt and doc_source/requirements.txt
+# keep in sync with requirements-dev.txt, requirements-test-moto-server.txt and doc_source/requirements.txt
 dependencies = [
     "boto3[crt]>=1.43.0",  # >=1.43.0 for CRC64NVME checksum support
     "typeguard",
