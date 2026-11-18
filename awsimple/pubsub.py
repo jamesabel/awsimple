@@ -202,6 +202,9 @@ class _PubSub(Thread):
 
         super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
+    def _is_subscriber(self) -> bool:
+        return self.sub_callback is not None or self.use_sub_queue
+
     def run(self):
         try:
             self._run()
@@ -226,6 +229,46 @@ class _PubSub(Thread):
         )
         sns.create_topic()
 
+        if self._is_subscriber():
+            sqs_thread, sqs_metadata = self._start_subscription()
+        else:
+            # publish only: no SQS queue is needed (one would just collect messages that nobody reads)
+            sqs_thread = None
+            sqs_metadata = None
+
+        try:
+            while not self._exit_event.is_set():
+
+                self._drain_pub_queue(sns)
+                if sqs_thread is not None:
+                    self._drain_sub_queue(sqs_thread, sqs_metadata)
+
+                if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
+                    self._new_event.clear()
+
+            # Send whatever was published before the exit request: the loop above only drains while the exit event is clear.
+            # This is done before stopping the subscription thread, which can take as long as an SQS long poll.
+            self._drain_pub_queue(sns)
+        finally:
+            # also when this thread is ending on an error: otherwise the subscription thread would go on taking messages off the SQS queue with nobody to deliver them
+            if sqs_thread is not None:
+                sqs_thread.request_exit()
+
+        if sqs_thread is not None:
+            sqs_thread.join(30)
+            if sqs_thread.is_alive():
+                log.error("sqs_thread did not exit cleanly")
+            # Deliver what the subscription thread received up to its exit. Those messages are already deleted from the
+            # SQS queue, so they would otherwise be lost.
+            self._drain_sub_queue(sqs_thread, sqs_metadata)
+            self._drain_pub_queue(sns)  # a subscription callback may have published during the drain above
+
+    def _start_subscription(self) -> tuple[_SubscriptionThread, _DynamoDBMetadataTable]:
+        """
+        Create this node's SQS queue (if it does not exist yet), subscribe it to the topic and start the thread that polls it.
+
+        :return: the subscription thread and the queue's metadata (its last use time)
+        """
         sqs_metadata = _DynamoDBMetadataTable(
             SQS_NAME,
             self.sqs_queue_name,
@@ -259,39 +302,9 @@ class _PubSub(Thread):
             region_name=self.region_name,
         )
 
-        if self.sub_callback is None and not self.use_sub_queue:
-            # not being used as a subscriber
-            sqs_thread = None
-        else:
-            sqs_thread = _SubscriptionThread(sqs, self._new_event)
-            sqs_thread.start()
-
-        try:
-            while not self._exit_event.is_set():
-
-                self._drain_pub_queue(sns)
-                if sqs_thread is not None:
-                    self._drain_sub_queue(sqs_thread, sqs_metadata)
-
-                if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
-                    self._new_event.clear()
-
-            # Send whatever was published before the exit request: the loop above only drains while the exit event is clear.
-            # This is done before stopping the subscription thread, which can take as long as an SQS long poll.
-            self._drain_pub_queue(sns)
-        finally:
-            # also when this thread is ending on an error: otherwise the subscription thread would go on taking messages off the SQS queue with nobody to deliver them
-            if sqs_thread is not None:
-                sqs_thread.request_exit()
-
-        if sqs_thread is not None:
-            sqs_thread.join(30)
-            if sqs_thread.is_alive():
-                log.error("sqs_thread did not exit cleanly")
-            # Deliver what the subscription thread received up to its exit. Those messages are already deleted from the
-            # SQS queue, so they would otherwise be lost.
-            self._drain_sub_queue(sqs_thread, sqs_metadata)
-            self._drain_pub_queue(sns)  # a subscription callback may have published during the drain above
+        sqs_thread = _SubscriptionThread(sqs, self._new_event)
+        sqs_thread.start()
+        return sqs_thread, sqs_metadata
 
     def _drain_pub_queue(self, sns: SNSAccess) -> None:
         # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
@@ -337,6 +350,11 @@ class _PubSub(Thread):
         Publish a message.
 
         The message is queued and sent to the SNS topic by this object's thread, so it has not been sent when this call returns.
+        A message only reaches the subscribers (nodes) whose SQS queues are subscribed to the topic when it is sent. A node's
+        queue is created the first time a Sub is started for that node and then stays, so a subscriber that is not running
+        gets the message when it next starts. A subscriber starting for the first time does not get a message that was sent
+        before it finished subscribing: SNS does not retain messages, and a publisher can not know which subscribers are
+        still starting (they are usually in other processes or applications).
         To flush before exiting, call request_exit() and then join(): a send has been attempted for every message published
         before request_exit() by the time join() returns. A send that fails is logged as a warning and the message is dropped.
         A message published after request_exit() may not be sent.
@@ -411,7 +429,7 @@ class Pub(_PubSub):
         region_name: str | None = None,
     ) -> None:
         """
-        Pub only.
+        Pub only. Publishes to the channel's SNS topic; it does not create an SQS queue (only a Sub does).
         Create in a separate process to offload from main thread. Also facilitates use of moto mock in tests.
 
         :param channel: Channel name (used for SNS topic name). This must not be a prefix of other channel names to avoid collisions (don't name one channel "a" and another "ab").

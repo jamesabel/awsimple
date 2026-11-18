@@ -7,7 +7,6 @@ Each test uses its own channel so it has its own SNS topic and SQS queues, and t
 left over from an earlier run (possible with real AWS) are ignored.
 """
 
-import json
 import logging
 import time
 import uuid
@@ -15,8 +14,10 @@ import uuid
 import pytest
 from botocore.exceptions import ClientError
 
-from awsimple import Pub, Sub, SQSAccess, SQSPollAccess, SNSAccess, PubSubFailed, __application_name__
+from awsimple import Pub, Sub, SQSPollAccess, SNSAccess, PubSubFailed, __application_name__
 from awsimple.dynamodb import _DynamoDBMetadataTable
+
+from .listener import make_listener_queue, receive_run_messages
 
 _TIMEOUT = 60.0  # seconds
 
@@ -132,22 +133,14 @@ def test_pubsub_unserializable_message_does_not_end_publisher():
     good_message = {"run": run_id, "number": 1}
 
     pub = Pub("test_failure_unserializable", "failure_node")
+    listener_queue_name = make_listener_queue(pub.channel)
     pub.start()
     pub.publish({"run": run_id, "not_json": object()})  # logged as a warning and dropped
     pub.publish(good_message)
     _exit(pub)
     pub.raise_if_failed()
 
-    sqs = SQSAccess(pub.sqs_queue_name)
-    received = []  # type: list[dict]
-    deadline = time.time() + _TIMEOUT
-    while len(received) < 1 and time.time() < deadline:
-        for sqs_message in sqs.receive_messages():
-            message = json.loads(json.loads(sqs_message.message)["Message"])  # unwrap the SNS envelope
-            if message.get("run") == run_id:
-                received.append(message)
-        time.sleep(0.1)
-    assert received == [good_message]
+    assert receive_run_messages(listener_queue_name, run_id, 1) == [good_message]
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
