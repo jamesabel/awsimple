@@ -39,7 +39,7 @@ def musical_instruments_example():
     item = dynamodb_access.query("manufacturer", "Gibson")  # this can (and will in this case) be multiple items
     end = time.time()
     pprint(item)
-    print(f"query took {end-start} seconds")  # nominal 0.1 to 0.15 seconds
+    print(f"query took {end - start} seconds")  # nominal 0.1 to 0.15 seconds
     print()
 
     # get the entire inventory
@@ -47,7 +47,7 @@ def musical_instruments_example():
     all_items = dynamodb_access.scan_table_cached()  # use cached if the table is large and *only* if we know our table is slowly or never changing
     end = time.time()
     pprint(all_items)
-    print(f"scan took {end-start} seconds ({dynamodb_access.cache_hit=})")  # always fast for this small data set, but caching can offer a speedup for large tables
+    print(f"scan took {end - start} seconds ({dynamodb_access.cache_hit=})")  # always fast for this small data set, but caching can offer a speedup for large tables
 
 
 if is_main():

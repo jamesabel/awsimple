@@ -43,7 +43,7 @@ def users_example():
     end = time.time()
 
     pprint(item)
-    print(f"took {end-start} seconds")  # should take just a fraction of a second. 0.05 seconds was a nominal value on our test system.
+    print(f"took {end - start} seconds")  # should take just a fraction of a second. 0.05 seconds was a nominal value on our test system.
 
 
 if is_main():

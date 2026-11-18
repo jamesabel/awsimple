@@ -23,8 +23,8 @@
     <a href="https://pypi.org/project/awsimple/">
         <img src="https://img.shields.io/pypi/types/awsimple" alt="typed" />
     </a>
-    <a href="https://github.com/psf/black">
-        <img src="https://img.shields.io/badge/code%20style-black-000000.svg" alt="code style: black" />
+    <a href="https://github.com/astral-sh/ruff">
+        <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="code style: ruff" />
     </a>
 </p>
 

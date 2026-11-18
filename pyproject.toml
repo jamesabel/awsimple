@@ -54,8 +54,21 @@ packages = ["awsimple"]
 [tool.hatch.build.targets.sdist]
 include = ["/awsimple", "/README.md", "/LICENSE"]
 
-[tool.black]
+[tool.ruff]
 line-length = 192
+
+[tool.ruff.lint]
+# E and W: pycodestyle, F: pyflakes, C90: mccabe complexity
+select = ["E", "F", "W", "C90"]
+
+[tool.ruff.lint.mccabe]
+# functions that were over the limit when it was first enforced are marked "noqa: C901"
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+# these import names in order to re-export them
+"awsimple/__init__.py" = ["F401"]
+"test_awsimple/__init__.py" = ["F401"]
 
 [tool.pytest.ini_options]
 # only collect the test suite - the examples directory contains scripts (e.g. aws_access_test.py) that match

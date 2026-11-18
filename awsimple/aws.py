@@ -1,5 +1,6 @@
 import os
 import threading
+from dataclasses import dataclass, field
 from typing import Union, Any
 from logging import getLogger
 
@@ -17,38 +18,47 @@ log = getLogger(__application_name__)
 # environment variables, so instance creation/deletion order can't corrupt the environment or stop a mock another
 # instance still needs.
 _moto_lock = threading.Lock()
-_moto_state = {"count": 0, "mock": None, "saved_env": {}}  # type: dict
+
+
+@dataclass
+class _MotoState:
+    count: int = 0  # number of AWSAccess instances using the mock
+    mock: Any = None  # the moto mock, while it is started
+    saved_env: dict[str, str | None] = field(default_factory=dict)  # the AWS environment variables as they were before the mock (None if not set)
+
+
+_moto_state = _MotoState()
 _mock_env_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]
 
 
 def _moto_acquire():
     with _moto_lock:
-        if _moto_state["count"] == 0:
+        if _moto_state.count == 0:
             for aws_key in _mock_env_keys:
-                _moto_state["saved_env"][aws_key] = os.environ.get(aws_key)  # will be None if not set
+                _moto_state.saved_env[aws_key] = os.environ.get(aws_key)  # will be None if not set
                 os.environ[aws_key] = "testing"
 
             from moto import mock_aws
 
-            _moto_state["mock"] = mock_aws()
-            _moto_state["mock"].start()
-        _moto_state["count"] += 1
+            _moto_state.mock = mock_aws()
+            _moto_state.mock.start()
+        _moto_state.count += 1
 
 
 def _moto_release():
     with _moto_lock:
-        if _moto_state["count"] > 0:
-            _moto_state["count"] -= 1
-            if _moto_state["count"] == 0:
-                if _moto_state["mock"] is not None:
-                    _moto_state["mock"].stop()
-                    _moto_state["mock"] = None
-                for aws_key, value in _moto_state["saved_env"].items():
+        if _moto_state.count > 0:
+            _moto_state.count -= 1
+            if _moto_state.count == 0:
+                if _moto_state.mock is not None:
+                    _moto_state.mock.stop()
+                    _moto_state.mock = None
+                for aws_key, value in _moto_state.saved_env.items():
                     if value is None:
                         os.environ.pop(aws_key, None)
                     else:
                         os.environ[aws_key] = value
-                _moto_state["saved_env"] = {}
+                _moto_state.saved_env = {}
 
 
 def boto_error_to_string(boto_error) -> Union[str, None]:
@@ -65,7 +75,7 @@ def boto_error_to_string(boto_error) -> Union[str, None]:
 
 class AWSAccess:
     @typechecked()
-    def __init__(
+    def __init__(  # noqa: C901
         self,
         resource_name: Union[str, None] = None,
         profile_name: Union[str, None] = None,
@@ -107,7 +117,7 @@ class AWSAccess:
                 kwargs[k] = getattr(self, k)
         self.session = boto3.session.Session(**kwargs)
 
-        self.client = None  # type: Any
+        self.client: Any = None
         if is_mock():
             # moto mock AWS
             _moto_acquire()

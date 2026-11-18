@@ -105,7 +105,7 @@ class SNSAccess(AWSAccess):
         :return: message ID
         """
         topic = self.get_topic()
-        kwargs = {"Message": message}  # type: Dict[str, Union[str, dict]]
+        kwargs: Dict[str, Union[str, dict]] = {"Message": message}
         if subject is not None:
             kwargs["Subject"] = subject
         if attributes is not None:

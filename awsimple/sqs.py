@@ -76,7 +76,7 @@ class SQSAccess(AWSAccess):
         self.minimum_nominal_work_time = 1.0  # minimum work time in seconds so we don't timeout too quickly, e.g. in case the user doesn't actually do any work
 
         # receive/delete times for messages (auto_delete set to False)
-        self.response_history = {}  # type: Dict[Any, Any]
+        self.response_history: Dict[Any, Any] = {}
 
         # We write the history out as a file so don't make this too big. We take the median (for the nominal run time) so make this big enough to tolerate a fair number of outliers.
         self.max_history = 20
@@ -201,7 +201,7 @@ class SQSAccess(AWSAccess):
         return visibility_timeout
 
     @typechecked()
-    def _receive(self, max_number_of_messages_parameter: Union[int, None] = None) -> List[SQSMessage]:
+    def _receive(self, max_number_of_messages_parameter: Union[int, None] = None) -> List[SQSMessage]:  # noqa: C901
         if self.user_provided_timeout is None and not self.immediate_delete:
             # read in response history (and initialize it if it doesn't exist)
             try:
@@ -424,6 +424,7 @@ def get_all_sqs_queues(prefix: str = "", **kwargs) -> List[str]:
     queue_names = []
 
     sqs = AWSAccess("sqs", **kwargs)
+    assert sqs.resource is not None
     for queue in list(sqs.resource.queues.all()):
         queue_name = queue.url.split("/")[-1]
         if queue_name.startswith(prefix):

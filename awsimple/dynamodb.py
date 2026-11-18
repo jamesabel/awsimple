@@ -24,7 +24,7 @@ from logging import getLogger
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
-from dictim import dictim  # type: ignore
+from dictim import dictim
 
 from . import CacheAccess, __application_name__, AWSimpleException
 from .exceptions import DynamoDBItemAlreadyExists
@@ -134,7 +134,7 @@ def dynamodb_to_dict(item) -> dict:
 
 
 @typechecked()
-def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_exception: bool = True) -> Any:
+def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_exception: bool = True) -> Any:  # noqa: C901
     """
     makes a dictionary follow boto3 item standards
 
@@ -451,7 +451,7 @@ class DynamoDBAccess(CacheAccess):
         return self.rows_to_dict(self.scan_table_cached(invalidate_cache), sort_key)
 
     @typechecked()
-    def create_table(
+    def create_table(  # noqa: C901
         self,
         partition_key: str,
         sort_key: Union[str, None] = None,

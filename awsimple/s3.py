@@ -237,7 +237,7 @@ class S3Access(CacheAccess):
         self.resource.Object(self.bucket_name, s3_key).delete()
 
     @typechecked()
-    def upload(self, file_path: Union[str, Path], s3_key: str, force: bool = False) -> bool:
+    def upload(self, file_path: Union[str, Path], s3_key: str, force: bool = False) -> bool:  # noqa: C901
         """
         Upload a file to an S3 object
 
@@ -285,7 +285,6 @@ class S3Access(CacheAccess):
             extra_args = self._upload_extra_args()
             log.info(f"{extra_args=}")
             while not uploaded_flag and transfer_retry_count < self.retry_count:
-
                 try:
                     self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args, Config=self.get_s3_transfer_config())
                     uploaded_flag = True

@@ -1,6 +1,6 @@
 import time
 
-from awsimple import SQSAccess, is_mock, is_using_localstack
+from awsimple import SQSAccess, is_mock
 
 from test_awsimple import test_awsimple_str, drain
 from pytest_socket import disable_socket, enable_socket

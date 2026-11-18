@@ -38,10 +38,10 @@ pre-commit
 pillow
 requests
 #
-# formatting and linting
-black
-flake8
-mypy
+# formatting, linting and type checking
+ruff
+# ty is pre-1.0, so its rules can change between releases: this is the version the code was last checked with
+ty>=0.0.106
 boto3-stubs[s3,dynamodb,sqs,sns]
 appdirs-stubs
 types-urllib3

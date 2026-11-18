@@ -25,13 +25,13 @@ pytest test_awsimple/test_s3_write_read.py
 pytest test_awsimple/test_s3_write_read.py::test_s3_write_read
 
 # Lint
-flake8 --max-line-length=127 --max-complexity=10
+ruff check .
 
 # Type checking
-mypy awsimple
+ty check awsimple
 
 # Format
-black awsimple
+ruff format .
 ```
 
 ## Architecture
@@ -60,8 +60,9 @@ Controlled by environment variables (auto-set in conftest.py):
 
 ## Code Style
 
-- **black** formatting with line-length=192 (pyproject.toml)
-- **flake8** with max-line-length=127, max-complexity=10
+- **ruff** for formatting and linting, with line-length=192 and max-complexity=10 (pyproject.toml)
+- **ty** for type checking
+- CI fails on any ruff or ty finding
 - All public functions use `@typechecked()` decorator from typeguard
 - Python >=3.12 required
 
