@@ -26,7 +26,7 @@ jobs:
         # has no cp315 or cp316 wheel, and Pillow has no cp316 wheel. Until they do, the matrix is the minimum (3.12)
         # up to the newest version the full dependency set installs on from wheels (3.14). Re-check with:
         #   uv pip compile requirements-dev.txt --python-version 3.15 --python-platform linux --only-binary :all:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
 
     steps:
     - uses: actions/checkout@v4
