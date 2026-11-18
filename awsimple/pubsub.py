@@ -157,7 +157,6 @@ def make_name_aws_safe(*args: str) -> str:
 
 
 class _PubSub(Thread):
-
     @typechecked()
     def __init__(
         self,
@@ -176,7 +175,8 @@ class _PubSub(Thread):
 
         :param channel: Channel name (used for SNS topic name). This must not be a prefix of other channel names to avoid collisions (don't name one channel "a" and another "ab").
         :param node_name: Node name (SQS queue name suffix). Defaults to a combination of computer name and username, but can be passed in for customization and/or testing.
-        :param sub_callback: Optional thread and process safe callback function to be called when a new message is received. The function should accept a single argument, which will be the message as a dictionary.
+        :param sub_callback: Optional thread and process safe callback function to be called when a new message is received.
+            The function should accept a single argument, which will be the message as a dictionary.
         :param use_sub_queue: If True, use an internal queue to store received messages. If False, messages must be handled by the callback function. Default is False.
         """
         self.channel = AWS_RESOURCE_PREFIX + make_name_aws_safe(channel)  # prefix with ps (pubsub) to avoid collisions with other uses of SNS topics and SQS queues
@@ -238,9 +238,8 @@ class _PubSub(Thread):
 
         try:
             while not self._exit_event.is_set():
-
                 self._drain_pub_queue(sns)
-                if sqs_thread is not None:
+                if sqs_thread is not None and sqs_metadata is not None:
                     self._drain_sub_queue(sqs_thread, sqs_metadata)
 
                 if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
@@ -254,7 +253,7 @@ class _PubSub(Thread):
             if sqs_thread is not None:
                 sqs_thread.request_exit()
 
-        if sqs_thread is not None:
+        if sqs_thread is not None and sqs_metadata is not None:
             sqs_thread.join(30)
             if sqs_thread.is_alive():
                 log.error("sqs_thread did not exit cleanly")
@@ -417,7 +416,6 @@ class _PubSub(Thread):
 
 
 class Pub(_PubSub):
-
     @typechecked()
     def __init__(
         self,
@@ -447,7 +445,6 @@ class Pub(_PubSub):
 
 
 class Sub(_PubSub):
-
     @typechecked()
     def __init__(
         self,

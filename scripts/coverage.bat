@@ -1,10 +1,8 @@
 pushd .
 cd ..
-set PYTHONPATH=%CD%
 set AWSIMPLE_USE_MOTO_MOCK=1
 mkdir cov
-venv\Scripts\pytest.exe --cov-report=html --cov-report=xml:cov\coverage.xml --cov --ignore=examples
-venv\Scripts\python.exe scripts\doc_coverage_updater.py
-set PYTHONPATH=
+uv run pytest --cov-report=html --cov-report=xml:cov\coverage.xml --cov --ignore=examples
+uv run python scripts\doc_coverage_updater.py
 set AWSIMPLE_USE_MOTO_MOCK=
 popd

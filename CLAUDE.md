@@ -9,29 +9,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 ```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
+# Make the dev environment (.venv) with uv: awsimple, its dependencies and the dev group in pyproject.toml
+uv sync
 
 # Run all tests (uses moto mock by default via conftest.py)
-pytest test_awsimple
+uv run pytest test_awsimple
 
 # Run all tests on every supported Python version (also runs as a pre-commit hook, takes several minutes)
-tox
+uv run tox
 
 # Run a single test file
-pytest test_awsimple/test_s3_write_read.py
+uv run pytest test_awsimple/test_s3_write_read.py
 
 # Run a single test
-pytest test_awsimple/test_s3_write_read.py::test_s3_write_read
+uv run pytest test_awsimple/test_s3_write_read.py::test_s3_write_read
 
 # Lint
-flake8 --max-line-length=127 --max-complexity=10
+uv run ruff check .
 
 # Type checking
-mypy awsimple
+uv run ty check awsimple
 
 # Format
-black awsimple
+uv run ruff format .
 ```
 
 ## Architecture
@@ -60,13 +60,15 @@ Controlled by environment variables (auto-set in conftest.py):
 
 ## Code Style
 
-- **black** formatting with line-length=192 (pyproject.toml)
-- **flake8** with max-line-length=127, max-complexity=10
+- **ruff** for formatting and linting, with line-length=192 and max-complexity=10 (pyproject.toml)
+- **ty** for type checking
+- CI fails on any ruff or ty finding
 - All public functions use `@typechecked()` decorator from typeguard
 - Python >=3.12 required
 
 ## Key Patterns
 
+- Dependencies are managed with **uv**: runtime dependencies and the `dev` and `docs` dependency groups are in `pyproject.toml`. `uv.lock` is git-ignored on purpose, so CI and tox install the newest versions
 - Packaging metadata is in `pyproject.toml` (hatchling); the version is defined in `awsimple/__version__.py` and read from there at build time
 - Public API is exported from `awsimple/__init__.py`
 - DynamoDB uses a hidden metadata table to track modification times for cache invalidation

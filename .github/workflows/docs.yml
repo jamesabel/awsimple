@@ -26,18 +26,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
+          enable-cache: false
 
+      # awsimple and its dependencies (autodoc imports the package) plus the docs group in pyproject.toml
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r doc_source/requirements.txt
+        run: uv sync --upgrade --no-dev --group docs
 
       - name: Build docs
         # -W: warnings are errors, so e.g. a module autodoc can not import fails the build
-        run: sphinx-build -b html -W --keep-going doc_source build/html
+        run: uv run --no-sync sphinx-build -b html -W --keep-going doc_source build/html
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main'

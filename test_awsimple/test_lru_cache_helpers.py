@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from awsimple import get_disk_free, get_directory_size, is_mock
+from awsimple import get_disk_free, get_directory_size
 
 
 def test_disk_free():

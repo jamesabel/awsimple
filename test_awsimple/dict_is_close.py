@@ -37,7 +37,7 @@ class ValueDivergences:
     @typechecked()
     def __init__(self, max_divergences: int = 10):
         self.max_divergences = max_divergences
-        self.divergences = []  # type: List[ValueDivergence]
+        self.divergences: List[ValueDivergence] = []
         self.hit_max_divergences_flag = False
 
     def __repr__(self):

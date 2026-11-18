@@ -76,7 +76,7 @@ class SQSAccess(AWSAccess):
         self.minimum_nominal_work_time = 1.0  # minimum work time in seconds so we don't timeout too quickly, e.g. in case the user doesn't actually do any work
 
         # receive/delete times for messages (auto_delete set to False)
-        self.response_history = {}  # type: Dict[Any, Any]
+        self.response_history: Dict[Any, Any] = {}
 
         # We write the history out as a file so don't make this too big. We take the median (for the nominal run time) so make this big enough to tolerate a fair number of outliers.
         self.max_history = 20
@@ -200,23 +200,56 @@ class SQSAccess(AWSAccess):
 
         return visibility_timeout
 
+    def _read_response_history(self) -> None:
+        """
+        Read in the response history (and initialize it if it doesn't exist).
+        """
+        try:
+            with open(self._get_response_history_file_path()) as f:
+                self.response_history = json.load(f)
+        except FileNotFoundError:
+            pass
+        except IOError as e:
+            log.warning(f'IOError : "{self._get_response_history_file_path()}" : {e}')
+        except json.JSONDecodeError as e:
+            log.warning(f'JSONDecodeError : "{self._get_response_history_file_path()}" : {e}')
+        if len(self.response_history) == 0:
+            now = time.time()
+            # we have no history, so the initial nominal run time is a long time (a string sentinel key is used since this dict is JSON round-tripped and None would become "null")
+            self.response_history["__initial__"] = (now, now + timedelta(hours=1).total_seconds())
+
+    def _start_response_history(self, message_id: str) -> None:
+        """
+        Keep history of message processing times for user deletes, by AWS's message id.
+        """
+        self.response_history[message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
+
+        # if history is too large, delete the oldest
+        while len(self.response_history) > self.max_history:
+            oldest = None
+            for handle, start_finish in self.response_history.items():
+                if oldest is None or start_finish[0] < self.response_history[oldest][0]:
+                    oldest = handle
+            del self.response_history[oldest]
+
+    def _receive_from_queue(self, max_number_of_messages: int, call_wait_time: int) -> Union[List[Any], None]:
+        """
+        Make one receive call to SQS.
+
+        :return: the AWS messages received (which are deleted or added to the response history, as this queue is set up), or None if the queue is not available
+        """
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+            return None
+
+        visibility_timeout = self.calculate_visibility_timeout()
+        max_number_of_messages = min(max_number_of_messages, aws_sqs_max_messages)  # AWS limit
+        return queue.receive_messages(MaxNumberOfMessages=max_number_of_messages, VisibilityTimeout=visibility_timeout, WaitTimeSeconds=call_wait_time)
+
     @typechecked()
     def _receive(self, max_number_of_messages_parameter: Union[int, None] = None) -> List[SQSMessage]:
         if self.user_provided_timeout is None and not self.immediate_delete:
-            # read in response history (and initialize it if it doesn't exist)
-            try:
-                with open(self._get_response_history_file_path()) as f:
-                    self.response_history = json.load(f)
-            except FileNotFoundError:
-                pass
-            except IOError as e:
-                log.warning(f'IOError : "{self._get_response_history_file_path()}" : {e}')
-            except json.JSONDecodeError as e:
-                log.warning(f'JSONDecodeError : "{self._get_response_history_file_path()}" : {e}')
-            if len(self.response_history) == 0:
-                now = time.time()
-                # we have no history, so the initial nominal run time is a long time (a string sentinel key is used since this dict is JSON round-tripped and None would become "null")
-                self.response_history["__initial__"] = (now, now + timedelta(hours=1).total_seconds())
+            self._read_response_history()
 
         # receive the message(s)
         messages = []  # type: List[Any]
@@ -232,29 +265,13 @@ class SQSAccess(AWSAccess):
                 max_number_of_messages = max_number_of_messages_parameter - len(messages)  # how many left to do
 
             try:
-                if (queue := self._get_queue()) is None:
-                    log.warning(f"could not get queue {self.queue_name}")
-                else:
-                    visibility_timeout = self.calculate_visibility_timeout()
-                    max_number_of_messages = min(max_number_of_messages, aws_sqs_max_messages)  # AWS limit
-                    aws_messages = queue.receive_messages(MaxNumberOfMessages=max_number_of_messages, VisibilityTimeout=visibility_timeout, WaitTimeSeconds=call_wait_time)
-
-                    for m in aws_messages:
-                        if self.immediate_delete:
-                            m.delete()
-                        elif self.user_provided_timeout is None:
-                            #  keep history of message processing times for user deletes, by AWS's message id
-                            self.response_history[m.message_id] = [time.time(), None]  # start (finish will be filled in upon delete)
-
-                            # if history is too large, delete the oldest
-                            while len(self.response_history) > self.max_history:
-                                oldest = None
-                                for handle, start_finish in self.response_history.items():
-                                    if oldest is None or start_finish[0] < self.response_history[oldest][0]:
-                                        oldest = handle
-                                del self.response_history[oldest]
-
-                        messages.append(SQSMessage(m.body, m, self))
+                aws_messages = self._receive_from_queue(max_number_of_messages, call_wait_time)
+                for m in aws_messages if aws_messages is not None else []:
+                    if self.immediate_delete:
+                        m.delete()
+                    elif self.user_provided_timeout is None:
+                        self._start_response_history(m.message_id)
+                    messages.append(SQSMessage(m.body, m, self))
 
             except (ClientError, HTTPClientError) as e:
                 # Usually we don't catch boto3 exceptions, but during a long poll a quick internet disruption can raise an exception that we'd like to avoid.
@@ -424,6 +441,7 @@ def get_all_sqs_queues(prefix: str = "", **kwargs) -> List[str]:
     queue_names = []
 
     sqs = AWSAccess("sqs", **kwargs)
+    assert sqs.resource is not None
     for queue in list(sqs.resource.queues.all()):
         queue_name = queue.url.split("/")[-1]
         if queue_name.startswith(prefix):

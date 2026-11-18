@@ -8,6 +8,6 @@ repos:
         # share the temp and cache directories. This takes several minutes.
         entry: tox
         language: python
-        additional_dependencies: [tox]
+        additional_dependencies: [tox, tox-uv]
         pass_filenames: false
         always_run: true

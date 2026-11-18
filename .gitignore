@@ -107,6 +107,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+# not committed, so that the newest dependency versions are installed (see [dependency-groups] in pyproject.toml)
+uv.lock
 env/
 venv/
 ENV/

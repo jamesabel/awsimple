@@ -1,6 +1,6 @@
 import time
 
-from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock
+from awsimple import dict_to_dynamodb, DynamoDBAccess
 
 from test_awsimple import id_str, test_awsimple_str
 

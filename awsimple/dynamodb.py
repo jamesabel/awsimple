@@ -24,7 +24,7 @@ from logging import getLogger
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
-from dictim import dictim  # type: ignore
+from dictim import dictim
 
 from . import CacheAccess, __application_name__, AWSimpleException
 from .exceptions import DynamoDBItemAlreadyExists
@@ -133,6 +133,49 @@ def dynamodb_to_dict(item) -> dict:
     return json.loads(dynamodb_to_json(item))
 
 
+def _mapping_to_dynamodb(input_value: Any, convert_images: bool, raise_exception: bool) -> dict:
+    resp = dict(input_value) if type(input_value) is dictim else {}
+    for k, v in input_value.items():
+        if type(k) is int:
+            k = str(k)  # allow int as key since it is unambiguous (e.g. bool and float are ambiguous)
+        elif isinstance(k, Enum):
+            k = dict_to_dynamodb(k, False, raise_exception)  # convert Enum, including StrEnum, etc. as keys
+        resp[k] = dict_to_dynamodb(v, convert_images, raise_exception)
+    return resp
+
+
+def _number_to_dynamodb(input_value: Union[float, int]) -> decimal.Decimal:
+    # boto3 uses Decimal for numbers
+    # Handle the 'inexact error' via decimal_context.create_decimal
+    # 'casting' to str may work as well, but decimal_context.create_decimal should be better at maintaining precision
+    if handle_inexact_error:
+        return decimal_context.create_decimal(input_value)
+    return decimal.Decimal(input_value)
+
+
+def _object_to_dynamodb(input_value: Any, convert_images: bool, raise_exception: bool) -> Any:
+    """
+    Convert a value that is not a container, string, number or other native DynamoDB type.
+    """
+    resp = None  # type: Any
+    if isinstance(input_value, Enum):
+        resp = input_value.name
+    elif isinstance(input_value, bytes):
+        resp = str(input_value)
+    elif convert_images and pil_exists and isinstance(input_value, Image.Image):
+        # save pillow (PIL) image as PNG binary
+        image_byte_array = io.BytesIO()
+        input_value.save(image_byte_array, format="PNG")
+        resp = image_byte_array.getvalue()
+    elif isinstance(input_value, datetime.datetime):
+        resp = input_value.isoformat()
+    elif isinstance(input_value, Path):
+        resp = input_value.as_posix()
+    elif raise_exception:
+        raise NotImplementedError(type(input_value), input_value)
+    return resp
+
+
 @typechecked()
 def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_exception: bool = True) -> Any:
     """
@@ -147,16 +190,7 @@ def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_except
     """
     resp = None  # type: Any
     if type(input_value) is dict or type(input_value) is OrderedDict or type(input_value) is defaultdict or type(input_value) is dictim:
-        if type(input_value) is dictim:
-            resp = dict(input_value)
-        else:
-            resp = {}
-        for k, v in input_value.items():
-            if type(k) is int:
-                k = str(k)  # allow int as key since it is unambiguous (e.g. bool and float are ambiguous)
-            elif isinstance(k, Enum):
-                k = dict_to_dynamodb(k, False, raise_exception)  # convert Enum, including StrEnum, etc. as keys
-            resp[k] = dict_to_dynamodb(v, convert_images, raise_exception)
+        resp = _mapping_to_dynamodb(input_value, convert_images, raise_exception)
     elif type(input_value) is list or type(input_value) is tuple:
         # converts tuple to list
         resp = [dict_to_dynamodb(v, convert_images, raise_exception) for v in input_value]
@@ -166,30 +200,43 @@ def dict_to_dynamodb(input_value: Any, convert_images: bool = True, raise_except
     elif type(input_value) is bool or input_value is None or type(input_value) is decimal.Decimal:
         resp = input_value  # native DynamoDB types
     elif type(input_value) is float or type(input_value) is int:
-        # boto3 uses Decimal for numbers
-        # Handle the 'inexact error' via decimal_context.create_decimal
-        # 'casting' to str may work as well, but decimal_context.create_decimal should be better at maintaining precision
-        if handle_inexact_error:
-            resp = decimal_context.create_decimal(input_value)
-        else:
-            resp = decimal.Decimal(input_value)
-    elif isinstance(input_value, Enum):
-        resp = input_value.name
-    elif isinstance(input_value, bytes):
-        resp = str(input_value)
-    elif convert_images and pil_exists and isinstance(input_value, Image.Image):
-        # save pillow (PIL) image as PNG binary
-        image_byte_array = io.BytesIO()
-        input_value.save(image_byte_array, format="PNG")
-        resp = image_byte_array.getvalue()
-    elif isinstance(input_value, datetime.datetime):
-        resp = input_value.isoformat()
-    elif isinstance(input_value, Path):
-        resp = input_value.as_posix()
+        resp = _number_to_dynamodb(input_value)
     else:
-        if raise_exception:
-            raise NotImplementedError(type(input_value), input_value)
+        resp = _object_to_dynamodb(input_value, convert_images, raise_exception)
     return resp
+
+
+def _key_definition_and_schema(k: str, t: str, kt: str) -> tuple[dict, dict]:
+    """
+    :param k: key (attribute) name
+    :param t: DynamoDB attribute type
+    :param kt: DynamoDB key type
+    :return: the attribute definition and the key schema element for a table key
+    """
+    assert t in ("S", "N", "B")  # DynamoDB key types (string, number, binary)
+    assert kt in ("HASH", "RANGE")
+    definition = {"AttributeName": k, "AttributeType": t}
+    schema = {"AttributeName": k, "KeyType": kt}
+    return definition, schema
+
+
+def _type_to_attribute_type(t: type) -> str:
+    """
+    :param t: Python type of a table key
+    :return: DynamoDB attribute type of that key
+    """
+    if t is str:
+        ts = "S"
+    elif t is int:
+        ts = "N"
+    elif t is bytes:
+        ts = "B"  # binary
+    elif t is bool:
+        # DynamoDB "B" is *binary*, not boolean - booleans are not a valid DynamoDB key type
+        raise ValueError("DynamoDB does not support boolean key attributes - key types are str ('S'), int ('N'), and bytes ('B' binary)")
+    else:
+        raise ValueError(t)
+    return ts
 
 
 class DBItemNotFound(AWSimpleException):
@@ -472,26 +519,8 @@ class DynamoDBAccess(CacheAccess):
         :return: True if table created
         """
 
-        def add_key(k, t, kt):
-            assert t in ("S", "N", "B")  # DynamoDB key types (string, number, binary)
-            assert kt in ("HASH", "RANGE")
-            definition = {"AttributeName": k, "AttributeType": t}
-            schema = {"AttributeName": k, "KeyType": kt}
-            return definition, schema
-
-        def type_to_attribute_type(t):
-            if t is str:
-                ts = "S"
-            elif t is int:
-                ts = "N"
-            elif t is bytes:
-                ts = "B"  # binary
-            elif t is bool:
-                # DynamoDB "B" is *binary*, not boolean - booleans are not a valid DynamoDB key type
-                raise ValueError("DynamoDB does not support boolean key attributes - key types are str ('S'), int ('N'), and bytes ('B' binary)")
-            else:
-                raise ValueError(t)
-            return ts
+        add_key = _key_definition_and_schema
+        type_to_attribute_type = _type_to_attribute_type
 
         created = False
         if not self.table_exists():
