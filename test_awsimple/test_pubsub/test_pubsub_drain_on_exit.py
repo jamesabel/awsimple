@@ -7,31 +7,15 @@ Each test uses its own channel so it has its own SNS topic and SQS queues, and t
 left over from an earlier run (possible with real AWS) are ignored.
 """
 
-import json
 import logging
 import time
 import uuid
 
-from awsimple import Pub, Sub, SQSAccess, __application_name__
+from awsimple import Pub, Sub, __application_name__
 
-_TIMEOUT = 60.0  # seconds
+from .listener import make_listener_queue, receive_run_messages, TIMEOUT
 
-
-def _receive_run_messages(queue_name: str, run_id: str, expected_count: int) -> list[dict]:
-    """
-    Read a node's queue until the expected number of this run's messages have arrived (SNS to SQS delivery is asynchronous on real AWS).
-    """
-    sqs = SQSAccess(queue_name)  # short poll
-    received = []  # type: list[dict]
-    deadline = time.time() + _TIMEOUT
-    while len(received) < expected_count and time.time() < deadline:
-        for sqs_message in sqs.receive_messages():
-            message = json.loads(json.loads(sqs_message.message)["Message"])  # unwrap the SNS envelope
-            if message.get("run") == run_id:
-                received.append(message)
-        if len(received) < expected_count:
-            time.sleep(0.1)
-    return received
+_TIMEOUT = TIMEOUT
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
@@ -40,14 +24,15 @@ def test_pubsub_publish_then_exit_during_setup():
     sent_message = {"run": run_id, "number": 1}
 
     pub = Pub("test_drain_exit_during_setup", "drain_node")
+    listener_queue_name = make_listener_queue(pub.channel)
     pub.start()
-    # the thread is still creating the topic and queue, so the exit request is already set when its loop is first tested
+    # the thread is still doing its AWS setup, so the exit request is already set when its loop is first tested
     pub.publish(sent_message)
     pub.request_exit()
     pub.join(_TIMEOUT)
     assert not pub.is_alive()
 
-    assert _receive_run_messages(pub.sqs_queue_name, run_id, 1) == [sent_message]
+    assert receive_run_messages(listener_queue_name, run_id, 1) == [sent_message]
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
@@ -57,18 +42,19 @@ def test_pubsub_publish_then_exit_while_waiting():
     second_message = {"run": run_id, "number": 2}
 
     pub = Pub("test_drain_exit_while_waiting", "drain_node")
+    listener_queue_name = make_listener_queue(pub.channel)
     pub.start()
 
     # once the first message has arrived, setup has finished and the thread is in its loop, waiting for an event
     pub.publish(first_message)
-    assert _receive_run_messages(pub.sqs_queue_name, run_id, 1) == [first_message]
+    assert receive_run_messages(listener_queue_name, run_id, 1) == [first_message]
 
     pub.publish(second_message)
     pub.request_exit()
     pub.join(_TIMEOUT)
     assert not pub.is_alive()
 
-    assert _receive_run_messages(pub.sqs_queue_name, run_id, 1) == [second_message]
+    assert receive_run_messages(listener_queue_name, run_id, 1) == [second_message]
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
@@ -77,6 +63,7 @@ def test_pubsub_publish_burst_then_exit():
     sent_messages = [{"run": run_id, "number": number} for number in range(25)]  # more than one SQS receive (10) can return
 
     pub = Pub("test_drain_burst", "drain_node")
+    listener_queue_name = make_listener_queue(pub.channel)
     pub.start()
     for sent_message in sent_messages:
         pub.publish(sent_message)
@@ -84,7 +71,7 @@ def test_pubsub_publish_burst_then_exit():
     pub.join(_TIMEOUT)
     assert not pub.is_alive()
 
-    received_messages = _receive_run_messages(pub.sqs_queue_name, run_id, len(sent_messages))
+    received_messages = receive_run_messages(listener_queue_name, run_id, len(sent_messages))
     # standard SNS topics and SQS queues do not guarantee ordering, so compare without regard to order
     assert sorted(received_messages, key=lambda message: message["number"]) == sent_messages
 

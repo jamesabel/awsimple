@@ -14,15 +14,17 @@ def test_pubsub_get_messages():
     sub = Sub(test_channel)
     sub.start()
 
-    pub.publish(sent_message)
-
+    # SNS does not retain messages, so a message sent before the subscriber has subscribed is lost: publish until one is received
     received_message = None
     count = 0
     while count < 600:
+        if count % 10 == 0:
+            pub.publish(sent_message)
         if len(messages := sub.get_messages()) > 0:
             received_message = messages[0]
             break
         time.sleep(0.1)
+        count += 1
 
     pub.request_exit()
     sub.request_exit()

@@ -18,14 +18,14 @@ def test_pubsub_callback():
     sub = Sub(test_channel, sub_callback=message_queue.put)  # the callback puts messages in the queue
     sub.start()
 
-    pub.publish(sent_message)
-
     # test the callback
+    # SNS does not retain messages, so a message sent before the subscriber has subscribed is lost: publish until one is received
     count = 100
     message_from_queue = None
     while message_from_queue is None and count > 0:
+        pub.publish(sent_message)
         try:
-            message_from_queue = message_queue.get(timeout=10)
+            message_from_queue = message_queue.get(timeout=1)
         except Empty:
             time.sleep(1)
         count -= 1
