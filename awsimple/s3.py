@@ -236,8 +236,64 @@ class S3Access(CacheAccess):
         assert self.resource is not None
         self.resource.Object(self.bucket_name, s3_key).delete()
 
+    def _is_upload_needed(self, file_path: Path, s3_key: str, file_crc64nvme: str) -> bool:
+        """
+        Determine if a file differs from the S3 object it would be uploaded to.
+
+        :param file_path: path to file to upload
+        :param s3_key: S3 key
+        :param file_crc64nvme: CRC64NVME checksum of the file
+        :return: True if the S3 object does not exist or does not have the file's contents
+        """
+        if not self.object_exists(s3_key):
+            return True
+
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+        log.info(f"{s3_object_metadata=}")
+        if s3_object_metadata.crc64nvme is not None:
+            # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
+            upload_flag = file_crc64nvme != s3_object_metadata.crc64nvme
+        elif s3_object_metadata.sha512 is not None:
+            # the object was written by another tool with a native full-object SHA-512 checksum
+            upload_flag = get_file_sha512(file_path) != s3_object_metadata.sha512
+        elif s3_object_metadata.legacy_sha512 is not None:
+            # the object was written by an older awsimple using the legacy metadata hash - always re-upload it so it gains the native checksum
+            upload_flag = True
+        else:
+            # no hash is available, so compare modification time and file size (free and robust, but weaker than a hash)
+            sizes_equal = os.path.getsize(file_path) == s3_object_metadata.size
+            mtimes_equal = isclose(os.path.getmtime(file_path), s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
+            upload_flag = not (sizes_equal and mtimes_equal)
+        return upload_flag
+
+    def _upload_file_with_retries(self, file_path: Path, s3_key: str) -> bool:
+        """
+        Upload a file to an S3 object, trying again after an error.
+
+        :param file_path: path to file to upload
+        :param s3_key: S3 key
+        :return: True if uploaded, False if every attempt failed
+        """
+        uploaded_flag = False
+        transfer_retry_count = 0
+        extra_args = self._upload_extra_args()
+        log.info(f"{extra_args=}")
+        while not uploaded_flag and transfer_retry_count < self.retry_count:
+            try:
+                self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args, Config=self.get_s3_transfer_config())
+                uploaded_flag = True
+            except connection_errors as e:
+                log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
+                time.sleep(self.retry_sleep_time)
+            except RuntimeError as e:
+                log.error(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
+                time.sleep(self.retry_sleep_time)
+
+            transfer_retry_count += 1
+        return uploaded_flag
+
     @typechecked()
-    def upload(self, file_path: Union[str, Path], s3_key: str, force: bool = False) -> bool:  # noqa: C901
+    def upload(self, file_path: Union[str, Path], s3_key: str, force: bool = False) -> bool:
         """
         Upload a file to an S3 object
 
@@ -252,51 +308,13 @@ class S3Access(CacheAccess):
         if isinstance(file_path, str):
             file_path = Path(file_path)
 
-        file_mtime = os.path.getmtime(file_path)
         file_crc64nvme = get_file_crc64nvme(file_path)
-        if force:
-            upload_flag = True
-        else:
-            if self.object_exists(s3_key):
-                s3_object_metadata = self.get_s3_object_metadata(s3_key)
-                log.info(f"{s3_object_metadata=}")
-                if s3_object_metadata.crc64nvme is not None:
-                    # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
-                    upload_flag = file_crc64nvme != s3_object_metadata.crc64nvme
-                elif s3_object_metadata.sha512 is not None:
-                    # the object was written by another tool with a native full-object SHA-512 checksum
-                    upload_flag = get_file_sha512(file_path) != s3_object_metadata.sha512
-                elif s3_object_metadata.legacy_sha512 is not None:
-                    # the object was written by an older awsimple using the legacy metadata hash - always re-upload it so it gains the native checksum
-                    upload_flag = True
-                else:
-                    # no hash is available, so compare modification time and file size (free and robust, but weaker than a hash)
-                    sizes_equal = os.path.getsize(file_path) == s3_object_metadata.size
-                    mtimes_equal = isclose(file_mtime, s3_object_metadata.mtime.timestamp(), abs_tol=self.mtime_abs_tol)
-                    upload_flag = not (sizes_equal and mtimes_equal)
-            else:
-                upload_flag = True
 
         uploaded_flag = False
-        if upload_flag:
+        if force or self._is_upload_needed(file_path, s3_key, file_crc64nvme):
             log.info(f"local file : {file_crc64nvme=},force={force} - uploading")
 
-            transfer_retry_count = 0
-            extra_args = self._upload_extra_args()
-            log.info(f"{extra_args=}")
-            while not uploaded_flag and transfer_retry_count < self.retry_count:
-                try:
-                    self.client.upload_file(str(file_path), self.bucket_name, s3_key, ExtraArgs=extra_args, Config=self.get_s3_transfer_config())
-                    uploaded_flag = True
-                except connection_errors as e:
-                    log.warning(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
-                    time.sleep(self.retry_sleep_time)
-                except RuntimeError as e:
-                    log.error(f"{file_path} to {self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
-                    time.sleep(self.retry_sleep_time)
-
-                transfer_retry_count += 1
-
+            uploaded_flag = self._upload_file_with_retries(file_path, s3_key)
             if not uploaded_flag:
                 raise AWSimpleException(f"couldn't upload {file_path} to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
 

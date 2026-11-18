@@ -92,14 +92,3 @@ def test_package_metadata_matches_version_module():
     assert metadata["description"] == __description__
     assert metadata["authors"] == [{"name": __author__, "email": __author_email__}]
     assert metadata["urls"]["Homepage"] == __url__
-
-
-# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-def test_package_dependencies_match_requirements():
-    """
-    The runtime dependencies are listed in pyproject.toml and repeated in the dev and docs requirements files, which must not drift apart.
-    """
-    dependencies = set(_package_metadata()["dependencies"])
-    for requirements_file in ("requirements-dev.txt", "doc_source/requirements.txt"):
-        requirements = {line.strip() for line in (REPO_ROOT / requirements_file).read_text(encoding="utf-8").splitlines()}
-        assert dependencies <= requirements, f"{requirements_file} is missing {sorted(dependencies - requirements)}"

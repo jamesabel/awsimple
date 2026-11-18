@@ -1,5 +1,3 @@
 rmdir /S /Q venv
-c:"\Program Files\Python315\python.exe" -m venv --clear venv
-venv\Scripts\python.exe -m pip install --upgrade pip
-venv\Scripts\pip3 install -U setuptools
-venv\Scripts\pip3 install -U -r requirements-examples.txt
+uv venv --python 3.15 venv
+uv pip install --python venv -U -r requirements-examples.txt

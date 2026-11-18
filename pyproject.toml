@@ -25,7 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-# keep in sync with requirements-dev.txt and doc_source/requirements.txt
 dependencies = [
     "boto3[crt]>=1.43.0",  # >=1.43.0 for CRC64NVME checksum support
     "typeguard",
@@ -43,6 +42,43 @@ dependencies = [
 Homepage = "https://github.com/jamesabel/awsimple"
 Documentation = "https://jamesabel.github.io/awsimple/"
 Download = "https://github.com/jamesabel/awsimple"
+
+# Development environments are made with uv ("uv sync" installs awsimple, its dependencies and the dev group).
+# No uv.lock is committed (it is git-ignored), so CI, tox and a new environment install the newest versions allowed here.
+[dependency-groups]
+dev = [
+    # examples
+    "ismain",
+    # packaging (test_package_metadata.py reads the metadata with hatchling)
+    "hatchling",
+    # testing
+    "pytest",
+    "moto[dynamodb,s3,sns,sqs]",
+    "docker",  # moto apparently requires docker
+    "awscli",
+    "awscli-local",
+    "coverage",
+    "pytest-cov",
+    "pytest-pycharm",
+    "pytest-socket",
+    "pytest-xdist",
+    "tox",
+    "tox-uv",
+    "pre-commit",
+    "pillow",
+    "requests",
+    # formatting, linting and type checking
+    "ruff",
+    "ty>=0.0.106",  # ty is pre-1.0, so its rules can change between releases: this is the version the code was last checked with
+    "boto3-stubs[s3,dynamodb,sqs,sns]",
+    "appdirs-stubs",
+    "types-urllib3",
+    "types-Pillow",
+    "types-python-dateutil",
+    # documentation
+    { include-group = "docs" },
+]
+docs = ["sphinx"]
 
 [tool.hatch.version]
 # parsed from the file as text, so building does not import the package (or need its dependencies)

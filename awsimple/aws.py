@@ -75,7 +75,7 @@ def boto_error_to_string(boto_error) -> Union[str, None]:
 
 class AWSAccess:
     @typechecked()
-    def __init__(  # noqa: C901
+    def __init__(
         self,
         resource_name: Union[str, None] = None,
         profile_name: Union[str, None] = None,
@@ -118,48 +118,40 @@ class AWSAccess:
         self.session = boto3.session.Session(**kwargs)
 
         self.client: Any = None
+        self.resource: Any = None
         if is_mock():
-            # moto mock AWS
-            _moto_acquire()
-            self._is_mocked = True
-            region = "us-east-1"
-            if self.resource_name == "logs" or self.resource_name is None:
-                # logs don't have a resource
-                self.resource = None
-            else:
-                self.resource = boto3.resource(self.resource_name, region_name=region)  # type: ignore
-            if self.resource_name is None:
-                self.client = None
-            else:
-                self.client = boto3.client(self.resource_name, region_name=region)  # type: ignore
-            if self.resource_name == "s3":
-                assert self.resource is not None
-                self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
+            self._create_mock_client_and_resource(boto3)
         elif is_using_localstack():
-            self.aws_access_key_id = "test"
-            self.aws_secret_access_key = "test"
-            self.region_name = "us-west-2"
-            if self.resource_name is None:
-                # just the session, but not the client or resource
-                self.client = None
-                self.resource = None
-            else:
-                if self.resource_name == "logs":
-                    # logs don't have resource
-                    self.resource = None
-                else:
-                    self.resource = boto3.resource(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())  # type: ignore
-                self.client = boto3.client(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())  # type: ignore
-        elif self.resource_name is None:
-            # just the session, but not the client or resource
-            self.client = None
-            self.resource = None
+            self._create_localstack_client_and_resource(boto3)
         else:
+            self._create_aws_client_and_resource()
+
+    def _create_mock_client_and_resource(self, boto3) -> None:
+        # moto mock AWS
+        _moto_acquire()
+        self._is_mocked = True
+        region = "us-east-1"
+        if self.resource_name is not None:
+            self.client = boto3.client(self.resource_name, region_name=region)
+            if self.resource_name != "logs":  # logs don't have a resource
+                self.resource = boto3.resource(self.resource_name, region_name=region)
+        if self.resource_name == "s3":
+            assert self.resource is not None
+            self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
+
+    def _create_localstack_client_and_resource(self, boto3) -> None:
+        self.aws_access_key_id = "test"
+        self.aws_secret_access_key = "test"
+        self.region_name = "us-west-2"
+        if self.resource_name is not None:  # None: just the session, but not the client or resource
+            self.client = boto3.client(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())
+            if self.resource_name != "logs":  # logs don't have a resource
+                self.resource = boto3.resource(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())
+
+    def _create_aws_client_and_resource(self) -> None:
+        if self.resource_name is not None:  # None: just the session, but not the client or resource
             self.client = self.session.client(self.resource_name, config=self._get_config())  # type: ignore
-            if self.resource_name == "logs" or self.resource_name == "rds":
-                # logs and rds don't have a resource
-                self.resource = None
-            else:
+            if self.resource_name not in ("logs", "rds"):  # logs and rds don't have a resource
                 self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
 
     def _get_localstack_endpoint_url(self) -> str | None:

@@ -1,4 +1,2 @@
-python3 -m venv --clear venv
-source ./venv/bin/activate
-python -m pip install -U -r requirements-examples.txt
-deactivate
+uv venv --clear venv
+uv pip install --python venv -U -r requirements-examples.txt

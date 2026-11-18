@@ -23,7 +23,7 @@ If it's an idea you have or a problem not captured in an issue, [create one](htt
 
 Requirements:
 
-- Python 3.8 or higher
+- [uv](https://docs.astral.sh/uv/), which installs Python (3.12 or higher) and the dependencies
 
 Fork the repo, to make your own personal copy, and then git clone your fork onto your computer.
 
@@ -32,13 +32,12 @@ Once you have that, install project dependencies with:
 #### Mac / Linux
 ```
 source make_venv_dev.sh
-./venv/bin/activate
 ```
 
 #### Windows
 ```
 make_venv_dev.bat
-.\venv\Scripts\activate.bat
 ```
 
-At this point you should be able to make changes to the codebase and run things.
+This makes the environment in `.venv`. At this point you should be able to make changes to the codebase and run things,
+e.g. the tests with `uv run pytest test_awsimple`.

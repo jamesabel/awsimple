@@ -8,7 +8,7 @@ from logging import getLogger
 from typeguard import typechecked
 from appdirs import user_cache_dir
 
-from awsimple import __application_name__, __author__, AWSAccess, AWSimpleException
+from awsimple import __application_name__, __author__, AWSAccess
 
 log = getLogger(__application_name__)
 
@@ -33,8 +33,56 @@ def get_directory_size(path: Path) -> int:
     return size
 
 
+def _evict_least_recently_used(cache_dir: Path) -> int:
+    """
+    Delete the least recently used file in the cache.
+
+    :param cache_dir: cache directory
+    :return: size of the deleted file in bytes, or 0 if there was no file to delete
+    """
+    least_recently_used_path = None
+    least_recently_used_access_time = None
+    for file_path in cache_dir.rglob("*"):
+        if not file_path.is_file():
+            continue  # only files are evicted (rglob can also return directories)
+        access_time = os.path.getatime(file_path)
+        if least_recently_used_access_time is None or access_time < least_recently_used_access_time:
+            least_recently_used_path = file_path
+            least_recently_used_access_time = access_time
+
+    if least_recently_used_path is None:
+        return 0
+    size = os.path.getsize(least_recently_used_path)
+    log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {size=}")
+    least_recently_used_path.unlink()
+    return size
+
+
+def _make_room(cache_dir: Path, new_size: int, max_cache_size: int) -> bool:
+    """
+    Evict the least recently used files until the new data fits in the cache.
+
+    :param cache_dir: cache directory
+    :param new_size: size of the new data in bytes
+    :param max_cache_size: the most the cache may hold in bytes
+    :return: True if there is room for the new data
+    """
+    if new_size > max_cache_size:
+        log.info(f"{new_size=} is larger than the cache itself {max_cache_size=}")
+        return False  # the new data will never fit, so don't evict to make room for it
+
+    overage = (get_directory_size(cache_dir) + new_size) - max_cache_size
+    while overage > 0:
+        evicted_size = _evict_least_recently_used(cache_dir)
+        if evicted_size == 0:
+            break  # tried to free up space but were unsuccessful, so give up
+        overage -= evicted_size
+
+    return get_directory_size(cache_dir) + new_size <= max_cache_size
+
+
 @typechecked()
-def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None) -> bool:  # noqa: C901
+def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None) -> bool:
     """
     free up space in the LRU cache to make room for the new file
     :param new_data: path to new file or a bytes object we want to put in the cache
@@ -45,9 +93,6 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
     :return: True wrote to cache
     """
 
-    least_recently_used_path = None
-    least_recently_used_access_time = None
-    least_recently_used_size = None
     wrote_to_cache = False
 
     try:
@@ -56,72 +101,25 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
         max_cache_size = min(values) if len(values) > 0 else None
         log.info(f"{max_cache_size=}")
 
-        if isinstance(new_data, Path):
-            new_size = os.path.getsize(new_data)
-        elif isinstance(new_data, bytes):
-            new_size = len(new_data)
-        else:
-            raise RuntimeError
+        new_size = os.path.getsize(new_data) if isinstance(new_data, Path) else len(new_data)
 
-        if max_cache_size is None:
-            is_room = True  # no limit
-        elif new_size > max_cache_size:
-            log.info(f"{new_data=} {new_size=} is larger than the cache itself {max_cache_size=}")
-            is_room = False  # new file will never fit so don't try to evict to make room for it
-        else:
-            cache_size = get_directory_size(cache_dir)
-            overage = (cache_size + new_size) - max_cache_size
-
-            # cache eviction
-            while overage > 0:
-                starting_overage = overage
-
-                # find the least recently used file
-                least_recently_used_path = None
-                least_recently_used_access_time = None
-                least_recently_used_size = None
-                for file_path in cache_dir.rglob("*"):
-                    if not file_path.is_file():
-                        continue  # only files are evicted (rglob can also return directories)
-                    access_time = os.path.getatime(file_path)
-                    if least_recently_used_path is None or least_recently_used_access_time is None or access_time < least_recently_used_access_time:
-                        least_recently_used_path = file_path
-                        least_recently_used_access_time = access_time
-                        least_recently_used_size = os.path.getsize(file_path)
-
-                if least_recently_used_path is not None:
-                    log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=}")
-                    least_recently_used_path.unlink()
-                    if least_recently_used_size is None:
-                        raise AWSimpleException(f"{least_recently_used_size=}")
-                    overage -= least_recently_used_size
-
-                if overage == starting_overage:
-                    # tried to free up space but were unsuccessful, so give up
-                    overage = 0
-
-            # determine if we have room for the new file
-            is_room = get_directory_size(cache_dir) + new_size <= max_cache_size
-
-        if is_room:
+        # no maximum: there is always room
+        if max_cache_size is None or _make_room(cache_dir, new_size, round(max_cache_size)):
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_dest = Path(cache_dir, cache_file_name)
             if isinstance(new_data, Path):
                 log.info(f"caching {new_data} to {cache_dest=}")
                 copy2(new_data, cache_dest)
-                wrote_to_cache = True
-            elif isinstance(new_data, bytes):
+            else:
                 log.info(f"caching {len(new_data)}B to {cache_dest=}")
                 with cache_dest.open("wb") as f:
                     f.write(new_data)
-                wrote_to_cache = True
-            else:
-                raise RuntimeError
+            wrote_to_cache = True
         else:
             log.info(f"no room for {new_data=}")
 
     except (FileNotFoundError, IOError, PermissionError) as e:
-        log.debug(f"{least_recently_used_path=} {least_recently_used_access_time=} {least_recently_used_size=} {e}", stack_info=True, exc_info=True)
+        log.debug(f"{cache_dir=} {cache_file_name=} {e}", stack_info=True, exc_info=True)
 
     return wrote_to_cache
 
