@@ -277,3 +277,33 @@ def test_sqs_receive_client_error(monkeypatch):
     assert queue.receive_messages() == []  # the error is not raised
     assert queue.most_recent_error is not None
     assert "TestError" in queue.most_recent_error
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_aws_access_del_releases_mock_once():
+    from awsimple.aws import _moto_state
+
+    count_before = _moto_state.count
+    aws_access = AWSAccess()
+    assert _moto_state.count == count_before + 1  # this instance shares the moto mock
+    aws_access.__del__()
+    assert _moto_state.count == count_before
+    aws_access.__del__()  # e.g. called again when the object is garbage collected
+    assert _moto_state.count == count_before
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_aws_access_del_during_interpreter_shutdown(monkeypatch):
+    from awsimple.aws import _moto_state
+
+    aws_access = AWSAccess()
+    count_with_instance = _moto_state.count
+
+    # at interpreter shutdown the mock and the modules it uses may already be gone, so the mock is left alone
+    with monkeypatch.context() as shutdown:
+        shutdown.setattr("sys.is_finalizing", lambda: True)
+        aws_access.__del__()
+    assert _moto_state.count == count_with_instance
+
+    aws_access.__del__()  # not shutting down: released as usual
+    assert _moto_state.count == count_with_instance - 1
