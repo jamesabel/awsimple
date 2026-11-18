@@ -28,3 +28,11 @@ class S3BucketAlreadyExistsNotOwnedByYou(AWSimpleExceptionBase):
     def __init__(self, bucket_name: str):
         message = f'S3 Bucket "{bucket_name}" already exists and is not owned by you'
         super().__init__(message)
+
+
+class PubSubFailed(AWSimpleException):
+    """Raised when a pubsub (Pub or Sub) thread has ended on an error, so it no longer publishes or receives messages."""
+
+    def __init__(self, channel: str, reason: str):
+        message = f'pubsub thread for channel "{channel}" failed : {reason}'
+        super().__init__(message)
