@@ -267,11 +267,19 @@ class _PubSub(Thread):
             if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
                 self._new_event.clear()
 
+        # Send whatever was published before the exit request: the loop above only drains while the exit event is clear.
+        # This is done before stopping the subscription thread, which can take as long as an SQS long poll.
+        self._drain_pub_queue(sns)
+
         if sqs_thread is not None:
             sqs_thread.request_exit()
             sqs_thread.join(30)
             if sqs_thread.is_alive():
                 log.error("sqs_thread did not exit cleanly")
+            # Deliver what the subscription thread received up to its exit. Those messages are already deleted from the
+            # SQS queue, so they would otherwise be lost.
+            self._drain_sub_queue(sqs_thread, sqs_metadata)
+            self._drain_pub_queue(sns)  # a subscription callback may have published during the drain above
 
     def _drain_pub_queue(self, sns: SNSAccess) -> None:
         # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
@@ -314,8 +322,15 @@ class _PubSub(Thread):
         """
         Publish a message.
 
+        The message is queued and sent to the SNS topic by this object's thread, so it has not been sent when this call returns.
+        To flush before exiting, call request_exit() and then join(): a send has been attempted for every message published
+        before request_exit() by the time join() returns. A send that fails is logged as a warning and the message is dropped.
+        A message published after request_exit() may not be sent.
+
         :param message: message as a dictionary
         """
+        if self._exit_event.is_set():
+            log.warning(f"published after request_exit(), so the message may not be sent,{self.channel=}")
         self._pub_queue.put(message)
         self._new_event.set()
 
@@ -341,7 +356,11 @@ class _PubSub(Thread):
 
     def request_exit(self) -> None:
         """
-        Request the process to exit.
+        Request the thread to exit. This returns immediately; call join() to wait for the thread to finish.
+
+        Before it finishes, the thread sends the messages published so far and delivers (to the callback or get_messages()) the
+        messages it has already received. join() therefore waits for those sends and, for a subscriber, for the SQS long poll
+        in progress (up to 20 seconds). Pass join() a timeout for a bounded shutdown.
         """
         self._exit_event.set()
         self._new_event.set()
