@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from typing import Union, Any
@@ -227,9 +228,8 @@ class AWSAccess:
         self.most_recent_error = None
 
     def __del__(self):
-        if getattr(self, "_is_mocked", False):
+        # At interpreter shutdown the moto mock and the modules it uses may already be gone, so stopping it could fail in
+        # any number of ways. Nothing needs to be released then: the process is ending.
+        if getattr(self, "_is_mocked", False) and not sys.is_finalizing():
             self._is_mocked = False
-            try:
-                _moto_release()
-            except Exception:  # noqa: S110 - interpreter may be shutting down
-                pass
+            _moto_release()
