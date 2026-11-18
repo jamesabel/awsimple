@@ -13,7 +13,7 @@ from logging import getLogger
 import json
 
 from typeguard import typechecked
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, BotoCoreError
 import strif
 
 from .sns import SNSAccess
@@ -21,6 +21,7 @@ from .sqs import SQSPollAccess, get_all_sqs_queues
 from .dynamodb import _DynamoDBMetadataTable, DBItemNotFound, DynamoDBTableNotFound
 from .platform import get_node_name
 from .__version__ import __application_name__
+from .exceptions import PubSubFailed
 
 log = getLogger(__application_name__)  # getLogger (not a raw Logger instance) so the application's logging configuration applies
 
@@ -122,7 +123,7 @@ class _SubscriptionThread(Thread):
         while not self._exit_event.is_set():
             try:
                 messages = self._sqs.receive_messages()  # long poll
-            except Exception as e:
+            except (ClientError, BotoCoreError) as e:
                 # don't let a transient AWS error silently kill the polling thread
                 log.warning(f"{self._sqs.queue_name=} receive failed : {e}")
                 time.sleep(1.0)
@@ -197,14 +198,20 @@ class _PubSub(Thread):
         self._new_event = Event()
         self._new_event_wait_time = 10  # seconds
 
+        self._failure = None  # type: ClientError | BotoCoreError | None  # the AWS error that ended the thread, if any
+        self._completed = False  # True once the thread has run to its normal end
+
         super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
     def run(self):
         try:
             self._run()
-        except Exception:
-            # a daemon thread that dies silently leaves publish() queueing into the void, so at least make the failure visible
-            log.exception(f"pubsub thread failed,{self.channel=}")
+        except (ClientError, BotoCoreError) as e:
+            # A daemon thread that dies silently leaves publish() queueing into the void. Record the failure, so that
+            # raise_if_failed(), publish() and get_messages() report it to the caller.
+            self._failure = e
+            log.error(f"pubsub thread failed,{self.channel=},{e}")
+        # any other exception (e.g. one raised by the subscription callback) propagates and ends the thread, which raise_if_failed() also reports
 
     def _run(self):
 
@@ -258,21 +265,25 @@ class _PubSub(Thread):
             sqs_thread = _SubscriptionThread(sqs, self._new_event)
             sqs_thread.start()
 
-        while not self._exit_event.is_set():
+        try:
+            while not self._exit_event.is_set():
 
+                self._drain_pub_queue(sns)
+                if sqs_thread is not None:
+                    self._drain_sub_queue(sqs_thread, sqs_metadata)
+
+                if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
+                    self._new_event.clear()
+
+            # Send whatever was published before the exit request: the loop above only drains while the exit event is clear.
+            # This is done before stopping the subscription thread, which can take as long as an SQS long poll.
             self._drain_pub_queue(sns)
+        finally:
+            # also when this thread is ending on an error: otherwise the subscription thread would go on taking messages off the SQS queue with nobody to deliver them
             if sqs_thread is not None:
-                self._drain_sub_queue(sqs_thread, sqs_metadata)
-
-            if self._new_event.wait(self._new_event_wait_time):  # timeout in case the new event technique fails
-                self._new_event.clear()
-
-        # Send whatever was published before the exit request: the loop above only drains while the exit event is clear.
-        # This is done before stopping the subscription thread, which can take as long as an SQS long poll.
-        self._drain_pub_queue(sns)
+                sqs_thread.request_exit()
 
         if sqs_thread is not None:
-            sqs_thread.request_exit()
             sqs_thread.join(30)
             if sqs_thread.is_alive():
                 log.error("sqs_thread did not exit cleanly")
@@ -280,6 +291,8 @@ class _PubSub(Thread):
             # SQS queue, so they would otherwise be lost.
             self._drain_sub_queue(sqs_thread, sqs_metadata)
             self._drain_pub_queue(sns)  # a subscription callback may have published during the drain above
+
+        self._completed = True
 
     def _drain_pub_queue(self, sns: SNSAccess) -> None:
         # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
@@ -291,7 +304,8 @@ class _PubSub(Thread):
             try:
                 message_string = json.dumps(message)
                 sns.publish(message_string)
-            except Exception as e:
+            except (TypeError, ValueError, ClientError, BotoCoreError) as e:
+                # TypeError, ValueError: the message is not JSON serializable
                 log.warning(f"SNS publish failed,{self.channel=},{e}")
 
     def _drain_sub_queue(self, sqs_thread: _SubscriptionThread, sqs_metadata: _DynamoDBMetadataTable) -> None:
@@ -303,18 +317,19 @@ class _PubSub(Thread):
             except Empty:
                 break
             got_message = True
-            try:
-                if self.use_sub_queue:
-                    self._sub_queue.put(message_string)
-                if self.sub_callback is not None:
+            if self.use_sub_queue:
+                self._sub_queue.put(message_string)
+            if self.sub_callback is not None:
+                try:
                     message = json.loads(message_string)
-                    self.sub_callback(message)
-            except Exception as e:
-                log.warning(f"SQS,{self.sqs_queue_name=},{e}")
+                except json.JSONDecodeError as e:
+                    log.warning(f"malformed message,{self.sqs_queue_name=},{e}")
+                else:
+                    self.sub_callback(message)  # an exception raised by the callback is not caught: it ends the thread
         if got_message:
             try:
                 sqs_metadata.update_table_mtime()
-            except Exception as e:
+            except (ClientError, BotoCoreError) as e:
                 log.warning(f"SQS metadata update failed,{self.sqs_queue_name=},{e}")
 
     @typechecked()
@@ -328,7 +343,9 @@ class _PubSub(Thread):
         A message published after request_exit() may not be sent.
 
         :param message: message as a dictionary
+        :raises PubSubFailed: if the thread has failed, so the message can not be sent
         """
+        self.raise_if_failed()
         if self._exit_event.is_set():
             log.warning(f"published after request_exit(), so the message may not be sent,{self.channel=}")
         self._pub_queue.put(message)
@@ -340,9 +357,12 @@ class _PubSub(Thread):
         Get all available messages. Use set sub_poll=True when creating the PubSub object to use this function.
 
         :return: list of messages as dictionaries
+        :raises PubSubFailed: if the thread has failed and there are no more messages to return
         """
         if not self.use_sub_queue:
             raise RuntimeError("use_sub_queue must be True to use get_messages()")
+        if self._sub_queue.empty():
+            self.raise_if_failed()
         messages = []
         while True:
             try:
@@ -354,13 +374,27 @@ class _PubSub(Thread):
                 break
         return messages
 
+    def raise_if_failed(self) -> None:
+        """
+        Raise PubSubFailed if the thread has ended on an error (e.g. AWS setup failed, or the subscription callback raised).
+        Does nothing while the thread is running or once it has exited normally. Call this after join() to check that the
+        thread, including its final sends, ran to completion.
+
+        :raises PubSubFailed: if the thread has failed
+        """
+        if self._failure is not None:
+            raise PubSubFailed(self.channel, str(self._failure)) from self._failure
+        if self.ident is not None and not self.is_alive() and not self._completed:
+            raise PubSubFailed(self.channel, "the thread ended on an unhandled exception")
+
     def request_exit(self) -> None:
         """
         Request the thread to exit. This returns immediately; call join() to wait for the thread to finish.
 
         Before it finishes, the thread sends the messages published so far and delivers (to the callback or get_messages()) the
         messages it has already received. join() therefore waits for those sends and, for a subscriber, for the SQS long poll
-        in progress (up to 20 seconds). Pass join() a timeout for a bounded shutdown.
+        in progress (up to 20 seconds). Pass join() a timeout for a bounded shutdown. join() does not report a failure of the
+        thread; call raise_if_failed() after it for that.
         """
         self._exit_event.set()
         self._new_event.set()
