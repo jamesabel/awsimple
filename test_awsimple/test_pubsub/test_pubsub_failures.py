@@ -20,6 +20,9 @@ from awsimple.dynamodb import _DynamoDBMetadataTable
 
 _TIMEOUT = 60.0  # seconds
 
+# the exception that ends the thread is re-raised in it, on purpose, which pytest would otherwise warn about
+_thread_exception_expected = pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+
 
 def _client_error(operation_name: str) -> ClientError:
     return ClientError({"Error": {"Code": "TestInducedError", "Message": "induced by the test"}}, operation_name)
@@ -58,6 +61,7 @@ def _exit(*nodes: Pub | Sub) -> None:
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@_thread_exception_expected
 def test_pubsub_setup_failure_is_reported_to_publisher(monkeypatch):
     _do_not_fail_on_error_log(monkeypatch)
     monkeypatch.setattr(SNSAccess, "create_topic", _raise_client_error)
@@ -76,6 +80,7 @@ def test_pubsub_setup_failure_is_reported_to_publisher(monkeypatch):
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@_thread_exception_expected
 def test_pubsub_setup_failure_is_reported_to_subscriber(monkeypatch):
     _do_not_fail_on_error_log(monkeypatch)
     monkeypatch.setattr(SNSAccess, "create_topic", _raise_client_error)
@@ -90,8 +95,9 @@ def test_pubsub_setup_failure_is_reported_to_subscriber(monkeypatch):
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the callback's exception is meant to end the thread
-def test_pubsub_callback_exception_ends_subscriber():
+@_thread_exception_expected
+def test_pubsub_callback_exception_is_reported_to_application(monkeypatch):
+    _do_not_fail_on_error_log(monkeypatch)
     run_id = uuid.uuid4().hex
     channel = "test_failure_callback"
 
@@ -110,8 +116,11 @@ def test_pubsub_callback_exception_ends_subscriber():
         sub.join(3.0)
     assert not sub.is_alive()
 
-    with pytest.raises(PubSubFailed):
+    # the callback's own exception reaches the application's thread, as the cause of the PubSubFailed
+    with pytest.raises(PubSubFailed) as exception_info:
         sub.raise_if_failed()
+    assert isinstance(exception_info.value.__cause__, ValueError)
+    assert "raised by the test's callback" in str(exception_info.value.__cause__)
 
     _exit(pub)
     pub.raise_if_failed()

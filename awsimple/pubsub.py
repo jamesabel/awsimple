@@ -198,20 +198,21 @@ class _PubSub(Thread):
         self._new_event = Event()
         self._new_event_wait_time = 10  # seconds
 
-        self._failure = None  # type: ClientError | BotoCoreError | None  # the AWS error that ended the thread, if any
-        self._completed = False  # True once the thread has run to its normal end
+        self._failure = None  # type: Exception | None  # the exception that ended the thread, if any
 
         super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
     def run(self):
         try:
             self._run()
-        except (ClientError, BotoCoreError) as e:
-            # A daemon thread that dies silently leaves publish() queueing into the void. Record the failure, so that
-            # raise_if_failed(), publish() and get_messages() report it to the caller.
+        except Exception as e:
+            # A daemon thread that dies silently leaves publish() queueing into the void, and an exception can not propagate
+            # from this thread to the application's. Record whatever ended the thread (an AWS error, or anything the
+            # subscription callback raised), so that raise_if_failed(), publish() and get_messages() raise it, as the cause of
+            # a PubSubFailed, on the application's thread.
             self._failure = e
-            log.error(f"pubsub thread failed,{self.channel=},{e}")
-        # any other exception (e.g. one raised by the subscription callback) propagates and ends the thread, which raise_if_failed() also reports
+            log.error(f"pubsub thread failed,{self.channel=},{e!r}")
+            raise
 
     def _run(self):
 
@@ -292,8 +293,6 @@ class _PubSub(Thread):
             self._drain_sub_queue(sqs_thread, sqs_metadata)
             self._drain_pub_queue(sns)  # a subscription callback may have published during the drain above
 
-        self._completed = True
-
     def _drain_pub_queue(self, sns: SNSAccess) -> None:
         # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
         while True:
@@ -325,7 +324,7 @@ class _PubSub(Thread):
                 except json.JSONDecodeError as e:
                     log.warning(f"malformed message,{self.sqs_queue_name=},{e}")
                 else:
-                    self.sub_callback(message)  # an exception raised by the callback is not caught: it ends the thread
+                    self.sub_callback(message)  # an exception raised by the callback is not caught here: it ends the thread (see run())
         if got_message:
             try:
                 sqs_metadata.update_table_mtime()
@@ -377,15 +376,14 @@ class _PubSub(Thread):
     def raise_if_failed(self) -> None:
         """
         Raise PubSubFailed if the thread has ended on an error (e.g. AWS setup failed, or the subscription callback raised).
+        The exception that ended the thread is the PubSubFailed's cause (its __cause__ attribute).
         Does nothing while the thread is running or once it has exited normally. Call this after join() to check that the
         thread, including its final sends, ran to completion.
 
         :raises PubSubFailed: if the thread has failed
         """
         if self._failure is not None:
-            raise PubSubFailed(self.channel, str(self._failure)) from self._failure
-        if self.ident is not None and not self.is_alive() and not self._completed:
-            raise PubSubFailed(self.channel, "the thread ended on an unhandled exception")
+            raise PubSubFailed(self.channel, repr(self._failure)) from self._failure
 
     def request_exit(self) -> None:
         """
