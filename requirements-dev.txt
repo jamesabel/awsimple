@@ -33,6 +33,8 @@ pytest-cov
 pytest-pycharm
 pytest-socket
 pytest-xdist
+tox
+pre-commit
 pillow
 requests
 #

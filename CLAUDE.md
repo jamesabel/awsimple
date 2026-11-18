@@ -15,6 +15,9 @@ pip install -r requirements-dev.txt
 # Run all tests (uses moto mock by default via conftest.py)
 pytest test_awsimple
 
+# Run all tests on every supported Python version (also runs as a pre-commit hook, takes several minutes)
+tox
+
 # Run a single test file
 pytest test_awsimple/test_s3_write_read.py
 

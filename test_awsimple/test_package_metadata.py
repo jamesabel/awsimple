@@ -64,6 +64,24 @@ def test_package_python_floor():
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_tox_envlist_matches_ci_matrix():
+    """
+    The local test run (tox, used by the pre-commit hook) must cover the same Python versions as the CI test matrix.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "python-package.yml").read_text(encoding="utf-8")
+    matrix_match = re.search(r"^\s*python-version: \[(.+)\]", workflow, re.MULTILINE)
+    assert matrix_match is not None
+    matrix_versions = re.findall(r'"(\d+\.\d+)"', matrix_match.group(1))
+
+    tox_ini = (REPO_ROOT / "tox.ini").read_text(encoding="utf-8")
+    envlist_match = re.search(r"^envlist = (.+)$", tox_ini, re.MULTILINE)
+    assert envlist_match is not None
+    tox_envs = [env.strip() for env in envlist_match.group(1).split(",")]
+
+    assert tox_envs == ["py" + version.replace(".", "") for version in matrix_versions]
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
 def test_package_metadata_matches_version_module():
     """
     pyproject.toml takes the version from awsimple/__version__.py, and the values it repeats from that module (which the package also uses at runtime) must agree with it.

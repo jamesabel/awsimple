@@ -1,0 +1,13 @@
+# Install with "pre-commit install" (make_venv_dev does this). Run by hand with "pre-commit run --all-files".
+repos:
+  - repo: local
+    hooks:
+      - id: tox
+        name: tests on all supported Python versions (tox)
+        # tox.ini has the list of Python versions. The environments run one after the other because the tests
+        # share the temp and cache directories. This takes several minutes.
+        entry: tox
+        language: python
+        additional_dependencies: [tox]
+        pass_filenames: false
+        always_run: true

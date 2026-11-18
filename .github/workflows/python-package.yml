@@ -21,9 +21,10 @@ jobs:
     strategy:
       matrix:
         # Policy: test the minimum supported version, the latest fully released version and the upcoming pre-release
-        # (as of 2026-11: 3.12, 3.15 and 3.16), plus the versions in between.
+        # (as of 2026-11: 3.12, 3.15 and 3.16), plus the versions in between. Keep in sync with envlist in tox.ini.
         # 3.15: PyYAML (needed by moto and awscli) has no cp315 wheel, so pip builds it from source here. That works
-        # on this Linux runner with no extra setup; on Windows it needs MSVC. Revisit when PyYAML ships a cp315 wheel.
+        # on this Linux runner with no extra setup; on Windows its C extension needs MSVC, so make_venv_dev.bat and
+        # tox.ini set PYYAML_FORCE_LIBYAML=0 to build the pure Python version. Revisit when PyYAML ships a cp315 wheel.
         # 3.16: not tested yet - PyYAML and Pillow have no cp316 wheel. Check which packages lack wheels with:
         #   uv pip compile requirements-dev.txt --python-version 3.16 --python-platform linux --only-binary :all:
         python-version: ["3.12", "3.13", "3.14", "3.15"]
