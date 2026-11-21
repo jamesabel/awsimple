@@ -14,7 +14,8 @@ def test_s3_native_checksum_write_string(s3_access):
     s3_access.write_string(content, s3_key)
     metadata = s3_access.get_s3_object_metadata(s3_key)
     assert metadata.crc64nvme == get_bytes_crc64nvme(content.encode())
-    assert metadata.get_sha512() == metadata.crc64nvme  # the checksum is also the cache key
+    assert metadata.get_sha512() != metadata.crc64nvme  # the cache key is a SHA-512 that the checksum is one part of, not the checksum itself
+    assert len(metadata.get_sha512()) == 128
 
 
 def test_s3_foreign_object_with_native_sha512(s3_access):
@@ -65,7 +66,7 @@ def test_s3_legacy_metadata_object_always_reuploaded(s3_access):
 
     metadata = s3_access.get_s3_object_metadata(s3_key)
     assert metadata.crc64nvme == get_bytes_crc64nvme(content)  # now has the native checksum
-    assert metadata.legacy_sha512 is None  # legacy metadata is gone
+    assert metadata.legacy_sha512 == content_sha512  # awsimple always writes the SHA-512 of the contents as object metadata
     assert not s3_access.upload(file_path, s3_key)  # migration complete - unchanged content is now skipped
 
 
