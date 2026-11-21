@@ -4,11 +4,12 @@ S3 Access
 
 import base64
 import os
+import re
 import shutil
 import time
 from math import isclose
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Union
 import json
@@ -35,9 +36,11 @@ from awsimple import (
 )
 
 # Use this project's name as a prefix to avoid string collisions.  Use dashes instead of underscore since that's AWS's convention.
-# This custom metadata predates S3's native SHA-512 checksum support (April 2026). It is no longer written - it is only read to
-# detect objects written by older awsimple versions, which are always re-uploaded so that every object gains the native checksum.
+# The key of the S3 object metadata that holds the SHA-512 of the object's contents (as a hex string). awsimple writes it on every object it writes, since an S3 object
+# has one native checksum and awsimple's is CRC64NVME (see below). S3 does not validate object metadata, so awsimple checks it against the contents it downloads
+# before it caches them.
 sha512_string = f"{__application_name__}-sha512"
+sha512_hex_regex = re.compile(r"[0-9a-f]{128}")
 
 # Uploads at or above this size use multipart (the boto3 default threshold). awsimple uses CRC64NVME checksums everywhere since
 # it's the only checksum family S3 computes as a full-object value for both single-part and multipart uploads (SHA-family multipart
@@ -46,6 +49,12 @@ sha512_string = f"{__application_name__}-sha512"
 default_multipart_threshold = 8 * 1024 * 1024  # 8 MiB
 
 json_extension = ".json"
+
+# Part of every S3 identity hash (see S3ObjectMetadata.get_identity_sha512()). Change it whenever the fields in the identity hash change, so that hashes made the old way are never matched.
+cache_key_scheme = f"{__application_name__}-s3-cache-key-2"
+
+# Sub-directory of the S3 cache directory. For an S3 object that has no SHA-512, it holds the SHA-512 of the contents awsimple downloaded, in a file named with the object's identity hash.
+cache_index_dir_name = "index"
 
 log = getLogger(__application_name__)
 
@@ -78,25 +87,62 @@ class S3ObjectMetadata:
     etag: str  # generally not used
     sha512: Union[str, None]  # hex string - S3's native full-object SHA-512 checksum (None if the object doesn't have one, e.g. multipart uploads or objects written by other tools)
     url: str  # URL of S3 object
-    legacy_sha512: Union[str, None] = None  # hex string from awsimple's legacy custom metadata - only present on objects written by awsimple versions before native checksum support
+    legacy_sha512: Union[str, None] = (
+        None  # hex string - SHA-512 from awsimple's object metadata, as written (S3 does not validate it). The name is from when only older awsimple versions wrote it.
+    )
     crc64nvme: Union[str, None] = None  # hex string - S3's native full-object CRC64NVME checksum (awsimple uses this for multipart uploads)
+    version_id: Union[str, None] = None  # S3 version ID (None if the bucket is not versioned)
+    checksum_type: Union[str, None] = None  # S3's native checksum type: "FULL_OBJECT" or "COMPOSITE" (None if the object has no native checksum)
+    checksums: Dict[str, str] = field(default_factory=dict)  # every native checksum S3 returned, as returned (base64, composite included), by response field name, e.g. "ChecksumCRC64NVME"
+
+    def get_content_sha512(self) -> Union[str, None]:
+        """
+        Get the SHA-512 of this object's contents from S3's metadata: S3's native full-object SHA-512 if the object has one, otherwise the SHA-512 in awsimple's object metadata.
+
+        :return: SHA-512 (as hex string), or None if the object has neither (or the object metadata value is not a SHA-512)
+        """
+        if self.sha512 is not None:
+            return self.sha512
+        if self.legacy_sha512 is not None and sha512_hex_regex.fullmatch(self.legacy_sha512) is not None:
+            return self.legacy_sha512
+        return None
+
+    def get_identity_sha512(self) -> str:
+        """
+        Get a SHA-512 of this object's identity (bucket, key, version) and of S3's native metadata that changes when the contents do (size, modification time, ETag and every
+        native checksum). This is not a hash of the object's contents. It is what is initially used to find a cached object that has no SHA-512 of its contents: awsimple never
+        updates an S3 object's metadata on a read, so such an object is checked against its native CRC64NVME, key, size and modification time, which are all in this hash.
+        The key is only ever hashed, never used as a file name, so file system path irregularities (e.g. leading or doubled slashes, case-insensitive or reserved names,
+        characters that are not allowed in a file name) can not make two keys the same or make a key unusable.
+
+        A native checksum alone is not used since a CRC (e.g. CRC64NVME, which awsimple's uploads use) is not collision resistant: different contents with the same CRC are easy
+        to make. With the identity in the hash, two different objects only have the same identity hash if SHA-512 itself collides.
+
+        :return: SHA-512 (as hex string)
+        """
+        identity_fields = {
+            "scheme": cache_key_scheme,
+            "bucket": self.bucket,
+            "key": self.key,
+            "version_id": self.version_id,
+            "size": self.size,
+            "mtime": int(round(self.mtime.timestamp())),  # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
+            "etag": self.etag,
+            "sha512": self.sha512,
+            "crc64nvme": self.crc64nvme,
+            "checksum_type": self.checksum_type,
+            "checksums": self.checksums,
+        }
+        return get_dls_sha512(identity_fields)
 
     def get_sha512(self) -> str:
         """
-        Get a content-derived value used to compare and cache S3 objects. If the native SHA512 is available (recommended), then use that. Otherwise use the native full-object
-        CRC64NVME (e.g. multipart uploads). If neither is available (e.g. an S3 object wasn't written with AWSimple), create a "substitute" hash that should change if the object
-        contents change.
-        :return: hash (as string)
-        """
-        if (sha512_value := self.sha512) is None:
-            if (sha512_value := self.crc64nvme) is None:
-                # round timestamp to seconds to try to avoid possible small deltas when dealing with time and floats
-                mtime_as_int = int(round(self.mtime.timestamp()))
-                metadata_list = [self.bucket, self.key, self.size, mtime_as_int]
-                if self.etag is not None and len(self.etag) > 0:
-                    metadata_list.append(self.etag)
-                sha512_value = get_dls_sha512(metadata_list)
+        Get the SHA-512 of this object's contents if S3's metadata has it (see get_content_sha512()), otherwise the identity hash (see get_identity_sha512()).
 
+        :return: SHA-512 (as hex string)
+        """
+        if (sha512_value := self.get_content_sha512()) is None:
+            sha512_value = self.get_identity_sha512()
         return sha512_value
 
 
@@ -147,14 +193,15 @@ class S3Access(CacheAccess):
         self._bucket_region = None  # type: Union[str, None]  # lazily determined and cached
         super().__init__(resource_name="s3", **kwargs)
 
-    def _upload_extra_args(self) -> Dict[str, Any]:
+    def _upload_extra_args(self, content_sha512: str) -> Dict[str, Any]:
         """
-        ExtraArgs for uploads: the native full-object CRC64NVME checksum and an optional public-read ACL.
+        Arguments for writing an S3 object: the native full-object CRC64NVME checksum, the SHA-512 of the contents as object metadata and an optional public-read ACL.
 
-        :return: ExtraArgs dict
+        :param content_sha512: SHA-512 of the contents being written (as hex string)
+        :return: arguments dict (ExtraArgs for an upload, keyword arguments for a put)
         """
         # S3 validates the data against the (SDK computed) checksum before storing
-        extra_args: Dict[str, Any] = {"ChecksumAlgorithm": "CRC64NVME"}
+        extra_args: Dict[str, Any] = {"ChecksumAlgorithm": "CRC64NVME", "Metadata": {sha512_string: content_sha512}}
         if self.public_readable:
             extra_args["ACL"] = "public-read"
         return extra_args
@@ -180,6 +227,54 @@ class S3Access(CacheAccess):
         """
         return [b["Name"] for b in self.client.list_buckets()["Buckets"]]
 
+    def _read_object(self, s3_key: str) -> bytes:
+        """
+        Read the contents of an S3 object, and check the length and the CRC64NVME (if the S3 object has one) of what was received.
+        Raises AWSimpleException if they are not the S3 object's.
+
+        :param s3_key: S3 key
+        :return: S3 object contents
+        """
+        assert self.resource is not None
+        response = self.resource.Object(self.bucket_name, s3_key).get(ChecksumMode="ENABLED")
+        body = response["Body"].read()
+        if len(body) != response["ContentLength"]:
+            raise AWSimpleException(f"{self.bucket_name}/{s3_key} : read {len(body)} bytes but the S3 object is {response['ContentLength']} bytes")
+        s3_crc64nvme = _native_checksum_to_hex(response.get("ChecksumCRC64NVME"))
+        if s3_crc64nvme is not None and (body_crc64nvme := get_bytes_crc64nvme(body)) != s3_crc64nvme:
+            raise AWSimpleException(f"{self.bucket_name}/{s3_key} : the CRC64NVME of what was read is {body_crc64nvme} but the S3 object's is {s3_crc64nvme}")
+        return body
+
+    def _check_written_object(self, s3_key: str, expected_size: int, expected_crc64nvme: str):
+        """
+        Check that an S3 object that was just written has the length and the CRC64NVME of what was written. Raises AWSimpleException if it does not.
+
+        :param s3_key: S3 key
+        :param expected_size: size of what was written in bytes
+        :param expected_crc64nvme: CRC64NVME of what was written (as hex string)
+        """
+        s3_object_metadata = self.get_s3_object_metadata(s3_key)
+        if s3_object_metadata.size != expected_size:
+            raise AWSimpleException(f"{self.bucket_name}/{s3_key} : wrote {expected_size} bytes but the S3 object is {s3_object_metadata.size} bytes")
+        if s3_object_metadata.crc64nvme != expected_crc64nvme:
+            raise AWSimpleException(f"{self.bucket_name}/{s3_key} : the CRC64NVME of what was written is {expected_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme}")
+
+    def _is_download_intact(self, dest_path: Path, s3_object_metadata: S3ObjectMetadata) -> bool:
+        """
+        Check that a file that was just downloaded has the length and the CRC64NVME (if the S3 object has one) of the S3 object.
+
+        :param dest_path: path to the downloaded file
+        :param s3_object_metadata: S3 object metadata
+        :return: True if the file has the S3 object's length and CRC64NVME
+        """
+        if (dest_size := os.path.getsize(dest_path)) != s3_object_metadata.size:
+            log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : downloaded {dest_size} bytes but the S3 object is {s3_object_metadata.size} bytes")
+            return False
+        if s3_object_metadata.crc64nvme is not None and (dest_crc64nvme := get_file_crc64nvme(dest_path)) != s3_object_metadata.crc64nvme:
+            log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : the downloaded CRC64NVME is {dest_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme}")
+            return False
+        return True
+
     @typechecked()
     def read_string(self, s3_key: str) -> str:
         """
@@ -189,8 +284,7 @@ class S3Access(CacheAccess):
         :return: S3 object as a string
         """
         log.debug(f"reading {self.bucket_name}/{s3_key}")
-        assert self.resource is not None
-        return self.resource.Object(self.bucket_name, s3_key).get()["Body"].read().decode()
+        return self._read_object(s3_key).decode()
 
     @typechecked()
     def read_lines(self, s3_key: str) -> List[str]:
@@ -212,8 +306,9 @@ class S3Access(CacheAccess):
         """
         log.debug(f"writing {self.bucket_name}/{s3_key}")
         assert self.resource is not None
-        # S3 validates the data against the (SDK computed) checksum before storing
-        self.resource.Object(self.bucket_name, s3_key).put(Body=input_str, ChecksumAlgorithm="CRC64NVME")
+        input_bytes = input_str.encode()
+        self.resource.Object(self.bucket_name, s3_key).put(Body=input_bytes, **self._upload_extra_args(get_bytes_sha512(input_bytes)))
+        self._check_written_object(s3_key, len(input_bytes), get_bytes_crc64nvme(input_bytes))
 
     @typechecked()
     def write_lines(self, input_lines: List[str], s3_key: str):
@@ -236,13 +331,14 @@ class S3Access(CacheAccess):
         assert self.resource is not None
         self.resource.Object(self.bucket_name, s3_key).delete()
 
-    def _is_upload_needed(self, file_path: Path, s3_key: str, file_crc64nvme: str) -> bool:
+    def _is_upload_needed(self, file_path: Path, s3_key: str, file_crc64nvme: str, file_sha512: str) -> bool:
         """
         Determine if a file differs from the S3 object it would be uploaded to.
 
         :param file_path: path to file to upload
         :param s3_key: S3 key
         :param file_crc64nvme: CRC64NVME checksum of the file
+        :param file_sha512: SHA-512 of the file
         :return: True if the S3 object does not exist or does not have the file's contents
         """
         if not self.object_exists(s3_key):
@@ -250,14 +346,18 @@ class S3Access(CacheAccess):
 
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
         log.info(f"{s3_object_metadata=}")
+        content_sha512 = s3_object_metadata.get_content_sha512()
         if s3_object_metadata.crc64nvme is not None:
-            # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
-            upload_flag = file_crc64nvme != s3_object_metadata.crc64nvme
+            # use the native full-object checksum, if the object has one. A CRC is not collision resistant, so the size and the SHA-512 (if the object has one) must also be the same.
+            crcs_equal = file_crc64nvme == s3_object_metadata.crc64nvme
+            sizes_equal = os.path.getsize(file_path) == s3_object_metadata.size
+            sha512s_equal = content_sha512 is None or content_sha512 == file_sha512
+            upload_flag = not (crcs_equal and sizes_equal and sha512s_equal)
         elif s3_object_metadata.sha512 is not None:
             # the object was written by another tool with a native full-object SHA-512 checksum
-            upload_flag = get_file_sha512(file_path) != s3_object_metadata.sha512
+            upload_flag = file_sha512 != s3_object_metadata.sha512
         elif s3_object_metadata.legacy_sha512 is not None:
-            # the object was written by an older awsimple using the legacy metadata hash - always re-upload it so it gains the native checksum
+            # the object has the metadata SHA-512 but no native checksum (e.g. written by an older awsimple) - always re-upload it so it gains the native checksum
             upload_flag = True
         else:
             # no hash is available, so compare modification time and file size (free and robust, but weaker than a hash)
@@ -266,17 +366,18 @@ class S3Access(CacheAccess):
             upload_flag = not (sizes_equal and mtimes_equal)
         return upload_flag
 
-    def _upload_file_with_retries(self, file_path: Path, s3_key: str) -> bool:
+    def _upload_file_with_retries(self, file_path: Path, s3_key: str, file_sha512: str) -> bool:
         """
         Upload a file to an S3 object, trying again after an error.
 
         :param file_path: path to file to upload
         :param s3_key: S3 key
+        :param file_sha512: SHA-512 of the file
         :return: True if uploaded, False if every attempt failed
         """
         uploaded_flag = False
         transfer_retry_count = 0
-        extra_args = self._upload_extra_args()
+        extra_args = self._upload_extra_args(file_sha512)
         log.info(f"{extra_args=}")
         while not uploaded_flag and transfer_retry_count < self.retry_count:
             try:
@@ -309,14 +410,16 @@ class S3Access(CacheAccess):
             file_path = Path(file_path)
 
         file_crc64nvme = get_file_crc64nvme(file_path)
+        file_sha512 = get_file_sha512(file_path)
 
         uploaded_flag = False
-        if force or self._is_upload_needed(file_path, s3_key, file_crc64nvme):
-            log.info(f"local file : {file_crc64nvme=},force={force} - uploading")
+        if force or self._is_upload_needed(file_path, s3_key, file_crc64nvme, file_sha512):
+            log.info(f"local file : {file_crc64nvme=},{file_sha512=},force={force} - uploading")
 
-            uploaded_flag = self._upload_file_with_retries(file_path, s3_key)
+            uploaded_flag = self._upload_file_with_retries(file_path, s3_key, file_sha512)
             if not uploaded_flag:
                 raise AWSimpleException(f"couldn't upload {file_path} to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
+            self._check_written_object(s3_key, os.path.getsize(file_path), file_crc64nvme)
 
         else:
             log.info(f"file checksum of {file_crc64nvme} is the same as is already on S3 and force={force} - not uploading")
@@ -337,17 +440,22 @@ class S3Access(CacheAccess):
         s3_key = _get_json_key(s3_key)
         json_as_bytes = serializable_object_to_json_as_bytes(json_serializable_object)
         json_crc64nvme = get_bytes_crc64nvme(json_as_bytes)
+        json_sha512 = get_bytes_sha512(json_as_bytes)
         upload_flag = True
         if not force and self.object_exists(s3_key):
             s3_object_metadata = self.get_s3_object_metadata(s3_key)
             log.info(f"{s3_object_metadata=}")
+            content_sha512 = s3_object_metadata.get_content_sha512()
             if s3_object_metadata.crc64nvme is not None:
-                # use the native full-object checksum, if the object has one (note that .get_sha512() never returns None - it synthesizes a substitute hash - so check the field itself)
-                upload_flag = json_crc64nvme != s3_object_metadata.crc64nvme
+                # use the native full-object checksum, if the object has one. A CRC is not collision resistant, so the size and the SHA-512 (if the object has one) must also be the same.
+                crcs_equal = json_crc64nvme == s3_object_metadata.crc64nvme
+                sizes_equal = len(json_as_bytes) == s3_object_metadata.size
+                sha512s_equal = content_sha512 is None or content_sha512 == json_sha512
+                upload_flag = not (crcs_equal and sizes_equal and sha512s_equal)
             elif s3_object_metadata.sha512 is not None:
                 # the object was written by another tool with a native full-object SHA-512 checksum
-                upload_flag = get_bytes_sha512(json_as_bytes) != s3_object_metadata.sha512
-            # otherwise upload_flag stays True - objects written by older awsimple (legacy metadata hash) or without any hash are always re-uploaded so they gain the native checksum
+                upload_flag = json_sha512 != s3_object_metadata.sha512
+            # otherwise upload_flag stays True - objects without a native checksum are always re-uploaded so they gain it
 
         uploaded_flag = False
         if upload_flag:
@@ -358,11 +466,7 @@ class S3Access(CacheAccess):
                 assert self.resource is not None
                 try:
                     s3_object = self.resource.Object(self.bucket_name, s3_key)
-                    # S3 validates the data against the (SDK computed) checksum before storing
-                    put_kwargs: Dict[str, Any] = {"Body": json_as_bytes, "ChecksumAlgorithm": "CRC64NVME"}
-                    if self.public_readable:
-                        put_kwargs["ACL"] = "public-read"
-                    s3_object.put(**put_kwargs)
+                    s3_object.put(Body=json_as_bytes, **self._upload_extra_args(json_sha512))
                     uploaded_flag = True
                 except connection_errors as e:
                     log.warning(f"{self.bucket_name}:{s3_key} : {transfer_retry_count=} : {e}")
@@ -371,6 +475,7 @@ class S3Access(CacheAccess):
 
             if not uploaded_flag:
                 raise AWSimpleException(f"couldn't upload JSON to {self.bucket_name}/{s3_key} after {self.retry_count} attempts")
+            self._check_written_object(s3_key, len(json_as_bytes), json_crc64nvme)
 
         else:
             log.info(f"checksum of {json_crc64nvme} is the same as is already on S3 and force={force} - not uploading")
@@ -407,9 +512,14 @@ class S3Access(CacheAccess):
                 log.debug(sf("S3 client.download_file() complete", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
                 s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.debug(sf("S3 object metadata", s3_object_metadata=s3_object_metadata))
-                mtime_ts = s3_object_metadata.mtime.timestamp()
-                os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
-                success = True
+                if self._is_download_intact(Path(dest_path), s3_object_metadata):
+                    mtime_ts = s3_object_metadata.mtime.timestamp()
+                    os.utime(dest_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3
+                    success = True
+                else:
+                    # an incomplete or corrupted transfer, or the S3 object was written again during the download - try again
+                    time.sleep(self.retry_sleep_time)
+                    transfer_retry_count += 1
             except connection_errors as e:
                 # ProtocolError can happen for a broken connection
                 log.warning(f"{self.bucket_name}/{s3_key} to {dest_path} ({Path(dest_path).absolute()}) : {transfer_retry_count=} : {e}")
@@ -438,35 +548,72 @@ class S3Access(CacheAccess):
 
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
 
-        sha512 = s3_object_metadata.get_sha512()
-        cache_path = Path(self.cache_dir, sha512)
-        log.debug(f"{cache_path}")
-
-        if cache_path.exists():
-            log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
-            self.download_status.cache_hit = True
-            self.download_status.success = True
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(cache_path, dest_path)
-        else:
+        if (cache_path := self._get_cached_path(s3_object_metadata)) is None:
             self.download_status.cache_hit = False
-
-        if not self.download_status.cache_hit:
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
             self.download(s3_key, dest_path)  # raises AWSimpleException on failure, so we don't write a bad cache entry or falsely report success
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            self.download_status.cache_write = lru_cache_write(dest_path, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
-            self.download_status.success = True
+            self.download_status.cache_write = self._write_cache(s3_object_metadata, dest_path, get_file_sha512(dest_path))
+        else:
+            log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
+            self.download_status.cache_hit = True
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache_path, dest_path)
+            # the cached contents may have been downloaded from another S3 object with the same contents, so set the file mtime to the mtime of this S3 object (as a download does)
+            mtime_ts = s3_object_metadata.mtime.timestamp()
+            os.utime(dest_path, (mtime_ts, mtime_ts))
+        self.download_status.success = True
 
         return self.download_status
+
+    def _get_cached_path(self, s3_object_metadata: S3ObjectMetadata) -> Union[Path, None]:
+        """
+        Find an S3 object's contents in the cache. Cached contents are in a file named with the SHA-512 of the contents.
+
+        :param s3_object_metadata: S3 object metadata
+        :return: path to the cached contents, or None if they are not in the cache
+        """
+        if (content_sha512 := s3_object_metadata.get_content_sha512()) is None:
+            # the S3 object has no SHA-512, so initially use its identity hash to look up the SHA-512 of the contents awsimple downloaded
+            index_path = Path(self.cache_dir, cache_index_dir_name, s3_object_metadata.get_identity_sha512())
+            try:
+                content_sha512 = index_path.read_text().strip()
+            except FileNotFoundError:
+                return None
+            if sha512_hex_regex.fullmatch(content_sha512) is None:
+                return None
+        cache_path = Path(self.cache_dir, content_sha512)
+        log.debug(f"{cache_path}")
+        # the length is checked so that an incomplete cache file is not used
+        if cache_path.is_file() and os.path.getsize(cache_path) == s3_object_metadata.size:
+            return cache_path
+        return None
+
+    def _write_cache(self, s3_object_metadata: S3ObjectMetadata, new_data: Union[Path, bytes], new_data_sha512: str) -> bool:
+        """
+        Write the contents of an S3 object that were just downloaded to the cache, in a file named with the SHA-512 of the contents. Raises AWSimpleException if the
+        S3 object's SHA-512 is not the SHA-512 of the contents.
+
+        :param s3_object_metadata: S3 object metadata from before the download
+        :param new_data: the downloaded contents (a file path or bytes)
+        :param new_data_sha512: SHA-512 calculated from the downloaded contents
+        :return: True if written to the cache
+        """
+        if (content_sha512 := s3_object_metadata.get_content_sha512()) is None:
+            index_path = Path(self.cache_dir, cache_index_dir_name, s3_object_metadata.get_identity_sha512())
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            index_path.write_text(new_data_sha512)
+        elif content_sha512 != new_data_sha512:
+            raise AWSimpleException(
+                f"{self.bucket_name}/{s3_object_metadata.key} : the SHA-512 of the downloaded contents is {new_data_sha512} but the S3 object's SHA-512 is {content_sha512} "
+                "(the S3 object was written again during the download, or the S3 object's metadata is wrong)"
+            )
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        return lru_cache_write(new_data, self.cache_dir, new_data_sha512, self.cache_max_absolute, self.cache_max_of_free)
 
     @typechecked()
     def download_object_as_json(self, s3_key: str) -> Union[List, Dict]:
         s3_key = _get_json_key(s3_key)
-        assert self.resource is not None
-        s3_object = self.resource.Object(self.bucket_name, s3_key)
-        body = s3_object.get()["Body"].read().decode("utf-8")
-        obj = json.loads(body)
+        obj = json.loads(self._read_object(s3_key).decode("utf-8"))
         return obj
 
     @typechecked()
@@ -485,27 +632,17 @@ class S3Access(CacheAccess):
 
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
 
-        sha512 = s3_object_metadata.get_sha512()
-        cache_path = Path(self.cache_dir, sha512)
-        log.debug(f"{cache_path}")
-
-        if cache_path.exists():
+        if (cache_path := self._get_cached_path(s3_object_metadata)) is None:
+            log.info(f"{self.bucket_name=}/{s3_key=} cache miss)")
+            self.download_status.cache_hit = False
+            body = self._read_object(s3_key)
+            object_from_json = json.loads(body)
+            self.download_status.cache_write = self._write_cache(s3_object_metadata, body, get_bytes_sha512(body))
+        else:
             log.info(f"{self.bucket_name}/{s3_key} cache hit : using {cache_path=}")
             self.download_status.cache_hit = True
-            self.download_status.success = True
-            with cache_path.open("rb") as f:
-                object_from_json = json.loads(f.read())
-        else:
-            self.download_status.cache_hit = False
-
-        if not self.download_status.cache_hit:
-            log.info(f"{self.bucket_name=}/{s3_key=} cache miss)")
-            assert self.resource is not None
-            s3_object = self.resource.Object(self.bucket_name, s3_key)
-            body = s3_object.get()["Body"].read()
-            object_from_json = json.loads(body)
-            self.download_status.cache_write = lru_cache_write(body, self.cache_dir, sha512, self.cache_max_absolute, self.cache_max_of_free)
-            self.download_status.success = True
+            object_from_json = json.loads(cache_path.read_bytes())
+        self.download_status.success = True
 
         if object_from_json is None:
             raise RuntimeError(s3_key)
@@ -541,8 +678,7 @@ class S3Access(CacheAccess):
                 raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist") from e
             raise
         assert isinstance(self.bucket_name, str)  # mainly for mypy
-        # sha512 and crc64nvme are S3's native (server-validated) full-object checksums; legacy_sha512 is awsimple's legacy custom
-        # metadata, kept readable so objects written by older awsimple versions can be detected (and re-uploaded to gain the native checksum)
+        # sha512 and crc64nvme are S3's native (server-validated) full-object checksums; legacy_sha512 is the SHA-512 in awsimple's object metadata (not validated by S3)
         s3_object_metadata = S3ObjectMetadata(
             self.bucket_name,
             s3_key,
@@ -553,6 +689,9 @@ class S3Access(CacheAccess):
             self.get_s3_object_url(s3_key),
             head.get("Metadata", {}).get(sha512_string),
             _native_checksum_to_hex(head.get("ChecksumCRC64NVME")),
+            head.get("VersionId"),
+            head.get("ChecksumType"),
+            {name: value for name, value in head.items() if name.startswith("Checksum") and name != "ChecksumType"},  # e.g. ChecksumCRC64NVME, ChecksumSHA512, ChecksumCRC32
         )
         log.debug(f"{s3_object_metadata=}")
         return s3_object_metadata

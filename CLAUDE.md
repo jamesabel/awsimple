@@ -73,4 +73,16 @@ Controlled by environment variables (auto-set in conftest.py):
 - Public API is exported from `awsimple/__init__.py`
 - DynamoDB uses a hidden metadata table to track modification times for cache invalidation
 - Mock detection functions (`is_mock()`, `is_using_localstack()`) are in `mock.py`
+
+## S3 Hash and Integrity Rules
+
+These are requirements from the owner. Keep `awsimple/s3.py` and its tests (`test_awsimple/test_s3_cache_key.py`) in line with them.
+
+- **Writes:** every S3 object written by awsimple also gets the SHA-512 of its contents, as the `awsimple-sha512` object metadata (an S3 object has one native checksum, and awsimple's is CRC64NVME).
+- **Reads:** if an S3 object has a SHA-512 (S3's native full-object SHA-512, or the `awsimple-sha512` object metadata), it is used. S3 does not validate object metadata, so a metadata SHA-512 must be a well-formed SHA-512, and downloaded contents are only cached once their calculated SHA-512 matches it.
+- **No SHA-512:** awsimple never updates an S3 object's metadata on a read (S3 metadata can only be changed by copying the object onto itself, which changes its modification time and version and needs write permission). Instead, an object without a SHA-512 is checked against its native CRC64NVME, object key, object/file size and modification time (mtime): these, with the bucket, version and ETag, make `S3ObjectMetadata.get_identity_sha512()`, which finds the SHA-512 that awsimple calculated when it downloaded the contents (the `index` directory of the cache). A CRC alone is never a cache key, since a CRC is not collision resistant.
+- **Object keys and the file system:** take OS file system path irregularities into account wherever a key is checked or stored locally. In the cache the key is only ever hashed, never used as a file name, so leading or doubled slashes, case-insensitive or reserved names and characters that are not allowed in a file name can not make two keys the same or make a key unusable.
+- **mtime:** a file that awsimple downloads, or copies from the cache, gets the modification time of the S3 object it was read as.
+- **Caching:** S3 caching is always based on the SHA-512 of the object's contents: cached contents are in a file named with their SHA-512.
+- **Integrity:** every S3 access checks the length and the CRC64NVME (when the object has one) of what was transferred, after writes and after reads and downloads, and raises `AWSimpleException` on a mismatch.
 - Custom exceptions in `exceptions.py`: `DynamoDBItemAlreadyExists`, `S3BucketAlreadyExistsNotOwnedByYou`

@@ -115,10 +115,17 @@ level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve progra
 unchanged files). Uploads use CRC64NVME - the algorithm S3 itself defaults to, and the only one S3 computes
 as a full-object value for both single-part and multipart uploads - and S3 validates the data against the
 checksum server-side before storing. Objects written by other tools with a native full-object SHA-512
-checksum are also recognized and compared. Objects written by older awsimple versions (which stored a
-SHA-512 in custom object metadata) are detected and always re-uploaded, so every object awsimple writes
-ends up with the native checksum. Objects without any recognizable full-object hash fall back to
+checksum are also recognized and compared. Objects without any recognizable full-object hash fall back to
 modification-time and file-size comparison.
+
+An S3 object has one native checksum, so `awsimple` also writes the SHA-512 of the contents as object metadata
+(`awsimple-sha512`) on every object it writes. A matching CRC64NVME alone does not skip an upload: the length and
+the SHA-512 (when the object has one) must match too. An object that has the metadata SHA-512 but no native
+checksum (e.g. written by an older awsimple version) is always re-uploaded, so it gains the native checksum.
+
+Every S3 access checks the length and the CRC64NVME (when the object has one) of what was transferred: after a
+write, the S3 object is compared with what was written, and after a read or download, what was received is compared
+with the S3 object. A mismatch raises `AWSimpleException` (a download is tried again first).
 
 ## Caching
 
@@ -126,6 +133,15 @@ S3 objects and DynamoDB tables can be cached locally to reduce network traffic, 
 and potentially offer a speedup.
 
 DynamoDB cached table scans are particularly useful for tables that are infrequently updated.
+
+The S3 cache is based on the SHA-512 of an object's contents: cached contents are in a file named with their SHA-512.
+When an S3 object has a SHA-512 (S3's native full-object SHA-512, or the `awsimple-sha512` object metadata), that is
+used to find it in the cache. S3 does not validate object metadata, so downloaded contents are only cached once their
+calculated SHA-512 matches. `awsimple` never updates an S3 object's metadata on a read. When an S3 object has no
+SHA-512, it is instead checked against its native CRC64NVME, key, size and modification time: a SHA-512 of these
+(with the bucket, version and ETag) is mapped by a local index to the SHA-512 calculated when the contents were
+downloaded. The key is only hashed, never used as a cache file name, so file system path irregularities do not
+matter. A CRC alone is never a cache key, since a CRC is not collision resistant.
 
 ## What`awsimple` Is Not
 
