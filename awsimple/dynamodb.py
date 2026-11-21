@@ -26,7 +26,7 @@ from boto3.dynamodb.conditions import Key
 from typeguard import typechecked
 from dictim import dictim
 
-from . import CacheAccess, __application_name__, AWSimpleException
+from . import CacheAccess, __application_name__, AWSimpleException, atomic_write_path
 from .exceptions import DynamoDBItemAlreadyExists
 
 # don't require pillow, but convert images with it if it exists
@@ -406,6 +406,25 @@ class DynamoDBAccess(CacheAccess):
         cache_file_path = Path(self.cache_dir, f"{self.table_name}.pickle")
         return cache_file_path
 
+    def _write_scan_cache(self, cache_file_path: Path, table_data: list):
+        """
+        Write a table scan to its cache file. The write is atomic, so the cache file never has part of a pickle in it.
+
+        :param cache_file_path: path of the cache file
+        :param table_data: the table scan
+        """
+        try:
+            with atomic_write_path(cache_file_path) as temp_path:
+                with open(temp_path, "wb") as f:
+                    pickle.dump(table_data, f)
+                # stamp the cache file with the same clock used for the metadata table mtimes - on Windows the filesystem's own timestamp can lag
+                # time.time() by a clock tick (~15 mS), which can make a just-written cache file appear older than the table's metadata mtime
+                write_time = time.time()
+                os.utime(temp_path, (write_time, write_time))
+        except PermissionError as e:
+            # e.g. on Windows, another process has the cache file open. The scan is still returned; the cache is not updated this time.
+            log.info(f"{cache_file_path=} {e}")
+
     @typechecked()
     def scan_table_cached(self, invalidate_cache: bool = False) -> list:
         """
@@ -459,13 +478,7 @@ class DynamoDBAccess(CacheAccess):
             try:
                 table_data = self.scan_table()
 
-                # update local data cache
-                with open(cache_file_path, "wb") as f:
-                    pickle.dump(table_data, f)
-                # stamp the cache file with the same clock used for the metadata table mtimes - on Windows the filesystem's own timestamp can lag
-                # time.time() by a clock tick (~15 mS), which can make a just-written cache file appear older than the table's metadata mtime
-                write_time = time.time()
-                os.utime(cache_file_path, (write_time, write_time))
+                self._write_scan_cache(cache_file_path, table_data)  # update local data cache
             except (DynamoDBTableNotFound, self.client.exceptions.ResourceNotFoundException) as e:
                 log.debug(f"{self.table_name=},{e}")
                 table_data = []
