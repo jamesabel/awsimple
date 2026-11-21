@@ -73,6 +73,7 @@ Controlled by environment variables (auto-set in conftest.py):
 - Public API is exported from `awsimple/__init__.py`
 - DynamoDB uses a hidden metadata table to track modification times for cache invalidation
 - Mock detection functions (`is_mock()`, `is_using_localstack()`) are in `mock.py`
+- Cache writes are atomic: write to a temporary file in the same directory, then move it over the destination in one step, with `atomic_write_path()` in `cache.py`. Never write a cache file in place
 
 ## S3 Hash and Integrity Rules
 

@@ -2,7 +2,9 @@ from pathlib import Path
 from shutil import disk_usage, copy2
 import os
 import math
-from typing import Union
+import uuid
+from contextlib import contextmanager
+from typing import Generator, Union
 from logging import getLogger
 
 from typeguard import typechecked
@@ -13,6 +15,8 @@ from awsimple import __application_name__, __author__, AWSAccess
 log = getLogger(__application_name__)
 
 CACHE_DIR_ENV_VAR = f"{__application_name__}_CACHE_DIR".upper()
+
+atomic_write_temp_suffix = ".tmp"  # suffix of the temporary file of an atomic write (see atomic_write_path())
 
 
 @typechecked()
@@ -31,6 +35,25 @@ def get_directory_size(path: Path) -> int:
         elif p.is_dir():
             size += get_directory_size(p)
     return size
+
+
+@contextmanager
+def atomic_write_path(dest_path: Path) -> Generator[Path, None, None]:
+    """
+    Make a write to a file atomic: write to the temporary path this yields, and when the block ends without an exception the temporary file is moved to dest_path in one step.
+    dest_path is therefore either absent, its previous contents, or all of its new contents - never part of them. The temporary file is in the same directory as dest_path
+    (so the move is within one file system) and is always removed. If the process is killed during the write, the temporary file that is left behind is never used as
+    dest_path (and in an LRU cache directory it is evicted like any other file).
+
+    :param dest_path: path of the file to write
+    :return: yields the temporary path to write to
+    """
+    temp_path = dest_path.with_name(f"{dest_path.name}.{uuid.uuid4().hex}{atomic_write_temp_suffix}")
+    try:
+        yield temp_path
+        os.replace(temp_path, dest_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _evict_least_recently_used(cache_dir: Path) -> int:
@@ -107,13 +130,13 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
         if max_cache_size is None or _make_room(cache_dir, new_size, round(max_cache_size)):
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_dest = Path(cache_dir, cache_file_name)
-            if isinstance(new_data, Path):
-                log.info(f"caching {new_data} to {cache_dest=}")
-                copy2(new_data, cache_dest)
-            else:
-                log.info(f"caching {len(new_data)}B to {cache_dest=}")
-                with cache_dest.open("wb") as f:
-                    f.write(new_data)
+            with atomic_write_path(cache_dest) as temp_path:
+                if isinstance(new_data, Path):
+                    log.info(f"caching {new_data} to {cache_dest=}")
+                    copy2(new_data, temp_path)
+                else:
+                    log.info(f"caching {len(new_data)}B to {cache_dest=}")
+                    temp_path.write_bytes(new_data)
             wrote_to_cache = True
         else:
             log.info(f"no room for {new_data=}")

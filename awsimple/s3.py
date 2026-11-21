@@ -28,6 +28,7 @@ from awsimple import (
     CacheAccess,
     __application_name__,
     lru_cache_write,
+    atomic_write_path,
     AWSimpleException,
     convert_serializable_special_cases,
     S3BucketAlreadyExistsNotOwnedByYou,
@@ -601,7 +602,13 @@ class S3Access(CacheAccess):
         if (content_sha512 := s3_object_metadata.get_content_sha512()) is None:
             index_path = Path(self.cache_dir, cache_index_dir_name, s3_object_metadata.get_identity_sha512())
             index_path.parent.mkdir(parents=True, exist_ok=True)
-            index_path.write_text(new_data_sha512)
+            try:
+                with atomic_write_path(index_path) as temp_path:
+                    temp_path.write_text(new_data_sha512)
+            except PermissionError as e:
+                # e.g. on Windows, another process has the index file open. The contents are not cached this time, which is a normal outcome of a cache write.
+                log.info(f"{index_path=} {e}")
+                return False
         elif content_sha512 != new_data_sha512:
             raise AWSimpleException(
                 f"{self.bucket_name}/{s3_object_metadata.key} : the SHA-512 of the downloaded contents is {new_data_sha512} but the S3 object's SHA-512 is {content_sha512} "
