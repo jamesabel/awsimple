@@ -38,21 +38,27 @@ def remove_old_queues(
 ) -> list[str]:
     """
     Remove old SQS queues that have not been used recently.
+
+    :param channel: channel name, as the prefix of the names of the queues to look at
+    :param profile_name: AWS profile name
+    :param aws_access_key_id: AWS access key
+    :param aws_secret_access_key: AWS secret access key
+    :param region_name: AWS region
+    :return: the names of the queues that were removed
     """
     removed = []  # type: list[str]
+    aws_access_kwargs = {"profile_name": profile_name, "aws_access_key_id": aws_access_key_id, "aws_secret_access_key": aws_secret_access_key, "region_name": region_name}
     if len(channel) < 2:  # avoid deleting all queues
         log.warning(f"blank channel ({channel=}) - not deleting any queues")
         return removed
-    for sqs_queue_name in get_all_sqs_queues(channel, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name):
-        sqs_metadata = _DynamoDBMetadataTable(
-            SQS_NAME, sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name
-        )
+    for sqs_queue_name in get_all_sqs_queues(channel, **aws_access_kwargs):
+        sqs_metadata = _DynamoDBMetadataTable(SQS_NAME, sqs_queue_name, **aws_access_kwargs)
         try:
             mtime = sqs_metadata.get_table_mtime_f()
         except (DBItemNotFound, DynamoDBTableNotFound):
             mtime = None  # queue has no metadata entry (e.g. it was never used) - leave it alone
         if mtime is not None and time.time() - mtime > queue_timeout:
-            sqs = SQSPollAccess(sqs_queue_name, profile_name=profile_name, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key, region_name=region_name)
+            sqs = SQSPollAccess(sqs_queue_name, **aws_access_kwargs)
             try:
                 sqs.delete_queue()
                 log.info(f'deleted "{sqs_queue_name}",{mtime=}')
@@ -113,6 +119,10 @@ class _SubscriptionThread(Thread):
 
     @typechecked()
     def __init__(self, sqs: SQSPollAccess, new_event: Event) -> None:
+        """
+        :param sqs: the SQS queue to poll
+        :param new_event: set when a new message is received
+        """
         super().__init__(daemon=True)
         self._sqs = sqs
         self.sub_queue = Queue()  # type: Queue[str]
@@ -120,6 +130,9 @@ class _SubscriptionThread(Thread):
         self._new_event = new_event
 
     def run(self):
+        """
+        Poll the SQS queue until an exit is requested.
+        """
         while not self._exit_event.is_set():
             try:
                 messages = self._sqs.receive_messages()  # long poll
@@ -138,6 +151,9 @@ class _SubscriptionThread(Thread):
                     self._new_event.set()
 
     def request_exit(self):
+        """
+        Request this thread to exit (it exits when its current poll of the queue returns).
+        """
         self._exit_event.set()
 
 
@@ -157,6 +173,10 @@ def make_name_aws_safe(*args: str) -> str:
 
 
 class _PubSub(Thread):
+    """
+    A node of a pub/sub channel: a thread that publishes queued messages to the channel's SNS topic and, for a subscriber, delivers the messages its SQS queue receives.
+    """
+
     @typechecked()
     def __init__(
         self,
@@ -202,10 +222,22 @@ class _PubSub(Thread):
 
         super().__init__(daemon=True)  # make daemon so an instance of this thread exits when the main program exits
 
+    def _get_aws_access_kwargs(self) -> Dict[str, Any]:
+        """
+        :return: the keyword arguments that give every AWS access of this instance its credentials and region
+        """
+        return {"profile_name": self.profile_name, "aws_access_key_id": self.aws_access_key_id, "aws_secret_access_key": self.aws_secret_access_key, "region_name": self.region_name}
+
     def _is_subscriber(self) -> bool:
+        """
+        :return: True if this instance receives messages
+        """
         return self.sub_callback is not None or self.use_sub_queue
 
     def run(self):
+        """
+        Run the thread (see _run()), recording the exception if one ends it.
+        """
         try:
             self._run()
         except Exception as e:
@@ -218,14 +250,14 @@ class _PubSub(Thread):
             raise
 
     def _run(self):
+        """
+        Create the SNS topic (and, for a subscriber, the SQS queue), then publish and deliver messages until an exit is requested.
+        """
 
         sns = SNSAccess(
             self.channel,
             auto_create=True,
-            profile_name=self.profile_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.region_name,
+            **self._get_aws_access_kwargs(),
         )
         sns.create_topic()
 
@@ -271,23 +303,15 @@ class _PubSub(Thread):
         sqs_metadata = _DynamoDBMetadataTable(
             SQS_NAME,
             self.sqs_queue_name,
-            profile_name=self.profile_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.region_name,
+            **self._get_aws_access_kwargs(),
         )
 
-        sqs = SQSPollAccess(
-            self.sqs_queue_name, profile_name=self.profile_name, aws_access_key_id=self.aws_access_key_id, aws_secret_access_key=self.aws_secret_access_key, region_name=self.region_name
-        )
+        sqs = SQSPollAccess(self.sqs_queue_name, **self._get_aws_access_kwargs())
         if not sqs.exists():
             sqs.create_queue()
             sns = SNSAccess(
                 topic_name=self.channel,
-                profile_name=self.profile_name,
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                region_name=self.region_name,
+                **self._get_aws_access_kwargs(),
             )
             _connect_sns_to_sqs(sqs, sns)
 
@@ -295,10 +319,7 @@ class _PubSub(Thread):
         # clean up old queues (using the same credentials as this instance)
         remove_old_queues(
             self.channel,
-            profile_name=self.profile_name,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.region_name,
+            **self._get_aws_access_kwargs(),
         )
 
         sqs_thread = _SubscriptionThread(sqs, self._new_event)
@@ -306,6 +327,11 @@ class _PubSub(Thread):
         return sqs_thread, sqs_metadata
 
     def _drain_pub_queue(self, sns: SNSAccess) -> None:
+        """
+        Publish every message that is queued to be published.
+
+        :param sns: the SNS topic
+        """
         # drain all queued messages (the "new" event is binary, so handling only one message per wait cycle would throttle bursts to one message per timeout)
         while True:
             try:
@@ -320,7 +346,12 @@ class _PubSub(Thread):
                 log.warning(f"SNS publish failed,{self.channel=},{e}")
 
     def _drain_sub_queue(self, sqs_thread: _SubscriptionThread, sqs_metadata: _DynamoDBMetadataTable) -> None:
-        # drain all received messages
+        """
+        Deliver every message the subscription thread has received, to the callback and/or the queue that get_messages() reads.
+
+        :param sqs_thread: the subscription thread
+        :param sqs_metadata: the SQS queue's metadata (its last use time is updated)
+        """
         got_message = False
         while True:
             try:
@@ -416,6 +447,10 @@ class _PubSub(Thread):
 
 
 class Pub(_PubSub):
+    """
+    The publishing side of a pub/sub channel. start() it, then publish() messages.
+    """
+
     @typechecked()
     def __init__(
         self,
@@ -445,6 +480,10 @@ class Pub(_PubSub):
 
 
 class Sub(_PubSub):
+    """
+    The subscribing side of a pub/sub channel. start() it, then messages go to the callback, or are read with get_messages().
+    """
+
     @typechecked()
     def __init__(
         self,

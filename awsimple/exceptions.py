@@ -1,3 +1,8 @@
+"""
+awsimple's exceptions. Every one is an AWSimpleException.
+"""
+
+
 class AWSimpleException(Exception):
     """Base exception for all AWSimple errors."""
 
@@ -28,6 +33,18 @@ class S3BucketAlreadyExistsNotOwnedByYou(AWSimpleExceptionBase):
     def __init__(self, bucket_name: str):
         message = f'S3 Bucket "{bucket_name}" already exists and is not owned by you'
         super().__init__(message)
+
+
+class BucketNotFound(AWSimpleException):
+    """Raised when an S3 bucket does not exist."""
+
+    def __init__(self, bucket_name):
+        self.bucket_name = bucket_name
+        self.message = "Bucket not found"
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f"{self.bucket_name=} {self.message}"
 
 
 class PubSubFailed(AWSimpleException):

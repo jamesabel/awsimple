@@ -42,31 +42,31 @@ def test_s3_no_full_object_hash(s3_access):
     metadata = s3_access.get_s3_object_metadata(s3_key)
     assert metadata.sha512 is None
     assert metadata.crc64nvme is None
-    assert metadata.legacy_sha512 is None
+    assert metadata.metadata_sha512 is None
     assert metadata.get_sha512() is not None  # substitute hash so caching still works
 
 
-def test_s3_legacy_metadata_object_always_reuploaded(s3_access):
-    # an object written by an older awsimple (legacy metadata hash, no native checksum) is always re-uploaded so it gains the native checksum
-    content = b"legacy object"
+def test_s3_metadata_sha512_only_object_always_reuploaded(s3_access):
+    # an object written by an older awsimple (metadata hash, no native checksum) is always re-uploaded so it gains the native checksum
+    content = b"metadata hash only object"
     content_sha512 = hashlib.sha512(content).hexdigest()
-    s3_key = "legacy_metadata_object.txt"
+    s3_key = "metadata_sha512_only_object.txt"
     s3_access.client.put_object(Bucket=s3_access.bucket_name, Key=s3_key, Body=content, Metadata={"awsimple-sha512": content_sha512})
 
     metadata = s3_access.get_s3_object_metadata(s3_key)
     assert metadata.sha512 is None  # no native checksum
     assert metadata.crc64nvme is None
-    assert metadata.legacy_sha512 == content_sha512  # legacy metadata hash detected
+    assert metadata.metadata_sha512 == content_sha512  # metadata hash detected
 
-    # upload the identical content - it would be skipped if a native checksum existed, but legacy objects always migrate
-    file_path = Path(temp_dir, "legacy_metadata_object.txt")
+    # upload the identical content - it would be skipped if a native checksum existed, but objects without a native checksum always migrate
+    file_path = Path(temp_dir, "metadata_sha512_only_object.txt")
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_bytes(content)
     assert s3_access.upload(file_path, s3_key)  # re-uploaded (migrated), even though the content is unchanged
 
     metadata = s3_access.get_s3_object_metadata(s3_key)
     assert metadata.crc64nvme == get_bytes_crc64nvme(content)  # now has the native checksum
-    assert metadata.legacy_sha512 == content_sha512  # awsimple always writes the SHA-512 of the contents as object metadata
+    assert metadata.metadata_sha512 == content_sha512  # awsimple always writes the SHA-512 of the contents as object metadata
     assert not s3_access.upload(file_path, s3_key)  # migration complete - unchanged content is now skipped
 
 

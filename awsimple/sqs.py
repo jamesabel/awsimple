@@ -15,7 +15,7 @@ from botocore.exceptions import ClientError, HTTPClientError
 from typeguard import typechecked
 import appdirs
 
-from awsimple import AWSAccess, __application_name__, __author__, boto_error_to_string
+from awsimple import AWSAccess, __application_name__, __author__, boto_error_to_string, atomic_write_path
 
 log = getLogger(__application_name__)
 
@@ -31,14 +31,22 @@ class SQSMessage:
     _q: Any  # SQSAccess instance
 
     def delete(self):
+        """
+        Delete this message from the queue (call this when the work for the message is done, unless the queue deletes messages immediately).
+        """
         self._m.delete()  # boto3
         self._q._update_response_history(self.get_id())
 
     def get_id(self):
+        """
+        :return: the AWS message ID
+        """
         return self._m.message_id
 
     def get_aws_message(self):
-        # get the native AWS message
+        """
+        :return: the native AWS message (from boto3)
+        """
         return self._m
 
 
@@ -48,6 +56,13 @@ aws_sqs_max_messages = 10
 
 
 class SQSAccess(AWSAccess):
+    """
+    Access to one SQS (Simple Queue Service) queue: send and receive messages.
+
+    A received message is either deleted immediately, or deleted by the user when the work for it is done. In the second case the visibility timeout (how long AWS waits
+    before giving the message to another receiver) is, unless the user gives it, calculated from a history of how long the work for earlier messages took.
+    """
+
     @typechecked()
     def __init__(self, queue_name: str, immediate_delete: bool = True, visibility_timeout: Union[int, None] = None, minimum_visibility_timeout: int = 0, auto_create: bool = False, **kwargs):
         """
@@ -57,6 +72,7 @@ class SQSAccess(AWSAccess):
         :param immediate_delete: True to immediately delete read message(s) upon receipt, False to require the user to call delete_message()
         :param visibility_timeout: visibility timeout (if explicitly given) - set to None to automatically attempt to determine the timeout
         :param minimum_visibility_timeout: visibility timeout will be at least this long (do not set if visibility_timeout set)
+        :param auto_create: True to create the queue when it is first needed and does not exist
         :param kwargs: kwargs to send to base class
         """
         super().__init__(resource_name="sqs", **kwargs)
@@ -125,6 +141,16 @@ class SQSAccess(AWSAccess):
 
         return self.queue
 
+    def _get_queue_or_warn(self) -> Any:
+        """
+        Get the SQS queue instance (see _get_queue()), with a warning in the log if it is not available.
+
+        :return: SQS queue instance, or None if it is not available
+        """
+        if (queue := self._get_queue()) is None:
+            log.warning(f"could not get queue {self.queue_name}")
+        return queue
+
     @typechecked()
     def _get_response_history_file_path(self) -> Path:
         """
@@ -156,9 +182,7 @@ class SQSAccess(AWSAccess):
         """
         delete queue
         """
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-        else:
+        if (queue := self._get_queue_or_warn()) is not None:
             queue.delete()
 
     @typechecked()
@@ -171,6 +195,11 @@ class SQSAccess(AWSAccess):
         return self._get_queue() is not None
 
     def calculate_nominal_work_time(self) -> float:
+        """
+        Calculate how long the work for a message nominally takes: the median of the times in the response history (an hour if there are none yet).
+
+        :return: nominal work time in seconds
+        """
         response_times = []
         for begin, end in self.response_history.values():
             if end is not None:
@@ -184,6 +213,12 @@ class SQSAccess(AWSAccess):
         return nominal_work_time
 
     def calculate_visibility_timeout(self) -> int:
+        """
+        Determine the visibility timeout: what the user gave, a short time if messages are deleted immediately, otherwise a multiple of the nominal work time.
+        Raises ValueError for parameters that do not make sense together.
+
+        :return: visibility timeout in seconds
+        """
         if self.user_provided_timeout is None:
             if self.immediate_delete:
                 visibility_timeout = self.immediate_delete_timeout  # we immediately delete the message so this doesn't need to be very long
@@ -238,8 +273,7 @@ class SQSAccess(AWSAccess):
 
         :return: the AWS messages received (which are deleted or added to the response history, as this queue is set up), or None if the queue is not available
         """
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
+        if (queue := self._get_queue_or_warn()) is None:
             return None
 
         visibility_timeout = self.calculate_visibility_timeout()
@@ -248,6 +282,12 @@ class SQSAccess(AWSAccess):
 
     @typechecked()
     def _receive(self, max_number_of_messages_parameter: Union[int, None] = None) -> List[SQSMessage]:
+        """
+        Receive messages from the queue: one call that may be a long poll, then short polls until there are no more messages (or the maximum is reached).
+
+        :param max_number_of_messages_parameter: maximum number of messages to receive (None for all available messages)
+        :return: list of messages
+        """
         if self.user_provided_timeout is None and not self.immediate_delete:
             self._read_response_history()
 
@@ -326,8 +366,9 @@ class SQSAccess(AWSAccess):
             file_path = self._get_response_history_file_path()
             file_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                with open(self._get_response_history_file_path(), "w") as f:
-                    json.dump(self.response_history, f, indent=4)
+                with atomic_write_path(file_path) as temp_path:  # so that the history file never has part of the JSON in it
+                    with open(temp_path, "w") as f:
+                        json.dump(self.response_history, f, indent=4)
             except IOError as e:
                 log.info(f'"{file_path}" : {e}')
 
@@ -358,12 +399,8 @@ class SQSAccess(AWSAccess):
 
         :return: ARN string
         """
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-            arn = ""
-        else:
-            arn = queue.attributes["QueueArn"]
-        return arn
+        queue = self._get_queue_or_warn()
+        return "" if queue is None else queue.attributes["QueueArn"]
 
     @typechecked()
     def add_permission(self, source_arn: str):
@@ -374,8 +411,7 @@ class SQSAccess(AWSAccess):
 
         """
 
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
+        if (queue := self._get_queue_or_warn()) is None:
             return
 
         statement = {"Effect": "Allow", "Principal": "*", "Action": "SQS:SendMessage", "Resource": self.get_arn(), "Condition": {"StringEquals": {"aws:SourceArn": source_arn}}}
@@ -398,9 +434,7 @@ class SQSAccess(AWSAccess):
         """
         purge all messages in the queue
         """
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-        else:
+        if (queue := self._get_queue_or_warn()) is not None:
             self.client.purge_queue(QueueUrl=queue.url)
 
     def messages_available(self) -> int:
@@ -409,13 +443,10 @@ class SQSAccess(AWSAccess):
         :return: number of messages available
         """
         key = "ApproximateNumberOfMessages"
-        if (queue := self._get_queue()) is None:
-            log.warning(f"could not get queue {self.queue_name}")
-            number_of_messages_available = 0
-        else:
-            response = self.client.get_queue_attributes(QueueUrl=queue.url, AttributeNames=[key])
-            number_of_messages_available = int(response["Attributes"][key])
-        return number_of_messages_available
+        if (queue := self._get_queue_or_warn()) is None:
+            return 0
+        response = self.client.get_queue_attributes(QueueUrl=queue.url, AttributeNames=[key])
+        return int(response["Attributes"][key])
 
 
 class SQSPollAccess(SQSAccess):
@@ -424,6 +455,10 @@ class SQSPollAccess(SQSAccess):
     """
 
     def __init__(self, queue_name: str, **kwargs):
+        """
+        :param queue_name: queue name
+        :param kwargs: kwargs to send to SQSAccess
+        """
         super().__init__(queue_name=queue_name, **kwargs)
         self.sqs_call_wait_time = aws_sqs_long_poll_max_wait_time
 

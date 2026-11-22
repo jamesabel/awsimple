@@ -1,3 +1,7 @@
+"""
+CloudWatch Logs access: LogsAccess.
+"""
+
 import time
 from typing import Union
 from pathlib import Path
@@ -6,7 +10,7 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 
 from .aws import AWSAccess
-from .platform import get_user_name, get_computer_name
+from .platform import get_node_name
 
 
 class LogsAccess(AWSAccess):
@@ -45,6 +49,14 @@ class LogsAccess(AWSAccess):
             self._put(message)
 
     def _put_log_events(self, stream_name: str, log_events: list, sequence_token: Union[str, None]):
+        """
+        Put log events to a log stream.
+
+        :param stream_name: log stream name
+        :param log_events: log events
+        :param sequence_token: upload sequence token (None if there is none yet)
+        :return: the response from AWS
+        """
         if sequence_token is None:
             return self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events)
         return self.client.put_log_events(logGroupName=self.log_group, logStreamName=stream_name, logEvents=log_events, sequenceToken=sequence_token)
@@ -89,7 +101,7 @@ class LogsAccess(AWSAccess):
         Get the stream name. User of this class can override this method to use a different stream name.
         :return: stream name string
         """
-        return f"{get_computer_name()}-{get_user_name()}"
+        return get_node_name()
 
     def get_retention_in_days(self) -> int:
         """

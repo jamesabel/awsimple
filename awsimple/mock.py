@@ -1,3 +1,7 @@
+"""
+Which AWS awsimple accesses: the real one (the default), the moto mock or localstack, selected with environment variables.
+"""
+
 import os
 
 from tobool import to_bool_strict

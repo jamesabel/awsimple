@@ -97,7 +97,25 @@ And finally let's read the object back:
 S3 Caching
 ~~~~~~~~~~
 AWSimple can use local caching to reduce network traffic, which in turn can reduce costs and speed up applications. A file hash (SHA512) is
-used to ensure file content equivalency.
+used to ensure file content equivalency: `S3Access.download_cached()` and `S3Access.download_object_as_json_cached()` keep contents in a local
+file named with their SHA512, and only use that file if it still has those contents.
+
+S3 list and sync
+~~~~~~~~~~~~~~~~
+`S3Access.list_objects()` lists a bucket (or the objects with a prefix) with the size, modification time, ETag and storage class of each object,
+without a request per object. `S3Access.sync_to_directory()` brings a local directory up to date with a bucket, like `aws s3 sync` from a bucket to
+a directory:
+
+.. code:: python
+
+    from pathlib import Path
+
+    from awsimple import S3Access, S3SyncOutcome
+
+    result = S3Access("james-abel-awsimple-test-bucket").sync_to_directory(Path("backup"))
+    print(result.get_count(S3SyncOutcome.downloaded))
+    for sync_object in result.get_objects(S3SyncOutcome.failed):
+        print(sync_object.key, sync_object.reason)
 
 DynamoDB
 --------

@@ -53,7 +53,11 @@ Full documentation available at [jamesabel.github.io/awsimple](https://jamesabel
 - Convert back and forth between DynamoDB items and Python dictionaries automatically. Converts many common data types to DynamoDB compatible types,
 including nested structures, sets, images (PIL), and Enum/StrEnum.
 
-- Full-object checksums (CRC64NVME) for S3 files (S3's etag is not a true file hash).
+- File-based hashes for S3 objects: a full-object checksum (CRC64NVME) and the SHA-512 of the contents, whatever way the file was
+uploaded (S3's etag is not a true file hash). The length and checksum of every S3 transfer are checked.
+
+- List an S3 bucket without a request per object, and bring a local directory up to date with a bucket (like `aws s3 sync`,
+without the AWS CLI).
 
 - Supports moto mock and localstack. Handy for testing and CI.
 
@@ -78,12 +82,12 @@ The example folder has several examples you can customize and run. Instructions 
 ### S3
 
     # print string contents of an existing S3 object
-    s = S3Access(profile_name="testawsimple", bucket="testawsimple").read_string("helloworld.txt")
+    s = S3Access("testawsimple", profile_name="testawsimple").read_string("helloworld.txt")
     print(s)
 
 ### DynamoDB
 
-    dynamodb_access = DynamoDBAccess(profile_name="testawsimple", table_name="testawsimple")
+    dynamodb_access = DynamoDBAccess("testawsimple", profile_name="testawsimple")
 
     # put an item into DynamoDB
     dynamodb_access.put_item({"id": "batman", "city": "Gotham"})
@@ -104,12 +108,15 @@ AWS's "serverless" resources offer many benefits.  You only pay for what you use
 and generally have high performance and availability.
 
 While AWS has many varied services with extensive flexibility, using it for more straight-forward 
-applications is sometimes a daunting task. There are access modes that are probably not requried 
+applications is sometimes a daunting task. There are access modes that are probably not required 
 and some default behaviors are not best for common usages.  `awsimple` aims to create a higher 
 level API to AWS services (such as S3, DynamoDB, SNS, and SQS) to improve programmer productivity.
 
 
 ## S3
+
+`awsimple`'s hashes are hashes of the whole file. They are the same whether a file was uploaded in one part or in several, so
+an application does not have to know or care how a transfer was done.
 
 `awsimple` uses S3's native full-object checksums to test for file equivalency (e.g. to avoid re-uploading
 unchanged files). Uploads use CRC64NVME - the algorithm S3 itself defaults to, and the only one S3 computes
@@ -119,7 +126,7 @@ checksum are also recognized and compared. Objects without any recognizable full
 modification-time and file-size comparison.
 
 An S3 object has one native checksum, so `awsimple` also writes the SHA-512 of the contents as object metadata
-(`awsimple-sha512`) on every object it writes. A matching CRC64NVME alone does not skip an upload: the length and
+(`awsimple-sha512`) on every object it writes (`S3ObjectMetadata.metadata_sha512`). A matching CRC64NVME alone does not skip an upload: the length and
 the SHA-512 (when the object has one) must match too. An object that has the metadata SHA-512 but no native
 checksum (e.g. written by an older awsimple version) is always re-uploaded, so it gains the native checksum.
 
@@ -139,7 +146,7 @@ has it, and a callback that reports the bytes transferred.
 `S3Access.sync_to_directory()` brings a local directory up to date with a bucket (or a prefix), like `aws s3 sync` from
 a bucket to a directory, without the AWS CLI:
 
-    result = S3Access(profile_name="testawsimple", bucket_name="testawsimple").sync_to_directory(Path("backup"))
+    result = S3Access("testawsimple", profile_name="testawsimple").sync_to_directory(Path("backup"))
     print(result.get_count(S3SyncOutcome.downloaded), result.get_size(S3SyncOutcome.downloaded))
     for sync_object in result.get_objects(S3SyncOutcome.failed):
         print(sync_object.key, sync_object.reason)
@@ -161,15 +168,22 @@ and potentially offer a speedup.
 DynamoDB cached table scans are particularly useful for tables that are infrequently updated.
 
 The S3 cache is based on the SHA-512 of an object's contents: cached contents are in a file named with their SHA-512.
-When an S3 object has a SHA-512 (S3's native full-object SHA-512, or the `awsimple-sha512` object metadata), that is
-used to find it in the cache. S3 does not validate object metadata, so downloaded contents are only cached once their
-calculated SHA-512 matches. `awsimple` never updates an S3 object's metadata on a read. When an S3 object has no
+The SHA-512 of an S3 object (S3's native full-object SHA-512, or the `awsimple-sha512` object metadata) is the SHA-512
+of its contents, so it is what finds the object in the cache, and S3 objects with the same contents are one cache file.
+Downloaded contents are only cached once their calculated SHA-512 matches, and a cache file is only used if it has the
+length of the S3 object and the SHA-512 it is named with (otherwise the object is downloaded and the file is written
+again). Every cached access makes one request for the S3 object's metadata, so a changed object is never served from
+the cache. `awsimple` never updates an S3 object's metadata on a read. When an S3 object has no
 SHA-512, it is instead checked against its native CRC64NVME, key, size and modification time: a SHA-512 of these
 (with the bucket, version and ETag) is mapped by a local index to the SHA-512 calculated when the contents were
 downloaded. The key is only hashed, never used as a cache file name, so file system path irregularities do not
 matter. A CRC alone is never a cache key, since a CRC is not collision resistant.
 
-## What`awsimple` Is Not
+The cache has a maximum size (`cache_max_absolute`, 1 GB by default, and `cache_max_of_free`, 5% of the free disk space
+by default). When a new file does not fit, the least recently used files are evicted. An object that is larger than
+the maximum is not cached.
+
+## What `awsimple` Is Not
 
 - `awsimple` is not necessarily the most memory and CPU efficient
 
@@ -178,6 +192,13 @@ matter. A CRC alone is never a cache key, since a CRC is not collision resistant
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
 ## Updates/Releases
+
+9.x.x - S3 hashes and cache: every object `awsimple` writes also gets the SHA-512 of its contents as object metadata, the
+S3 cache is based on that SHA-512, and the length and CRC64NVME of every S3 transfer are checked. Cache writes are
+atomic. New: `S3Access.list_objects()`, `S3Access.sync_to_directory()`, `s3_key_to_local_path()` and options for
+`S3Access.download()`. Changes for existing code: `S3ObjectMetadata.legacy_sha512` is now `metadata_sha512`,
+`S3ObjectMetadata.get_sha512()` always returns a SHA-512 (it is no longer a CRC64NVME for objects without a SHA-512),
+and a download to a directory raises `AWSimpleException` for a key that can not be a file under that directory.
 
 3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
 table). Explict cache life is no longer required (parameter has been removed).

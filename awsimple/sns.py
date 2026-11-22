@@ -10,12 +10,17 @@ from awsimple import AWSAccess, SQSAccess
 
 
 class SNSAccess(AWSAccess):
+    """
+    Access to one SNS (Simple Notification Service) topic: create, subscribe to and publish to it.
+    """
+
     @typechecked()
     def __init__(self, topic_name: str, auto_create: bool = False, **kwargs):
         """
         SNS Access
 
         :param topic_name: SNS topic
+        :param auto_create: True to create the topic when it is first needed and does not exist
         :param kwargs: kwargs
         """
         super().__init__(resource_name="sns", **kwargs)
@@ -25,6 +30,9 @@ class SNSAccess(AWSAccess):
         self._topic = None  # type: Any
 
     def _find_topic(self) -> Any:
+        """
+        :return: this instance's SNS topic (a boto3 sns.Topic), or None if it does not exist
+        """
         assert self.resource is not None
         for t in self.resource.topics.all():
             if t.arn.split(":")[-1] == self.topic_name:
@@ -77,7 +85,7 @@ class SNSAccess(AWSAccess):
         """
         Subscribe to an SNS topic
 
-        :param subscriber: email
+        :param subscriber: an email address, or the SQSAccess of an SQS queue (which is given permission to receive from this topic)
         :return: subscription ARN
         """
         if isinstance(subscriber, str) and "@" in subscriber:

@@ -1,7 +1,14 @@
+"""
+Local caching: the cache directory and its limits (CacheAccess), a least-recently-used (LRU) file cache with a maximum size, and atomic file writes.
+
+Every write to a cache goes through atomic_write_path(), so a cache file is never seen partly written.
+"""
+
 from pathlib import Path
 from shutil import disk_usage, copy2
 import os
 import math
+import time
 import uuid
 from contextlib import contextmanager
 from typing import Generator, Union
@@ -21,6 +28,12 @@ atomic_write_temp_suffix = ".tmp"  # suffix of the temporary file of an atomic w
 
 @typechecked()
 def get_disk_free(path: Path = Path(".")) -> int:
+    """
+    Get the free space of the disk a path is on (the disk of the path's drive or root).
+
+    :param path: a path on the disk
+    :return: free space in bytes
+    """
     total, used, free = disk_usage(Path(path).absolute().anchor)
     log.info(f"{total=} {used=} {free=}")
     return free
@@ -28,6 +41,12 @@ def get_disk_free(path: Path = Path(".")) -> int:
 
 @typechecked()
 def get_directory_size(path: Path) -> int:
+    """
+    Get the total size of the files in a directory, including its sub-directories.
+
+    :param path: directory path
+    :return: size in bytes
+    """
     size = 0
     for p in path.glob("*"):
         if p.is_file():
@@ -56,12 +75,12 @@ def atomic_write_path(dest_path: Path) -> Generator[Path, None, None]:
         temp_path.unlink(missing_ok=True)
 
 
-def _evict_least_recently_used(cache_dir: Path) -> int:
+def _evict_least_recently_used(cache_dir: Path) -> Union[int, None]:
     """
     Delete the least recently used file in the cache.
 
     :param cache_dir: cache directory
-    :return: size of the deleted file in bytes, or 0 if there was no file to delete
+    :return: size of the deleted file in bytes (which can be 0), or None if there was no file to delete
     """
     least_recently_used_path = None
     least_recently_used_access_time = None
@@ -74,7 +93,7 @@ def _evict_least_recently_used(cache_dir: Path) -> int:
             least_recently_used_access_time = access_time
 
     if least_recently_used_path is None:
-        return 0
+        return None
     size = os.path.getsize(least_recently_used_path)
     log.debug(f"evicting {least_recently_used_path=} {least_recently_used_access_time=} {size=}")
     least_recently_used_path.unlink()
@@ -97,23 +116,41 @@ def _make_room(cache_dir: Path, new_size: int, max_cache_size: int) -> bool:
     overage = (get_directory_size(cache_dir) + new_size) - max_cache_size
     while overage > 0:
         evicted_size = _evict_least_recently_used(cache_dir)
-        if evicted_size == 0:
-            break  # tried to free up space but were unsuccessful, so give up
+        if evicted_size is None:
+            break  # nothing is left to evict, so give up
         overage -= evicted_size
 
     return get_directory_size(cache_dir) + new_size <= max_cache_size
 
 
 @typechecked()
+def lru_cache_mark_used(cache_file_path: Path):
+    """
+    Mark a file in an LRU cache as used now, by setting its access time (its modification time is kept). The cache evicts the least recently accessed file, and the OS
+    does not reliably update the access time when a file is read (e.g. Windows by default, and Linux file systems mounted with relatime or noatime), so every use of a
+    cache file calls this.
+
+    :param cache_file_path: path to a file in the cache
+    """
+    try:
+        os.utime(cache_file_path, (time.time(), os.path.getmtime(cache_file_path)))
+    except OSError as e:
+        # e.g. another process evicted the file, or the cache is read-only. The file is then only evicted sooner than it would have been.
+        log.info(f"{cache_file_path=} {e}")
+
+
+@typechecked()
 def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None) -> bool:
     """
-    free up space in the LRU cache to make room for the new file
+    Write a file to an LRU cache: free up space by evicting the least recently used files until the new file fits, then write it atomically (see atomic_write_path())
+    and mark it as used (see lru_cache_mark_used()). Not being able to write to the cache is a normal outcome (e.g. the new file is larger than the cache), not an error.
+
     :param new_data: path to new file or a bytes object we want to put in the cache
     :param cache_dir: cache directory
     :param cache_file_name: file name to write in cache
     :param max_absolute_cache_size: max absolute cache size (or None if not specified)
     :param max_free_portion: max portion of disk free space the cache is allowed to consume (e.g. 0.1 to take up to 10% of free disk space)
-    :return: True wrote to cache
+    :return: True if written to the cache
     """
 
     wrote_to_cache = False
@@ -137,6 +174,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
                 else:
                     log.info(f"caching {len(new_data)}B to {cache_dest=}")
                     temp_path.write_bytes(new_data)
+            lru_cache_mark_used(cache_dest)  # a file copied into the cache can have the access time of the file it was copied from
             wrote_to_cache = True
         else:
             log.info(f"no room for {new_data=}")
@@ -148,6 +186,10 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
 
 
 class CacheAccess(AWSAccess):
+    """
+    AWS access for resources that awsimple caches locally (S3 objects and DynamoDB table scans): the cache directory and its limits.
+    """
+
     def __init__(
         self,
         resource_name: str,
