@@ -127,6 +127,32 @@ Every S3 access checks the length and the CRC64NVME (when the object has one) of
 write, the S3 object is compared with what was written, and after a read or download, what was received is compared
 with the S3 object. A mismatch raises `AWSimpleException` (a download is tried again first).
 
+`S3Access.list_objects()` lists a bucket (or a prefix) with the size, modification time, ETag and storage class of
+each object, using only the bucket listing: it makes no request per object, unlike `S3Access.dir()`.
+
+When the destination of a download is a directory, the S3 key becomes a path under that directory with
+`s3_key_to_local_path()`: empty key components are dropped (as `aws s3 sync` does), so a key such as `/temp//a.txt`
+is `temp/a.txt` under the directory, and a key that can not be a file under the directory (e.g. one with a `..`
+component) raises `AWSimpleException`. `S3Access.download()` also takes the object's metadata when the caller already
+has it, and a callback that reports the bytes transferred.
+
+`S3Access.sync_to_directory()` brings a local directory up to date with a bucket (or a prefix), like `aws s3 sync` from
+a bucket to a directory, without the AWS CLI:
+
+    result = S3Access(profile_name="testawsimple", bucket_name="testawsimple").sync_to_directory(Path("backup"))
+    print(result.get_count(S3SyncOutcome.downloaded), result.get_size(S3SyncOutcome.downloaded))
+    for sync_object in result.get_objects(S3SyncOutcome.failed):
+        print(sync_object.key, sync_object.reason)
+
+The bucket is listed once, and an object is downloaded when its local file is missing, has a different size, or is
+older than the S3 object (`size_only=True` does not compare times). Only a downloaded object takes a metadata request
+(one), which the length and CRC64NVME of what was downloaded are checked against before it replaces the local file.
+Local files are never deleted. The prefix is not part of the local paths. The result has the outcome of every listed
+object: folder markers (keys that end with `/`), `GLACIER` and `DEEP_ARCHIVE` objects, and keys that can not all be
+local files (keys that are the same local file, e.g. `a/b` and `a//b`, or a key that is a file where other keys need
+a directory) are skipped with the reason, and a failure of one object is reported without stopping the others. There
+is a dry run, an event to request a stop, and a callback per object.
+
 ## Caching
 
 S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 
