@@ -6,12 +6,18 @@ import base64
 import os
 import re
 import shutil
+import stat
+import sys
 import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from enum import StrEnum
 from math import isclose
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from threading import Event
+from typing import Any, Callable, Dict, List, Union
 import json
 from logging import getLogger
 
@@ -19,6 +25,10 @@ from botocore.client import Config
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
 from boto3.s3.transfer import TransferConfig
 from s3transfer import S3UploadFailedError
+from s3transfer.exceptions import RetriesExceededError, S3DownloadFailedError
+from s3transfer.futures import NonThreadedExecutor
+from s3transfer.manager import TransferManager
+from s3transfer.subscribers import BaseSubscriber
 import urllib3.exceptions
 from typeguard import typechecked
 from hashy import get_file_sha512, get_bytes_sha512, get_dls_sha512, get_file_crc64nvme, get_bytes_crc64nvme
@@ -57,6 +67,12 @@ cache_key_scheme = f"{__application_name__}-s3-cache-key-2"
 # Sub-directory of the S3 cache directory. For an S3 object that has no SHA-512, it holds the SHA-512 of the contents awsimple downloaded, in a file named with the object's identity hash.
 cache_index_dir_name = "index"
 
+# Storage classes of objects that have to be restored before they can be read. A sync skips them.
+archived_storage_classes = ("GLACIER", "DEEP_ARCHIVE")
+
+# True if file names that differ only in case are taken as the same file. This is the default of the OS (Windows and macOS), not a test of the file system a directory is on.
+case_insensitive_file_names = sys.platform in ("win32", "darwin")
+
 log = getLogger(__application_name__)
 
 connection_errors = (S3UploadFailedError, ClientError, EndpointConnectionError, SSLError, urllib3.exceptions.ProtocolError, ConnectionClosedError)
@@ -70,6 +86,99 @@ class BucketNotFound(AWSimpleException):
 
     def __str__(self):
         return f"{self.bucket_name=} {self.message}"
+
+
+@dataclass
+class S3ListedObject:
+    """
+    An S3 object as a bucket listing gives it (see S3Access.list_objects()). A bucket listing does not have an object's checksums or its object metadata: those are in
+    S3ObjectMetadata (see S3Access.get_s3_object_metadata()), which takes a request per object.
+    """
+
+    key: str
+    size: int
+    mtime: datetime
+    etag: str
+    storage_class: str  # e.g. "STANDARD", or "GLACIER" or "DEEP_ARCHIVE" for an object that has to be restored before it can be read
+
+
+class S3SyncOutcome(StrEnum):
+    """
+    What S3Access.sync_to_directory() did with an S3 object.
+    """
+
+    downloaded = "downloaded"
+    would_download = "would download"  # a dry run: the object is one that a sync downloads
+    up_to_date = "up to date"  # the local file is already current
+    skipped = "skipped"  # not downloaded on purpose (S3SyncObject.reason says why)
+    failed = "failed"  # could not be downloaded (S3SyncObject.reason says why)
+    not_attempted = "not attempted"  # a stop was requested before the download started
+
+
+@dataclass
+class S3SyncObject:
+    """
+    An S3 object in a sync (see S3Access.sync_to_directory()).
+    """
+
+    key: str
+    size: int  # bytes
+    outcome: S3SyncOutcome
+    local_path: Union[Path, None] = None  # the local file of this S3 object (None if its key can not be a local file)
+    reason: str = ""  # why the object was skipped or failed
+
+
+@dataclass
+class S3SyncResult:
+    """
+    The result of S3Access.sync_to_directory(): every object of the bucket listing with its outcome.
+    """
+
+    objects: Dict[str, S3SyncObject] = field(default_factory=dict)  # by S3 key, in the order of the bucket listing
+    stopped: bool = False  # True if a stop was requested before every download had started
+
+    def get_objects(self, outcome: Union[S3SyncOutcome, None] = None) -> List[S3SyncObject]:
+        """
+        :param outcome: an outcome, or None for every listed object
+        :return: the objects with that outcome
+        """
+        return [sync_object for sync_object in self.objects.values() if outcome is None or sync_object.outcome == outcome]
+
+    def get_count(self, outcome: Union[S3SyncOutcome, None] = None) -> int:
+        """
+        :param outcome: an outcome, or None for every listed object
+        :return: number of objects with that outcome
+        """
+        return len(self.get_objects(outcome))
+
+    def get_size(self, outcome: Union[S3SyncOutcome, None] = None) -> int:
+        """
+        :param outcome: an outcome, or None for every listed object
+        :return: total size in bytes of the objects with that outcome
+        """
+        return sum(sync_object.size for sync_object in self.get_objects(outcome))
+
+
+class _ProvideMetadataSubscriber(BaseSubscriber):
+    """
+    Gives a transfer the size and the ETag of the S3 object, so that the transfer manager does not make its own request for them. The transfer manager uses the ETag to
+    fail a download in parts if the S3 object is written again during the download.
+    """
+
+    def __init__(self, s3_object_metadata: "S3ObjectMetadata"):
+        self.s3_object_metadata = s3_object_metadata
+
+    def on_queued(self, future, **kwargs):
+        future.meta.provide_transfer_size(self.s3_object_metadata.size)
+        future.meta.provide_object_etag(f'"{self.s3_object_metadata.etag}"')  # as S3 gives it, in quotes
+
+
+def _collision_name(relative_path: Path) -> str:
+    """
+    :param relative_path: a local path, relative to the destination directory of a sync
+    :return: a string that is the same for paths that are the same local file
+    """
+    return str(relative_path).casefold() if case_insensitive_file_names else str(relative_path)
 
 
 @dataclass
@@ -166,6 +275,29 @@ def _native_checksum_to_hex(checksum_base64: Union[str, None]) -> Union[str, Non
     return base64.b64decode(checksum_base64).hex()
 
 
+@typechecked()
+def s3_key_to_local_path(dest_dir: Path, s3_key: str) -> Path:
+    """
+    Map an S3 key to a local file path that is under a destination directory: the non-empty "/" separated components of the key, joined under dest_dir. Empty components
+    are dropped, as "aws s3 sync" does, so the key "/temp//a.txt" is temp/a.txt under dest_dir (a leading "/" does not go to the root of the drive or file system).
+
+    An S3 key is any string, so this is the one place a key becomes a local path. Raises AWSimpleException if the key can not be a file under dest_dir with the names the key
+    has: no components at all, a "." or ".." component, or a component that the OS does not take as one file name (on Windows: a backslash, which is a path separator, or a
+    colon, which is a drive or an alternate data stream).
+
+    :param dest_dir: destination directory
+    :param s3_key: S3 key
+    :return: local file path under dest_dir
+    """
+    components = [component for component in s3_key.split("/") if len(component) > 0]
+    local_path = dest_dir.joinpath(*components)
+    is_single_names = local_path.parts == dest_dir.parts + tuple(components)  # False if the OS took a component as a drive, a root, more than one name, or nothing
+    has_colon_on_windows = os.name == "nt" and any(":" in component for component in components)
+    if len(components) == 0 or "." in components or ".." in components or not is_single_names or has_colon_on_windows:
+        raise AWSimpleException(f'S3 key "{s3_key}" can not be a file under "{dest_dir}"')
+    return local_path
+
+
 def _get_json_key(s3_key: str):
     """
     get JSON key given an s3_key that may not have the .json extension
@@ -213,6 +345,11 @@ class S3Access(CacheAccess):
         # checksum algorithm uploads use - see _upload_extra_args)
         s3_transfer_config = TransferConfig(use_threads=False, multipart_threshold=default_multipart_threshold)
         return s3_transfer_config
+
+    def get_s3_download_transfer_config(self) -> TransferConfig:
+        # The transfer configuration for downloads. derived class can overload this if a different config is desired.
+        # This is boto3's default (threads, 10 concurrent requests, 8 MiB multipart threshold and chunk size), which is what downloads have always used.
+        return TransferConfig()
 
     @typechecked()
     def set_public_readable(self, public_readable: bool):
@@ -484,12 +621,17 @@ class S3Access(CacheAccess):
         return uploaded_flag
 
     @typechecked()
-    def download(self, s3_key: str, dest_path: Union[str, Path]) -> bool:
+    def download(self, s3_key: str, dest_path: Union[str, Path], s3_object_metadata: Union[S3ObjectMetadata, None] = None, callback: Union[Callable[[int], None], None] = None) -> bool:
         """
         Download an S3 object
 
         :param s3_key: S3 key
-        :param dest_path: destination file or directory path. If the path is a directory, the file will be downloaded to that directory with the same name as the S3 key.
+        :param dest_path: destination file or directory path. If the path is a directory, the file will be downloaded under that directory, at the path s3_key_to_local_path() gives the S3 key.
+        :param s3_object_metadata: the S3 object's metadata, if the caller already has it (from get_s3_object_metadata()). It is what the downloaded file's length and CRC64NVME are
+          checked against and where its mtime comes from, so awsimple does not get the metadata again (boto3 still makes its own request for the size of the object). If the
+          check fails the download is tried again with new metadata, since what the caller had may be out of date.
+        :param callback: called as bytes are transferred, with the number of bytes transferred since the last call (may be called from other threads). If the download is tried
+          again, the bytes of every attempt are reported.
         :return: True if downloaded successfully. Raises AWSimpleException if the download fails after all retries.
         """
 
@@ -498,7 +640,7 @@ class S3Access(CacheAccess):
             dest_path = Path(dest_path)
 
         if dest_path.is_dir():
-            dest_path = Path(dest_path, s3_key)
+            dest_path = s3_key_to_local_path(dest_path, s3_key)
 
         log.info(f'S3 download : {self.bucket_name}:{s3_key} to "{dest_path}" ("{Path(dest_path).absolute()}")')
 
@@ -509,9 +651,11 @@ class S3Access(CacheAccess):
         while not success and transfer_retry_count < self.retry_count:
             try:
                 log.debug(sf("calling client.download_file()", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
-                self.client.download_file(self.bucket_name, s3_key, dest_path)
+                self.client.download_file(self.bucket_name, s3_key, dest_path, Callback=callback, Config=self.get_s3_download_transfer_config())
                 log.debug(sf("S3 client.download_file() complete", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
-                s3_object_metadata = self.get_s3_object_metadata(s3_key)
+                if s3_object_metadata is None or transfer_retry_count > 0:
+                    # the caller did not give the metadata, or it may be out of date since an attempt with it failed
+                    s3_object_metadata = self.get_s3_object_metadata(s3_key)
                 log.debug(sf("S3 object metadata", s3_object_metadata=s3_object_metadata))
                 if self._is_download_intact(Path(dest_path), s3_object_metadata):
                     mtime_ts = s3_object_metadata.mtime.timestamp()
@@ -536,13 +680,13 @@ class S3Access(CacheAccess):
         """
         download from AWS S3 with caching
 
-        :param dest_path: destination full path or directory. If the path is a directory, the file will be downloaded to that directory with the same name as the S3 key.
+        :param dest_path: destination full path or directory. If the path is a directory, the file will be downloaded under that directory, at the path s3_key_to_local_path() gives the S3 key.
         :param s3_key: S3 key of source
         :return: S3DownloadStatus instance
         """
 
         if dest_path.is_dir():
-            dest_path = Path(dest_path, s3_key)
+            dest_path = s3_key_to_local_path(dest_path, s3_key)
         log.info(f'S3 download_cached : {self.bucket_name}:{s3_key} to "{dest_path}" ("{dest_path.absolute()}")')
 
         self.download_status = S3DownloadStatus()  # init
@@ -552,7 +696,7 @@ class S3Access(CacheAccess):
         if (cache_path := self._get_cached_path(s3_object_metadata)) is None:
             self.download_status.cache_hit = False
             log.info(f"{self.bucket_name=}/{s3_key=} cache miss : {dest_path=} ({dest_path.absolute()})")
-            self.download(s3_key, dest_path)  # raises AWSimpleException on failure, so we don't write a bad cache entry or falsely report success
+            self.download(s3_key, dest_path, s3_object_metadata)  # raises AWSimpleException on failure, so we don't write a bad cache entry or falsely report success
             self.download_status.cache_write = self._write_cache(s3_object_metadata, dest_path, get_file_sha512(dest_path))
         else:
             log.info(f"{self.bucket_name}/{s3_key} cache hit : copying {cache_path=} to {dest_path=} ({dest_path.absolute()})")
@@ -793,10 +937,199 @@ class S3Access(CacheAccess):
         return deleted
 
     @typechecked()
+    def list_objects(self, prefix: str = "") -> Dict[str, S3ListedObject]:
+        """
+        List the objects in this S3 bucket, with what the bucket listing itself gives for each one: size, modification time, ETag and storage class.
+
+        This makes no request per object (a listing request returns up to 1000 objects), so use it instead of .dir() when that is all you need, e.g. to compare a bucket with
+        local files. Use .dir() for all of an object's metadata, including its checksums.
+
+        :param prefix: only list objects that have this prefix in their keys (omit for all objects)
+        :return: a dict where key is the S3 key and the value is S3ListedObject, in the order of the bucket listing
+        """
+        if not self.bucket_exists():
+            raise BucketNotFound(self.bucket_name)
+        listed_objects = {}
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
+            # deal with empty bucket
+            for content in page.get("Contents", []):
+                s3_key = content["Key"]
+                # an object's storage class is not given by every S3 implementation when it is the default
+                listed_objects[s3_key] = S3ListedObject(s3_key, content["Size"], content["LastModified"], content["ETag"][1:-1].lower(), content.get("StorageClass", "STANDARD"))
+        return listed_objects
+
+    def _sync_object_from_listing(self, listed_object: S3ListedObject, dest_dir: Path, prefix: str) -> S3SyncObject:
+        """
+        Make the sync object of a listed S3 object: one to download (subject to the checks that need every object, see _plan_sync()), or skipped or failed with the reason.
+
+        :param listed_object: an object of the bucket listing
+        :param dest_dir: destination directory
+        :param prefix: the prefix of the listing, which is not part of the local path
+        :return: sync object
+        """
+        sync_object = S3SyncObject(listed_object.key, listed_object.size, S3SyncOutcome.would_download)
+        if listed_object.key.endswith("/"):
+            sync_object.outcome = S3SyncOutcome.skipped
+            sync_object.reason = 'the key ends with "/" (a folder marker, not a file)'
+        elif listed_object.storage_class in archived_storage_classes:
+            sync_object.outcome = S3SyncOutcome.skipped
+            sync_object.reason = f"storage class {listed_object.storage_class} has to be restored before it can be read"
+        else:
+            try:
+                sync_object.local_path = s3_key_to_local_path(dest_dir, listed_object.key[len(prefix) :])
+            except AWSimpleException as e:
+                sync_object.outcome = S3SyncOutcome.failed
+                sync_object.reason = str(e)
+        return sync_object
+
+    def _is_local_file_current(self, local_path: Path, listed_object: S3ListedObject, size_only: bool) -> bool:
+        """
+        Determine if a local file is current with an S3 object: it is a file of the same size, and (unless size_only) the S3 object is not newer.
+
+        :param local_path: local file path
+        :param listed_object: the S3 object, from the bucket listing
+        :param size_only: True to not compare modification times
+        :return: True if the local file is current
+        """
+        try:
+            local_stat = local_path.stat()
+        except OSError:
+            # no such file, or a path the OS does not take (a download to it is then reported as failed)
+            return False
+        if not stat.S_ISREG(local_stat.st_mode) or local_stat.st_size != listed_object.size:
+            return False
+        return size_only or listed_object.mtime.timestamp() <= local_stat.st_mtime + self.mtime_abs_tol
+
+    def _plan_sync(self, listed_objects: Dict[str, S3ListedObject], dest_dir: Path, prefix: str, size_only: bool) -> Dict[str, S3SyncObject]:
+        """
+        Determine what a sync does with every listed S3 object, from the bucket listing and the local files only (no request per object).
+
+        :param listed_objects: the bucket listing
+        :param dest_dir: destination directory
+        :param prefix: the prefix of the listing
+        :param size_only: True to not compare modification times
+        :return: sync objects by S3 key, in the order of the listing. The outcome of the objects to download is S3SyncOutcome.would_download.
+        """
+        sync_objects = {s3_key: self._sync_object_from_listing(listed_object, dest_dir, prefix) for s3_key, listed_object in listed_objects.items()}
+
+        # keys that are the same local file, and keys that are a file where other keys need a directory, can not all be local files
+        relative_paths = {s3_key: sync_object.local_path.relative_to(dest_dir) for s3_key, sync_object in sync_objects.items() if sync_object.local_path is not None}
+        file_names = Counter(_collision_name(relative_path) for relative_path in relative_paths.values())
+        directory_names = {_collision_name(parent) for relative_path in relative_paths.values() for parent in relative_path.parents}
+
+        for s3_key, relative_path in relative_paths.items():
+            sync_object = sync_objects[s3_key]
+            assert sync_object.local_path is not None
+            name = _collision_name(relative_path)
+            if file_names[name] > 1:
+                sync_object.outcome = S3SyncOutcome.skipped
+                sync_object.reason = f'more than one key is the local file "{sync_object.local_path}"'
+            elif name in directory_names:
+                sync_object.outcome = S3SyncOutcome.skipped
+                sync_object.reason = f'other keys need "{sync_object.local_path}" to be a directory'
+            elif self._is_local_file_current(sync_object.local_path, listed_objects[s3_key], size_only):
+                sync_object.outcome = S3SyncOutcome.up_to_date
+        return sync_objects
+
+    def _sync_download_object(self, transfer_manager: TransferManager, sync_object: S3SyncObject, stop_event: Union[Event, None]) -> S3SyncObject:
+        """
+        Download one S3 object of a sync to its local file, with one metadata request. The download is to a temporary file that only becomes the local file once its
+        length and CRC64NVME (if the S3 object has one) are the S3 object's. A failure is put in the sync object, not raised.
+
+        :param transfer_manager: transfer manager to download with
+        :param sync_object: the object to download
+        :param stop_event: set to request a stop
+        :return: the sync object, with the outcome of the download
+        """
+        local_path = sync_object.local_path
+        assert local_path is not None
+        assert self.bucket_name is not None
+        if stop_event is not None and stop_event.is_set():
+            sync_object.outcome = S3SyncOutcome.not_attempted
+            return sync_object
+        try:
+            s3_object_metadata = self.get_s3_object_metadata(sync_object.key)
+            sync_object.size = s3_object_metadata.size  # the object may have been written again since the listing
+            # on a versioned bucket, download the version the metadata is of
+            extra_args = {} if s3_object_metadata.version_id is None else {"VersionId": s3_object_metadata.version_id}
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            with atomic_write_path(local_path) as temp_path:
+                transfer_manager.download(self.bucket_name, sync_object.key, str(temp_path), extra_args, [_ProvideMetadataSubscriber(s3_object_metadata)]).result()
+                if not self._is_download_intact(temp_path, s3_object_metadata):
+                    raise AWSimpleException(f"{self.bucket_name}/{sync_object.key} : what was downloaded does not have the length and CRC64NVME of the S3 object")
+                mtime_ts = s3_object_metadata.mtime.timestamp()
+                os.utime(temp_path, (mtime_ts, mtime_ts))  # set the file mtime to the mtime in S3, so the next sync sees the file as current
+            sync_object.outcome = S3SyncOutcome.downloaded
+        except (AWSimpleException, OSError, RetriesExceededError, S3DownloadFailedError, *connection_errors) as e:
+            # a failure of one object is an outcome of a sync, which goes on with the other objects
+            log.warning(f'{self.bucket_name}/{sync_object.key} to "{local_path}" : {e}')
+            sync_object.outcome = S3SyncOutcome.failed
+            sync_object.reason = str(e)
+        return sync_object
+
+    @typechecked()
+    def sync_to_directory(
+        self,
+        dest_dir: Path,
+        prefix: str = "",
+        size_only: bool = False,
+        dry_run: bool = False,
+        stop_event: Union[Event, None] = None,
+        callback: Union[Callable[[S3SyncObject], None], None] = None,
+    ) -> S3SyncResult:
+        """
+        Bring a local directory up to date with this S3 bucket (or the objects with a prefix), like "aws s3 sync" from a bucket to a directory. Local files are never deleted.
+
+        The bucket is listed once (see list_objects()). An object is downloaded when its local file is missing, has a different size, or is older than the S3 object. Only an
+        object that is downloaded takes a metadata request (one), which the length and CRC64NVME of what was downloaded are checked against. A downloaded file gets the
+        modification time of the S3 object, and only replaces the local file once it is complete and checked.
+
+        The local file of a key is s3_key_to_local_path() of the key without the prefix, under dest_dir. Not downloaded, and in the result as skipped with the reason: keys that
+        end with "/" (folder markers), objects in a storage class that has to be restored first (GLACIER, DEEP_ARCHIVE - also when they have been restored), every key of a
+        group that is the same local file (e.g. "a/b" and "a//b", or on Windows and macOS keys that only differ in case), and a key that is a file where other keys need a
+        directory ("a" when there is also "a/b"). A key that can not be a local file, or a download that fails, is in the result as failed with the reason, and the sync goes
+        on with the other objects. Raises BucketNotFound if the bucket does not exist.
+
+        Downloads use get_s3_download_transfer_config() (by default 10 at a time).
+
+        :param dest_dir: destination directory (made if it does not exist)
+        :param prefix: only sync objects that have this prefix in their keys (omit for all objects). It is a string prefix, so it normally ends with "/".
+        :param size_only: True to only compare sizes, not modification times
+        :param dry_run: True to download nothing (and make no directory): the objects that a sync downloads are in the result as S3SyncOutcome.would_download
+        :param stop_event: set this event (e.g. from the callback or another thread) to request a stop: downloads that have started are completed, and the others are in the
+          result as S3SyncOutcome.not_attempted
+        :param callback: called with every object when its outcome is known, from the thread that called this method
+        :return: the outcome of every listed object. Its get_count() and get_size() without an outcome are the object count and total size of the listing.
+        """
+        result = S3SyncResult(self._plan_sync(self.list_objects(prefix), dest_dir, prefix, size_only))
+        to_download = result.get_objects(S3SyncOutcome.would_download)
+        if callback is not None:
+            for sync_object in result.objects.values():
+                if dry_run or sync_object.outcome != S3SyncOutcome.would_download:
+                    callback(sync_object)
+        if dry_run or len(to_download) == 0:
+            return result
+
+        log.info(f'S3 sync : {self.bucket_name}/{prefix} to "{dest_dir}" : downloading {len(to_download)} of {len(result.objects)} objects')
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        transfer_config = self.get_s3_download_transfer_config()
+        max_workers = transfer_config.max_request_concurrency if transfer_config.use_threads else 1
+        executor_cls = None if transfer_config.use_threads else NonThreadedExecutor
+        with TransferManager(self.client, transfer_config, executor_cls=executor_cls) as transfer_manager, ThreadPoolExecutor(max_workers) as executor:
+            futures = [executor.submit(self._sync_download_object, transfer_manager, sync_object, stop_event) for sync_object in to_download]
+            for future in as_completed(futures):
+                if callback is not None:
+                    callback(future.result())
+        result.stopped = result.get_count(S3SyncOutcome.not_attempted) > 0
+        return result
+
+    @typechecked()
     def dir(self, prefix: str = "") -> Dict[str, S3ObjectMetadata]:
         """
         Do a "directory" of an S3 bucket where the returned dict key is the S3 key and the value is an S3ObjectMetadata object.
 
+        This makes a request for every object. Use .list_objects() if the size, modification time, ETag and storage class are all you need.
         Use the faster .keys() method if all you need are the keys.
 
         :param prefix: only do a dir on objects that have this prefix in their keys (omit for all objects)
