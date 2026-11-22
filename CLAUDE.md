@@ -72,6 +72,7 @@ Controlled by environment variables (auto-set in conftest.py):
 - CI fails on any ruff or ty finding
 - All public functions use `@typechecked()` decorator from typeguard
 - Python >=3.12 required
+- Free-threaded Python (no GIL, e.g. 3.14t) is supported and is in the CI matrix and tox envlist. Shared state must be safe without the GIL (use a lock, as `_moto_state` in `aws.py` does), and a new dependency must not turn the GIL back on (`test_free_threading.py` checks). An `S3Access` instance has per-instance state (`download_status`), so use one per thread
 
 ## Key Patterns
 

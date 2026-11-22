@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: Python :: Free Threading :: 3 - Stable",
     "Typing :: Typed",
 ]
 dependencies = [

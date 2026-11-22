@@ -10,6 +10,19 @@ The examples are in the `examples` folder, and the commands below are run from t
 
 `read_s3_object.py` and the `pubsub` folder are further examples that the run scripts do not run.
 
+### The S3 cache demonstration
+
+`s3_cache_demo.py` shows how the S3 cache works and measures what it saves. It downloads the same S3 objects with and
+without the cache, counts the requests to S3 and the bytes downloaded, and times each step. The download destination
+and the cache are temporary directories that it leaves in place and prints, so you can look at how the cache is made.
+
+```
+python s3_cache_demo.py --mock                # no AWS account needed (moto mock): the counts, but not meaningful times
+python s3_cache_demo.py --bucket my-bucket    # real AWS: the default profile, or add --profile
+```
+
+The S3 objects it writes have keys that start with `s3_cache_demo/` and are deleted at the end (unless `--keep`).
+
 
 
 ### 1. Make the Virtual Environment (the run scripts activate it)

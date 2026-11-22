@@ -14,6 +14,9 @@
     <a href="https://pypi.org/project/awsimple/">
         <img src="https://img.shields.io/pypi/pyversions/awsimple" alt="Python versions" />
     </a>
+    <a href="https://github.com/jamesabel/awsimple/actions/workflows/python-package.yml">
+        <img src="https://img.shields.io/badge/free--threaded-3.14t-blue?logo=python&logoColor=white" alt="free-threaded Python: 3.14t" />
+    </a>
     <a href="https://pypi.org/project/awsimple/">
         <img src="https://img.shields.io/pypi/dm/awsimple" alt="downloads per month" />
     </a>
@@ -60,6 +63,9 @@ uploaded (S3's etag is not a true file hash). The length and checksum of every S
 without the AWS CLI).
 
 - Supports moto mock and localstack. Handy for testing and CI.
+
+- Supports free-threaded Python (the builds without the GIL, e.g. `python3.14t`): the test suite runs on it, and nothing `awsimple` imports
+turns the GIL back on.
 
 - Automatic S3 retries.
 

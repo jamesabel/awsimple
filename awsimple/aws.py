@@ -43,6 +43,19 @@ _mock_env_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TO
 services_without_resource = ("logs", "rds")
 
 
+def _make_moto_s3_safe_for_threads():
+    """
+    Stop the moto mock of S3 from reloading its moto.s3.urls module on every request. A reload takes the module out of sys.modules for a moment, so S3 requests made from
+    threads at once (e.g. the parts of a download, or S3Access.sync_to_directory()) now and then fail with "ImportError: module moto.s3.urls not in sys.modules". That is
+    rare with the GIL and common without it (free-threaded Python). moto reloads the module to pick up changes to its environment variables, which do not change while
+    the mock is in use.
+    """
+    import moto.s3.urls as moto_s3_urls
+    from moto.s3.models import S3Backend
+
+    setattr(S3Backend, "_url_module", property(lambda _unused_self: moto_s3_urls))
+
+
 def _moto_acquire():
     """
     Start using the moto mock. The first use starts the mock and sets the AWS environment variables to test values (the real ones are saved).
@@ -57,6 +70,7 @@ def _moto_acquire():
 
             _moto_state.mock = mock_aws()
             _moto_state.mock.start()
+            _make_moto_s3_safe_for_threads()
         _moto_state.count += 1
 
 
