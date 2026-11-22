@@ -1,10 +1,8 @@
 REM Makes the development environment in .venv with uv (https://docs.astral.sh/uv/), which also installs Python if needed.
+REM The environment is free-threaded Python (no GIL): 3.14t. Not 3.15t yet, since boto3[crt] pins an awscrt version that has no
+REM free-threaded 3.15 wheel. The other supported Python versions are tested by tox (see tox.ini).
 rmdir /S /Q .venv
-REM PyYAML (needed by moto and awscli) has no Python 3.15 wheel yet, so it is built from source. Its optional C
-REM extension needs MSVC, so build the pure Python version instead. Remove this once PyYAML ships a cp315 wheel.
-set PYYAML_FORCE_LIBYAML=0
 REM --upgrade: the newest versions of the dependencies, not the ones in a uv.lock left from an earlier run
-uv sync --upgrade --python 3.15
-set PYYAML_FORCE_LIBYAML=
+uv sync --upgrade --python 3.14t
 REM run the tests on all supported Python versions before each commit (see .pre-commit-config.yaml and tox.ini)
 uv run pre-commit install
