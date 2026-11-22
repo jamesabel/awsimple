@@ -315,7 +315,7 @@ class S3Access(CacheAccess):
         :param crc64nvme: CRC64NVME of the contents (as hex string)
         :param sha512: SHA-512 of the contents (as hex string)
         :param mtime: modification time of the contents (None if they have none, e.g. they are not a file)
-        :return: True if the S3 object does not exist, or is not known to have these contents
+        :return: True if the S3 object does not exist, is not known to have these contents, or would gain a checksum or SHA-512 it does not have
         """
         if not self.object_exists(s3_key):
             return True
@@ -323,9 +323,9 @@ class S3Access(CacheAccess):
         s3_object_metadata = self.get_s3_object_metadata(s3_key)
         log.info(f"{s3_object_metadata=}")
         if s3_object_metadata.crc64nvme is not None:
-            # use the native full-object checksum, if the object has one. A CRC is not collision resistant, so the size and the SHA-512 (if the object has one) must also be the same.
-            content_sha512 = s3_object_metadata.get_content_sha512()
-            return not (crc64nvme == s3_object_metadata.crc64nvme and size == s3_object_metadata.size and (content_sha512 is None or content_sha512 == sha512))
+            # Use the native full-object checksum, if the object has one. A CRC is not collision resistant, so the size and the SHA-512 must also be the same. An object
+            # that has no SHA-512 is written again so that it gains one (every S3 object awsimple writes has its SHA-512, which is what the cache finds it by).
+            return not (crc64nvme == s3_object_metadata.crc64nvme and size == s3_object_metadata.size and sha512 == s3_object_metadata.get_content_sha512())
         if s3_object_metadata.sha512 is not None:
             # the object was written by another tool with a native full-object SHA-512 checksum
             return sha512 != s3_object_metadata.sha512
@@ -643,7 +643,7 @@ class S3Access(CacheAccess):
         json_crc64nvme = get_bytes_crc64nvme(json_as_bytes)
         json_sha512 = get_bytes_sha512(json_as_bytes)
 
-        # an S3 object without a native checksum is always written again, so that it gains one
+        # an S3 object without a native checksum or without a SHA-512 is always written again, so that it gains one
         if not (force or self._is_upload_needed(s3_key, len(json_as_bytes), json_crc64nvme, json_sha512)):
             log.info(f"checksum of {json_crc64nvme} is the same as is already on S3 and force={force} - not uploading")
             return False

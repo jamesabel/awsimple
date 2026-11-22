@@ -140,7 +140,9 @@ def lru_cache_mark_used(cache_file_path: Path):
 
 
 @typechecked()
-def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None) -> bool:
+def lru_cache_write(
+    new_data: Union[Path, bytes], cache_dir: Path, cache_file_name: str, max_absolute_cache_size: Union[int, None] = None, max_free_portion: Union[float, None] = None, extra_size: int = 0
+) -> bool:
     """
     Write a file to an LRU cache: free up space by evicting the least recently used files until the new file fits, then write it atomically (see atomic_write_path())
     and mark it as used (see lru_cache_mark_used()). Not being able to write to the cache is a normal outcome (e.g. the new file is larger than the cache), not an error.
@@ -150,6 +152,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
     :param cache_file_name: file name to write in cache
     :param max_absolute_cache_size: max absolute cache size (or None if not specified)
     :param max_free_portion: max portion of disk free space the cache is allowed to consume (e.g. 0.1 to take up to 10% of free disk space)
+    :param extra_size: room in bytes to also make in the cache, for a file the caller writes to the cache directory itself to go with this one (so both are within the maximum)
     :return: True if written to the cache
     """
 
@@ -164,7 +167,7 @@ def lru_cache_write(new_data: Union[Path, bytes], cache_dir: Path, cache_file_na
         new_size = os.path.getsize(new_data) if isinstance(new_data, Path) else len(new_data)
 
         # no maximum: there is always room
-        if max_cache_size is None or _make_room(cache_dir, new_size, round(max_cache_size)):
+        if max_cache_size is None or _make_room(cache_dir, new_size + extra_size, round(max_cache_size)):
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_dest = Path(cache_dir, cache_file_name)
             with atomic_write_path(cache_dest) as temp_path:

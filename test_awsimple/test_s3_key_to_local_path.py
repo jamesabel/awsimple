@@ -76,7 +76,9 @@ def test_s3_download_to_directory_stays_in_directory(s3_access):
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
 def test_s3_download_to_directory_rejects_parent_directory_key(s3_access):
-    s3_key = "key_to_local_path/../../escaped.txt"
+    # S3 itself does not take a key that goes above the bucket in the request path (e.g. "a/../../b" is a 400 Bad Request), so this key has one ".." (keys that go
+    # above the destination directory are in test_s3_key_to_local_path_rejects, which needs no S3)
+    s3_key = "key_to_local_path/../escaped.txt"
     s3_access.write_string("must not escape", s3_key)
     dest_dir = Path(temp_dir, "key_to_local_path", "reject")
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -84,5 +86,6 @@ def test_s3_download_to_directory_rejects_parent_directory_key(s3_access):
         s3_access.download(s3_key, dest_dir)
     with pytest.raises(AWSimpleException):
         s3_access.download_cached(s3_key, dest_dir)
-    assert not Path(dest_dir.parent.parent, "escaped.txt").exists()
+    for directory in (dest_dir, dest_dir.parent, dest_dir.parent.parent):
+        assert not Path(directory, "escaped.txt").exists()
     assert s3_access.download(s3_key, Path(dest_dir, "named_by_the_caller.txt"))  # a full destination path is the choice of the caller, so the key is not part of it

@@ -133,8 +133,9 @@ modification-time and file-size comparison.
 
 An S3 object has one native checksum, so `awsimple` also writes the SHA-512 of the contents as object metadata
 (`awsimple-sha512`) on every object it writes (`S3ObjectMetadata.metadata_sha512`). A matching CRC64NVME alone does not skip an upload: the length and
-the SHA-512 (when the object has one) must match too. An object that has the metadata SHA-512 but no native
-checksum (e.g. written by an older awsimple version) is always re-uploaded, so it gains the native checksum.
+the SHA-512 must match too. An object that has the metadata SHA-512 but no native
+checksum (e.g. written by an older awsimple version) is always re-uploaded, so it gains the native checksum, and
+an object that has a CRC64NVME but no SHA-512 is re-uploaded, so it gains its SHA-512.
 
 Every S3 access checks the length and the CRC64NVME (when the object has one) of what was transferred: after a
 write, the S3 object is compared with what was written, and after a read or download, what was received is compared
@@ -187,7 +188,7 @@ matter. A CRC alone is never a cache key, since a CRC is not collision resistant
 
 The cache has a maximum size (`cache_max_absolute`, 1 GB by default, and `cache_max_of_free`, 5% of the free disk space
 by default). When a new file does not fit, the least recently used files are evicted. An object that is larger than
-the maximum is not cached.
+the maximum is not cached. The index file of an object that has no SHA-512 is part of the cache and of its size.
 
 ## What `awsimple` Is Not
 
