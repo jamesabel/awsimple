@@ -73,6 +73,11 @@ Before you can use a bucket, it needs to be created. A bucket can be created wit
 
 Each S3Access instance is associated with a specific bucket.
 
+`S3Access.bucket_exists()` tells if the bucket exists. It is only `False` when S3 answers that there is no such bucket. A bucket that exists but that
+you have no access to (e.g. it is owned by someone else) is `True`, with a warning in the log, and what you then do with the bucket fails with the access
+error. If S3 does not say whether the bucket exists (e.g. the bucket name is not valid, the credentials have expired, or S3 is busy), the `ClientError`
+from S3 is raised.
+
 S3 write
 ~~~~~~~~
 Now let's write an object to the bucket we just created:
