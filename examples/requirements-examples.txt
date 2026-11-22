@@ -1,2 +1,3 @@
 awsimple
 ismain
+moto[s3]  # only for "s3_cache_demo.py --mock" (the S3 cache demonstration without an AWS account)

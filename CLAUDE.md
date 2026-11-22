@@ -83,7 +83,8 @@ Controlled by environment variables (auto-set in conftest.py):
 - The mock detection function (`is_mock()`) is in `mock.py`
 - Custom exceptions in `exceptions.py`: `DynamoDBItemAlreadyExists`, `S3BucketAlreadyExistsNotOwnedByYou`
 - Naming: nothing has "legacy" in its name (owner's rule). Name a thing for what it is, not for its history
-- 9.x has not been published to PyPI (as of 2026-11-21), so 9.x does not have to stay compatible with earlier 9.x; 8.x is the published version
+- 9.1.0 is published to PyPI (2026-11-22; 9.0.0 was never published), so from 9.1.0 on, 9.x stays compatible with earlier 9.x: a change for existing code needs a new major version, or a deprecation first
+- Releases: bump `awsimple/__version__.py` in a PR, then publish a GitHub release whose tag is the version (e.g. `v9.1.0`); `.github/workflows/publish.yml` builds the wheel and uploads it to PyPI through a Trusted Publisher, with Provenance. Never upload from a workstation, and only release when the owner asks for it in that request
 - Do not repeat a pattern: use the common helper, or make one. In `S3Access`: `_retry()` (every retried transfer), `_list_contents()` (every bucket listing), `_write_object()`, `_is_upload_needed()` and `_finish_download()` (the check and mtime of every download). In `DynamoDBAccess`: `_get_table()`, `_table_not_found()`, `_table_modified()` (after every write) and `_get_item_key()`. In `AWSAccess`: `_create_client_and_resource()`
 - Every module, class and function has a docstring (exception `__init__`/`__str__` and local closures excepted)
 - Cache writes are atomic: write to a temporary file in the same directory, then move it over the destination in one step, with `atomic_write_path()` in `cache.py`. Never write a cache file in place

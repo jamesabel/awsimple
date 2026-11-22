@@ -14,7 +14,7 @@ from threading import Barrier
 import pytest
 
 import awsimple
-from awsimple import AWSAccess, S3Access, lru_cache_write
+from awsimple import AWSAccess, S3Access, SNSAccess, SQSAccess, lru_cache_write
 from test_awsimple import test_awsimple_str
 
 is_free_threaded_build = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
@@ -119,3 +119,39 @@ def test_moto_s3_does_not_reload_its_urls(s3_access):
     assert S3Backend._url_module.fget(None) is moto_s3_urls
     s3_access.write_string("threads", "free_threading/reload.txt")
     assert _in_threads(lambda _unused_number: [s3_access.read_string("free_threading/reload.txt") for _unused_pass in range(25)][-1], list(range(thread_count))) == ["threads"] * thread_count
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_boto3_clients_are_made_one_at_a_time(monkeypatch):
+    # boto3 sessions are not thread safe: clients made from threads at once now and then failed ("ValueError: Invalid endpoint: https://{service}.{region}.{dnsSuffix}",
+    # from the publisher and subscriber threads of the pubsub on free-threaded Python), so awsimple makes one at a time, whatever makes them
+    import boto3
+
+    from awsimple import aws
+
+    in_creation = []  # the threads that are making a client or resource now
+    most_at_once = []
+
+    def _one_at_a_time(function):
+        def _wrapper(*args, **kwargs):
+            assert aws._client_creation_lock.locked()
+            in_creation.append(None)
+            most_at_once.append(len(in_creation))
+            try:
+                return function(*args, **kwargs)
+            finally:
+                in_creation.pop()
+
+        return _wrapper
+
+    # boto3.client() and boto3.resource() are these, of the default session. A resource makes its client, which is the same thread.
+    monkeypatch.setattr(boto3.session.Session, "client", _one_at_a_time(boto3.session.Session.client))
+
+    def _make(number: int) -> bool:
+        access = (SNSAccess(f"one_at_a_time_{number}"), SQSAccess(f"one_at_a_time_{number}"), S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str))[number % 3]
+        assert access.client is not None
+        return access._create_session_client("sts") is not None
+
+    assert _in_threads(_make, list(range(thread_count * 2))) == [True] * thread_count * 2
+    assert max(most_at_once) == 1
+    assert not aws._client_creation_lock.locked()

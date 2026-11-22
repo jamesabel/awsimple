@@ -1,7 +1,8 @@
 from ismain import is_main
-from os import getlogin
 
 from awsimple import S3Access
+
+from bucket_name import get_example_bucket_name
 
 profile_name = "testawsimple"  # all of my derived classes use this AWS profile name
 
@@ -16,12 +17,12 @@ class MyS3Access(S3Access):
         super().__init__(bucket, profile_name=profile_name, **kwargs)
 
 
-def read_s3_object():
-    # profile_name provided by MyStorageAccess
-    # bucket names are globally unique, so change this bucket name to something unique to you
-    s3_access = MyS3Access(f"awsimple-test-bucket-{getlogin()}")  # bucket name (for this example we assume it already exists)
-    print(s3_access.read_string("hello.txt"))  # hello.txt is the S3 object key
+def write_read_s3_object():
+    s3_access = MyS3Access(get_example_bucket_name())  # profile_name provided by MyS3Access
+    s3_access.create_bucket()  # make sure the bucket exists
+    s3_access.write_string("hello world", "hello.txt")  # hello.txt is the S3 object key
+    print(s3_access.read_string("hello.txt"))
 
 
 if is_main():
-    read_s3_object()
+    write_read_s3_object()
