@@ -1,7 +1,8 @@
 """
 Demonstrates awsimple's S3 cache, and measures what it saves.
 
-The download destination and the cache are new temporary directories that are left in place when the program ends, so you can look at how the cache is made:
+The files that are uploaded, the download destination and the cache are in the "source", "dest" and "cache" sub-directories of a data directory: a new temporary
+directory, or the directory given with --data-dir (-d). They are left in place when the program ends, so you can look at how the cache is made:
 
 - every cached S3 object is one file in the cache directory, named with the SHA-512 of its contents (so S3 objects with the same contents are one file)
 - the "index" sub-directory is only for S3 objects that have no SHA-512 (objects that were not written by awsimple): it has a file, named with a hash of the object's
@@ -17,21 +18,29 @@ or with no AWS account at all, using the moto mock (the counts are the same, but
 
     python s3_cache_demo.py --mock
 
+Every option also has a one letter form (see --help), e.g. to use the moto mock and choose where the directories are made:
+
+    python s3_cache_demo.py -m -d my_data_dir
+
 The S3 objects this writes all have keys that start with "s3_cache_demo/", and are deleted at the end (unless --keep).
 """
 
 import argparse
 import getpass
 import os
+import sys
 import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
-from typing import Callable, List
+from typing import Callable, List, Union
+
+from ismain import is_main
 
 key_prefix = "s3_cache_demo/"
+data_sub_dir_names = ("source", "dest", "cache")  # sub-directories of the data directory: the files to upload, the download destination and the S3 cache
 index_dir_name = "index"
 
 
@@ -140,13 +149,44 @@ def parse_args() -> argparse.Namespace:
     :return: the command line arguments
     """
     parser = argparse.ArgumentParser(description="Demonstrate and measure awsimple's S3 cache.")
-    parser.add_argument("--bucket", default=f"awsimple-test-bucket-{getpass.getuser().lower()}", help="S3 bucket (made if it does not exist). Bucket names are globally unique.")
-    parser.add_argument("--profile", default=None, help="AWS profile name (the default profile if not given)")
-    parser.add_argument("--mock", action="store_true", help="use the moto mock: no AWS account is needed")
-    parser.add_argument("--count", type=int, default=4, help="number of S3 objects")
-    parser.add_argument("--size", type=int, default=1024 * 1024, help="size of each S3 object in bytes")
-    parser.add_argument("--keep", action="store_true", help="do not delete the S3 objects at the end")
+    parser.add_argument("-b", "--bucket", default=f"awsimple-test-bucket-{getpass.getuser().lower()}", help="S3 bucket (made if it does not exist). Bucket names are globally unique.")
+    parser.add_argument("-p", "--profile", default=None, help="AWS profile name (the default profile if not given)")
+    parser.add_argument("-m", "--mock", action="store_true", help="use the moto mock: no AWS account is needed")
+    parser.add_argument("-c", "--count", type=int, default=4, help="number of S3 objects")
+    parser.add_argument("-s", "--size", type=int, default=1024 * 1024, help="size of each S3 object in bytes")
+    parser.add_argument("-k", "--keep", action="store_true", help="do not delete the S3 objects at the end")
+    parser.add_argument(
+        "-d",
+        "--data-dir",
+        type=Path,
+        default=None,
+        help=f"directory that the {', '.join(data_sub_dir_names)} sub-directories are made in (made if it does not exist). Nothing in it is deleted: "
+        "these sub-directories must be empty or not exist. A new temporary directory if not given.",
+    )
     return parser.parse_args()
+
+
+def make_data_dirs(data_dir: Union[Path, None]) -> Path:
+    """
+    Make the data directory and its empty sub-directories (see data_sub_dir_names). Nothing is ever deleted: if a sub-directory already has something in it, the
+    program ends with a message, since the measurements need an empty cache and an empty destination to start with.
+
+    :param data_dir: the data directory, or None for a new temporary directory
+    :return: the data directory
+    """
+    if data_dir is None:
+        data_dir = Path(tempfile.mkdtemp(prefix="awsimple_s3_cache_demo_"))
+    data_dir = data_dir.absolute()
+    not_empty = [str(Path(data_dir, name)) for name in data_sub_dir_names if Path(data_dir, name).is_dir() and any(Path(data_dir, name).iterdir())]
+    not_directories = [str(Path(data_dir, name)) for name in data_sub_dir_names if Path(data_dir, name).exists() and not Path(data_dir, name).is_dir()]
+    if len(not_empty) > 0 or len(not_directories) > 0:
+        sys.exit(
+            f"Not started, and nothing was deleted: {', '.join(not_empty + not_directories)} already "
+            f"{'has' if len(not_empty + not_directories) == 1 else 'have'} contents. Give --data-dir a directory where these are empty or do not exist."
+        )
+    for name in data_sub_dir_names:
+        Path(data_dir, name).mkdir(parents=True, exist_ok=True)
+    return data_dir
 
 
 def main():
@@ -161,12 +201,8 @@ def main():
 
     from awsimple import S3Access
 
-    work_dir = Path(tempfile.mkdtemp(prefix="awsimple_s3_cache_demo_"))
-    cache_dir = Path(work_dir, "cache")
-    dest_dir = Path(work_dir, "dest")
-    source_dir = Path(work_dir, "source")
-    for directory in (cache_dir, dest_dir, source_dir):
-        directory.mkdir()
+    data_dir = make_data_dirs(args.data_dir)
+    source_dir, dest_dir, cache_dir = (Path(data_dir, name) for name in data_sub_dir_names)
 
     s3_access = S3Access(args.bucket, profile_name=args.profile, cache_dir=cache_dir)
     print(f"{'moto mock' if args.mock else 'AWS'} : bucket {args.bucket} : {args.count} objects of {args.size:,} bytes")
@@ -243,7 +279,7 @@ def main():
     print("In the cache directory: each file is the contents of an S3 object, named with the SHA-512 of the contents. S3 objects with the same contents are one file.")
     print(f'The "{index_dir_name}" sub-directory is only for S3 objects that have no SHA-512: it holds the SHA-512 awsimple calculated, in a file named with a hash of')
     print("the identity of the S3 object (bucket, key, size, modification time, ETag and checksums).")
-    print(f"These directories are left in place so you can look at them : {work_dir}")
+    print(f"These directories are left in place so you can look at them : {data_dir}")
 
     if not args.keep:
         for s3_key in s3_access.keys(key_prefix):
@@ -251,5 +287,5 @@ def main():
         print(f'deleted the S3 objects with the prefix "{key_prefix}" from {args.bucket}')
 
 
-if __name__ == "__main__":
+if is_main():
     main()
