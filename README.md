@@ -208,6 +208,10 @@ atomic. New: `S3Access.list_objects()`, `S3Access.sync_to_directory()`, `s3_key_
 and a download to a directory raises `AWSimpleException` for a key that can not be a file under that directory.
 The LocalStack mode (`AWSIMPLE_USE_LOCALSTACK`, `is_using_localstack()` and `use_localstack_env_var`) is removed: test with the moto
 mock and with real AWS.
+`S3Access.bucket_exists()` is only False when S3 answers that there is no such bucket (404). A bucket that exists but can not be
+accessed (403, e.g. it is owned by someone else) or that is in another region (301) is True, with a warning in the log. Any other
+answer (e.g. 400 for a bucket name that is not valid or for expired credentials, or 503) is raised as the `ClientError` it is, since it
+does not say whether the bucket exists; before, it was reported as a bucket that does not exist.
 
 3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
 table). Explict cache life is no longer required (parameter has been removed).
