@@ -33,6 +33,7 @@ def test_package_classifiers():
     assert metadata["license"] == "MIT"  # an SPDX license expression, which replaces the license classifier
     python_versions = [c for c in classifiers if c.startswith("Programming Language :: Python :: 3.")]
     assert len(python_versions) >= 3
+    assert "Programming Language :: Python :: Free Threading :: 3 - Stable" in classifiers  # free-threaded Python is supported (and is in the test matrix)
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
@@ -59,7 +60,7 @@ def test_package_python_floor():
     workflow = (REPO_ROOT / ".github" / "workflows" / "python-package.yml").read_text(encoding="utf-8")
     matrix_match = re.search(r"^\s*python-version: \[(.+)\]", workflow, re.MULTILINE)
     assert matrix_match is not None
-    matrix_versions = sorted(tuple(int(part) for part in version.split(".")) for version in re.findall(r'"(\d+\.\d+)"', matrix_match.group(1)))
+    matrix_versions = sorted(tuple(int(part) for part in version.split(".")) for version in re.findall(r'"(\d+\.\d+)t?"', matrix_match.group(1)))  # a "t" is free-threaded
     assert matrix_versions[0] == floor
 
 
@@ -71,7 +72,8 @@ def test_tox_envlist_matches_ci_matrix():
     workflow = (REPO_ROOT / ".github" / "workflows" / "python-package.yml").read_text(encoding="utf-8")
     matrix_match = re.search(r"^\s*python-version: \[(.+)\]", workflow, re.MULTILINE)
     assert matrix_match is not None
-    matrix_versions = re.findall(r'"(\d+\.\d+)"', matrix_match.group(1))
+    matrix_versions = re.findall(r'"(\d+\.\d+t?)"', matrix_match.group(1))  # a "t" is free-threaded
+    assert any(version.endswith("t") for version in matrix_versions)  # free-threaded Python is tested
 
     tox_ini = (REPO_ROOT / "tox.ini").read_text(encoding="utf-8")
     envlist_match = re.search(r"^envlist = (.+)$", tox_ini, re.MULTILINE)
