@@ -1,11 +1,12 @@
 from awsimple import S3Access
-from os import getlogin
+
+from bucket_name import get_example_bucket_name
 
 # the S3 key is the name of the object in the S3 bucket, somewhat analogous to a file name
 s3_key = "hello.txt"
 
-# setup the s3_access object
-s3_access = S3Access(f"awsimple-test-bucket-{getlogin()}")  # bucket names are globally unique, so change this bucket name to something unique to you
+# setup the s3_access object (this uses your default AWS profile)
+s3_access = S3Access(get_example_bucket_name())  # bucket names are globally unique, so use a bucket name that is unique to you
 
 
 # let's first make sure the bucket exists

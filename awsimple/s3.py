@@ -373,7 +373,7 @@ class S3Access(CacheAccess):
             s3 = self.client  # the existing client is already the mock's
         else:
             config = Config(connect_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
-            s3 = self.session.client("s3", config=config)  # use the session so the configured profile/keys/region are honored
+            s3 = self._create_session_client("s3", config=config)  # from the session, so the configured profile/keys/region are honored
         assert self.bucket_name is not None
         try:
             response = s3.head_bucket(Bucket=self.bucket_name)

@@ -39,6 +39,11 @@ class _MotoState:
 _moto_state = _MotoState()
 _mock_env_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]
 
+# One boto3 client or resource is made at a time in the process. boto3 sessions are not thread safe (and with the moto mock every instance uses boto3's one default
+# session): clients made from threads at once now and then fail (e.g. "ValueError: Invalid endpoint: https://{service}.{region}.{dnsSuffix}"), and without the GIL
+# (free-threaded Python) the threads also slow each other down so much that making them one at a time is far faster. The clients and resources are thread safe once made.
+_client_creation_lock = threading.Lock()
+
 # AWS services that boto3 has a client for but no resource
 services_without_resource = ("logs", "rds")
 
@@ -174,9 +179,22 @@ class AWSAccess:
         :param kwargs: keyword arguments for both, e.g. region_name or config
         """
         if self.resource_name is not None:  # None: just the session, but not the client or resource
-            self.client = factory.client(self.resource_name, **kwargs)
-            if self.resource_name not in services_without_resource:
-                self.resource = factory.resource(self.resource_name, **kwargs)
+            with _client_creation_lock:
+                self.client = factory.client(self.resource_name, **kwargs)
+                if self.resource_name not in services_without_resource:
+                    self.resource = factory.resource(self.resource_name, **kwargs)
+
+    def _create_session_client(self, service_name: str, **kwargs) -> Any:
+        """
+        Make a further boto3 client from this instance's session (so its profile, keys and region are used), one at a time in the process (see _client_creation_lock).
+
+        :param service_name: AWS service name, e.g. s3 or sts
+        :param kwargs: keyword arguments for the client, e.g. config
+        :return: the boto3 client
+        """
+        with _client_creation_lock:
+            session: Any = self.session  # the service name is not a literal here, which is what the boto3 type stubs are written for
+            return session.client(service_name, **kwargs)
 
     def _create_mock_client_and_resource(self, boto3) -> None:
         """
@@ -245,7 +263,7 @@ class AWSAccess:
         """
         from botocore.exceptions import ClientError, NoCredentialsError  # import here to facilitate mocking
 
-        sts_client = self.session.client("sts")
+        sts_client = self._create_session_client("sts")
         try:
             sts_client.get_caller_identity()  # raises if credentials are invalid
         except (ClientError, NoCredentialsError) as e:
