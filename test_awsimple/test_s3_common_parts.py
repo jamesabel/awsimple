@@ -155,3 +155,22 @@ def test_lru_cache_write_nothing_left_to_evict(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "get_directory_size", lambda _unused_path: 1000)
     assert not cache.lru_cache_write(b"x" * 10, cache_dir, "new", max_absolute_cache_size=100)
     assert list(cache_dir.iterdir()) == []
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_bucket_exists_with_aws_uses_short_timeouts(s3_access, monkeypatch):
+    # With AWS (not the moto mock), bucket_exists() makes a client of its own with short timeouts, so that a bucket that does not exist is found out quickly.
+    # No AWS call is made here: the client of its own is replaced with the mock's.
+    made_with = []
+
+    def _client(service_name, config):
+        made_with.append((service_name, config))
+        return s3_access.client
+
+    monkeypatch.setattr(s3_access, "is_mocked", lambda: False)
+    monkeypatch.setattr(s3_access.session, "client", _client)
+    assert s3_access.bucket_exists()
+    ((service_name, config),) = made_with
+    assert service_name == "s3"
+    assert config.connect_timeout == 5
+    assert config.retries["max_attempts"] == 3
