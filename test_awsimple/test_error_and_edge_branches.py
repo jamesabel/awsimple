@@ -34,11 +34,9 @@ def _do_not_fail_on_error_log(monkeypatch) -> None:
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-@pytest.mark.parametrize("use_localstack", [True, False])
-def test_aws_access_without_mock_creates_client_and_resource(monkeypatch, use_localstack):
+def test_aws_access_without_mock_creates_client_and_resource(monkeypatch):
     # no AWS call is made: this only creates the boto3 objects
     monkeypatch.setattr("awsimple.aws.is_mock", lambda: False)
-    monkeypatch.setattr("awsimple.aws.is_using_localstack", lambda: use_localstack)
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
 
     sqs = AWSAccess("sqs", region_name="us-west-2")
@@ -53,10 +51,6 @@ def test_aws_access_without_mock_creates_client_and_resource(monkeypatch, use_lo
     assert session_only.client is None
     assert session_only.resource is None
     assert session_only.session is not None
-
-    if use_localstack:
-        assert sqs.aws_access_key_id == "test"
-        assert sqs.region_name == "us-west-2"
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.

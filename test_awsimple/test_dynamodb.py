@@ -14,7 +14,7 @@ from PIL import Image
 from ismain import is_main
 from dictim import dictim
 
-from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock, is_using_localstack, KeyType
+from awsimple import dict_to_dynamodb, DynamoDBAccess, is_mock, KeyType
 from awsimple.dynamodb import get_accommodated_clock_skew
 from test_awsimple import dict_is_close, test_awsimple_str, id_str
 
@@ -77,7 +77,7 @@ def check_table_contents(contents):
 
 
 def test_get_table_names():
-    if is_mock() or is_using_localstack():
+    if is_mock():
         dynamodb_access = DynamoDBAccess(test_awsimple_str, profile_name=test_awsimple_str)  # for mock we have to make the table
         dynamodb_access.create_table(id_str)  # have to create the table on the fly for mocking
     else:
@@ -128,8 +128,6 @@ def test_dynamodb():
     table_contents = dynamodb_access.scan_table()
     check_table_contents(table_contents)
 
-    if is_using_localstack():
-        dynamodb_access.cache_life = 600.0  # localstack can take a while ...
     table_contents = dynamodb_access.scan_table_cached()
     assert dynamodb_access.cache_hit
     check_table_contents(table_contents)

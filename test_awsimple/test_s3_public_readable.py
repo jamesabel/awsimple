@@ -1,7 +1,7 @@
 from pathlib import Path
 import time
 
-from awsimple import S3Access, is_using_localstack
+from awsimple import S3Access
 from requests import get
 
 from test_awsimple import test_awsimple_str, temp_dir
@@ -23,7 +23,5 @@ def test_s3_upload():
 
     # read from the URL to see if the contents are public readable
     metadata = s3_access.get_s3_object_metadata(test_file_name)
-    if not is_using_localstack():
-        # localstack doesn't provide URL based access
-        object_contents = get(metadata.url).content.decode("utf-8")
-        assert object_contents == contents
+    object_contents = get(metadata.url).content.decode("utf-8")
+    assert object_contents == contents
