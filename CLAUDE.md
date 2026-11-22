@@ -55,6 +55,7 @@ The S3 code is split by concern. `s3.py` has `S3Access`, which does every access
 - `s3_object.py`: `S3ObjectMetadata`, `S3ListedObject` and the hash rules of an S3 object
 - `s3_paths.py`: `s3_key_to_local_path()`
 - `s3_cache.py`: `S3ContentCache`, the local cache of S3 object contents (on top of the LRU cache in `cache.py`)
+- `crc64nvme.py`: the CRC64NVME of bytes and files (the one place the implementation is chosen)
 - `s3_sync.py`: the plan (`plan_sync()`) and result types of `S3Access.sync_to_directory()`
 
 **Pub/Sub** (pubsub.py): High-level `Pub` and `Sub` classes that compose SNS+SQS into a channel-based messaging abstraction with background polling threads.
@@ -83,9 +84,9 @@ Controlled by environment variables (auto-set in conftest.py):
 - The mock detection function (`is_mock()`) is in `mock.py`
 - Custom exceptions in `exceptions.py`: `DynamoDBItemAlreadyExists`, `S3BucketAlreadyExistsNotOwnedByYou`
 - Naming: nothing has "legacy" in its name (owner's rule). Name a thing for what it is, not for its history
-- 9.1.0 is published to PyPI (2026-11-22; 9.0.0 was never published), so from 9.1.0 on, 9.x stays compatible with earlier 9.x: a change for existing code needs a new major version, or a deprecation first
+- 9.1.0 is published to PyPI (2026-11-22; 9.0.0 was never published; 9.2.0 is in the repository, not published), so from 9.1.0 on, 9.x stays compatible with earlier 9.x: a change for existing code needs a new major version, or a deprecation first
 - Releases: bump `awsimple/__version__.py` in a PR, then publish a GitHub release whose tag is the version (e.g. `v9.1.0`); `.github/workflows/publish.yml` builds the wheel and uploads it to PyPI through a Trusted Publisher, with Provenance. Never upload from a workstation, and only release when the owner asks for it in that request
-- Do not repeat a pattern: use the common helper, or make one. In `S3Access`: `_retry()` (every retried transfer), `_list_contents()` (every bucket listing), `_write_object()`, `_is_upload_needed()` and `_finish_download()` (the check and mtime of every download). In `DynamoDBAccess`: `_get_table()`, `_table_not_found()`, `_table_modified()` (after every write) and `_get_item_key()`. In `AWSAccess`: `_create_client_and_resource()`
+- Do not repeat a pattern: use the common helper, or make one. In `S3Access`: `_retry()` (every retried transfer), `_list_contents()` (every bucket listing), `_write_object()`, `_is_upload_needed()`, `_transfer_download()` (every download to a file) and `_finish_download()` (the check and mtime of every download). In `DynamoDBAccess`: `_get_table()`, `_table_not_found()`, `_table_modified()` (after every write) and `_get_item_key()`. In `AWSAccess`: `_create_client_and_resource()`
 - Every module, class and function has a docstring (exception `__init__`/`__str__` and local closures excepted)
 - Cache writes are atomic: write to a temporary file in the same directory, then move it over the destination in one step, with `atomic_write_path()` in `cache.py`. Never write a cache file in place
 
@@ -102,4 +103,6 @@ These are requirements from the owner. Keep `awsimple/s3.py` and its tests (`tes
 - **mtime:** a file that awsimple downloads, or copies from the cache, gets the modification time of the S3 object it was read as.
 - **Caching:** S3 caching is always based on the SHA-512 of the object's contents: cached contents are in a file named with their SHA-512. A cache file is only used if it has the length of the S3 object and the SHA-512 it is named with; a cache hit sets the file's access time (eviction is of the least recently used file, and the OS does not reliably update access times); a cache file that is gone by the time it is read is a cache miss, not an error. The `index` directory is only for objects that have no SHA-512, and its files count towards the cache's maximum size.
 - **Sync:** `S3Access.sync_to_directory()` decides what to download from the bucket listing alone, then makes one metadata request per downloaded object (never per listed object) for the length and CRC64NVME check. A download only replaces the local file once it is checked. Keys that can not all be local files are skipped and reported, never resolved by picking one.
+- **CRC64NVME:** every CRC64NVME awsimple calculates comes from `awsimple/crc64nvme.py` (`get_bytes_crc64nvme()`, `get_file_crc64nvme()`), which uses `awscrt` and falls back to pure Python (hashy). Never import a CRC64NVME function from anywhere else in the library, so the implementation can be changed in that one place.
+- **Metadata requests:** a download makes one request for the metadata of the S3 object (none if the caller gives the metadata). Every download to a file goes through `S3Access._transfer_download()`, which gives the transfer manager the size and ETag so that it makes no request of its own.
 - **Integrity:** every S3 access checks the length and the CRC64NVME (when the object has one) of what was transferred, after writes and after reads and downloads, and raises `AWSimpleException` on a mismatch.

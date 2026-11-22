@@ -28,6 +28,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Callable, List
 
 key_prefix = "s3_cache_demo/"
@@ -52,16 +53,19 @@ class S3RequestCounter:
     def __init__(self, s3_access):
         self.requests: Counter = Counter()
         self.bytes_downloaded = 0
+        self._lock = Lock()  # the parts of a download are requested from threads at once
         # the client (used for transfers and metadata) and the resource (used for reads and writes of whole objects) each make their own requests
         for client in (s3_access.client, s3_access.resource.meta.client):
             client.meta.events.register("before-call.s3", self._before_call)
             client.meta.events.register("after-call.s3.GetObject", self._after_get_object)
 
     def _before_call(self, model, **_unused_kwargs):
-        self.requests[model.name] += 1
+        with self._lock:
+            self.requests[model.name] += 1
 
     def _after_get_object(self, parsed, **_unused_kwargs):
-        self.bytes_downloaded += parsed.get("ContentLength", 0)
+        with self._lock:
+            self.bytes_downloaded += parsed.get("ContentLength", 0)
 
     def reset(self):
         self.requests = Counter()

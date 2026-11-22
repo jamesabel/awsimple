@@ -24,14 +24,14 @@ from logging import getLogger
 
 from botocore.client import Config
 from botocore.exceptions import ClientError, EndpointConnectionError, ConnectionClosedError, SSLError
-from boto3.s3.transfer import TransferConfig
+from boto3.s3.transfer import ProgressCallbackInvoker, TransferConfig
 from s3transfer import S3UploadFailedError
 from s3transfer.exceptions import RetriesExceededError, S3DownloadFailedError
 from s3transfer.futures import NonThreadedExecutor
 from s3transfer.manager import TransferManager
 import urllib3.exceptions
 from typeguard import typechecked
-from hashy import get_file_sha512, get_bytes_sha512, get_file_crc64nvme, get_bytes_crc64nvme
+from hashy import get_file_sha512, get_bytes_sha512
 from yasf import sf
 
 from awsimple import (
@@ -43,6 +43,7 @@ from awsimple import (
     S3BucketAlreadyExistsNotOwnedByYou,
     boto_error_to_string,
 )
+from .crc64nvme import get_bytes_crc64nvme, get_file_crc64nvme
 from .exceptions import BucketNotFound
 from .s3_cache import S3ContentCache, cache_index_dir_name
 from .s3_object import S3DownloadStatus, S3ListedObject, S3ObjectMetadata, cache_key_scheme, native_checksum_to_hex, set_file_mtime, sha512_hex_regex, sha512_string
@@ -290,6 +291,39 @@ class S3Access(CacheAccess):
             log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : the downloaded CRC64NVME is {dest_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme}")
             return False
         return True
+
+    def _make_download_transfer_manager(self) -> TransferManager:
+        """
+        :return: a transfer manager for downloads with this instance's download transfer configuration (a context manager)
+        """
+        transfer_config = self.get_s3_download_transfer_config()
+        executor_cls = None if transfer_config.use_threads else NonThreadedExecutor
+        return TransferManager(self.client, transfer_config, executor_cls=executor_cls)
+
+    def _transfer_download(
+        self,
+        transfer_manager: TransferManager,
+        s3_object_metadata: S3ObjectMetadata,
+        file_path: Path,
+        callback: Union[Callable[[int], None], None] = None,
+        extra_args: Union[Dict[str, Any], None] = None,
+    ):
+        """
+        Download an S3 object to a file with a transfer manager, and wait for it. The transfer manager is given the size and ETag from the metadata, so it makes no
+        metadata request of its own: the metadata request the caller made is the only one. Every download of awsimple to a file is done here. What was downloaded is
+        not checked here (see _finish_download()).
+
+        :param transfer_manager: transfer manager to download with
+        :param s3_object_metadata: metadata of the S3 object to download
+        :param file_path: path of the file to download to
+        :param callback: called as bytes are transferred, with the number of bytes transferred since the last call
+        :param extra_args: extra arguments of the download, e.g. the VersionId
+        """
+        assert self.bucket_name is not None
+        subscribers: List[Any] = [ProvideMetadataSubscriber(s3_object_metadata)]
+        if callback is not None:
+            subscribers.append(ProgressCallbackInvoker(callback))
+        transfer_manager.download(self.bucket_name, s3_object_metadata.key, str(file_path), extra_args, subscribers).result()
 
     def _finish_download(self, file_path: Path, s3_object_metadata: S3ObjectMetadata) -> bool:
         """
@@ -688,8 +722,8 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         :param dest_path: destination file or directory path. If the path is a directory, the file will be downloaded under that directory, at the path s3_key_to_local_path() gives the S3 key.
         :param s3_object_metadata: the S3 object's metadata, if the caller already has it (from get_s3_object_metadata()). It is what the downloaded file's length and CRC64NVME are
-          checked against and where its mtime comes from, so awsimple does not get the metadata again (boto3 still makes its own request for the size of the object). If the
-          check fails the download is tried again with new metadata, since what the caller had may be out of date.
+          checked against and where its mtime comes from, so no request for the metadata is made at all. If the download or the check fails, the download is tried
+          again with new metadata, since what the caller had may be out of date. Without it, one request for the metadata is made.
         :param callback: called as bytes are transferred, with the number of bytes transferred since the last call (may be called from other threads). If the download is tried
           again, the bytes of every attempt are reported.
         :return: True if downloaded successfully. Raises AWSimpleException if the download fails after all retries.
@@ -708,15 +742,17 @@ class S3Access(CacheAccess):
         known_metadata = s3_object_metadata
 
         def _download(attempt_number: int) -> bool:
-            log.debug(sf("calling client.download_file()", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path))
-            self.client.download_file(self.bucket_name, s3_key, dest_path, Callback=callback, Config=self.get_s3_download_transfer_config())
-            # get the metadata if the caller did not give it, or it may be out of date since an attempt with it failed
+            # One request for the metadata, before the download, if the caller did not give it or it may be out of date since an attempt with it failed. The transfer
+            # manager gets its size and ETag from it and so makes no request of its own.
             metadata = self.get_s3_object_metadata(s3_key) if known_metadata is None or attempt_number > 0 else known_metadata
-            log.debug(sf("S3 object metadata", s3_object_metadata=metadata))
+            log.debug(sf("S3 download", bucket_name=self.bucket_name, s3_key=s3_key, dest_path=dest_path, s3_object_metadata=metadata))
+            with self._make_download_transfer_manager() as transfer_manager:
+                self._transfer_download(transfer_manager, metadata, dest_path, callback)
             # not intact: an incomplete or corrupted transfer, or the S3 object was written again during the download
             return self._finish_download(dest_path, metadata)
 
-        self._retry(_download, f"download {self.bucket_name}/{s3_key} to {dest_path}")
+        # the transfer manager's own errors are also tried again, e.g. the S3 object was written again during a download in parts (its ETag is no longer the metadata's)
+        self._retry(_download, f"download {self.bucket_name}/{s3_key} to {dest_path}", (*connection_errors, RetriesExceededError, S3DownloadFailedError))
         return True
 
     @typechecked()
@@ -812,7 +848,7 @@ class S3Access(CacheAccess):
             extra_args = {} if s3_object_metadata.version_id is None else {"VersionId": s3_object_metadata.version_id}
             local_path.parent.mkdir(parents=True, exist_ok=True)
             with atomic_write_path(local_path) as temp_path:
-                transfer_manager.download(self.bucket_name, sync_object.key, str(temp_path), extra_args, [ProvideMetadataSubscriber(s3_object_metadata)]).result()
+                self._transfer_download(transfer_manager, s3_object_metadata, temp_path, extra_args=extra_args)
                 if not self._finish_download(temp_path, s3_object_metadata):
                     raise AWSimpleException(f"{self.bucket_name}/{sync_object.key} : what was downloaded does not have the length and CRC64NVME of the S3 object")
             sync_object.set_outcome(S3SyncOutcome.downloaded)
@@ -869,8 +905,7 @@ class S3Access(CacheAccess):
         dest_dir.mkdir(parents=True, exist_ok=True)
         transfer_config = self.get_s3_download_transfer_config()
         max_workers = transfer_config.max_request_concurrency if transfer_config.use_threads else 1
-        executor_cls = None if transfer_config.use_threads else NonThreadedExecutor
-        with TransferManager(self.client, transfer_config, executor_cls=executor_cls) as transfer_manager, ThreadPoolExecutor(max_workers) as executor:
+        with self._make_download_transfer_manager() as transfer_manager, ThreadPoolExecutor(max_workers) as executor:
             futures = [executor.submit(self._sync_download_object, transfer_manager, sync_object, stop_event) for sync_object in to_download]
             for future in as_completed(futures):
                 if callback is not None:
