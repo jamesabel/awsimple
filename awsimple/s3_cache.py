@@ -6,7 +6,7 @@ against its own name. The SHA-512 of an S3 object comes from its metadata (see S
 not written by awsimple) is found through the index: a file, named with the object's identity hash (see S3ObjectMetadata.get_identity_sha512()), that holds the SHA-512
 awsimple calculated when it downloaded the object. awsimple never updates an S3 object's metadata on a read.
 
-The cache directory is a least-recently-used cache with a maximum size (see lru_cache_write() in cache.py).
+The cache directory is a least-recently-used cache with a maximum size (see lru_cache_write() in cache.py). The index files are part of the cache and of its size.
 """
 
 import os
@@ -147,7 +147,9 @@ class S3ContentCache:
                 "(the S3 object was written again during the download, or the S3 object's metadata is wrong)"
             )
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        if not lru_cache_write(new_data, self.cache_dir, new_data_sha512, self.max_absolute_size, self.max_free_portion):
+        # the index file (of an S3 object that has no SHA-512) is part of the cache, so room is made for it too
+        index_size = len(new_data_sha512) if content_sha512 is None else 0
+        if not lru_cache_write(new_data, self.cache_dir, new_data_sha512, self.max_absolute_size, self.max_free_portion, index_size):
             return False
         if content_sha512 is None:
             # the S3 object has no SHA-512, so record the SHA-512 awsimple calculated for it

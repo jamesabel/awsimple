@@ -12,7 +12,7 @@ from boto3.s3.transfer import TransferConfig
 from awsimple import BucketNotFound, S3Access, S3ListedObject
 from test_awsimple import temp_dir, test_awsimple_str
 
-list_prefix = "list_objects/"
+list_prefix = "list_objects/plain/"  # nothing else writes under this prefix: a real bucket keeps the objects of earlier runs and of other tests
 
 
 def _no_head_object(*_unused_args, **_unused_kwargs):
@@ -45,9 +45,9 @@ def test_s3_list_objects(s3_access, monkeypatch):
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
 def test_s3_list_objects_storage_class(s3_access):
-    s3_key = f"{list_prefix}storage_class/glacier.txt"
+    s3_key = "list_objects/storage_class/glacier.txt"
     s3_access.client.put_object(Bucket=s3_access.bucket_name, Key=s3_key, Body=b"archived", StorageClass="GLACIER")
-    assert s3_access.list_objects(f"{list_prefix}storage_class/")[s3_key].storage_class == "GLACIER"
+    assert s3_access.list_objects("list_objects/storage_class/")[s3_key].storage_class == "GLACIER"
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from awsimple import S3Access, S3ContentCache, lru_cache_write
+from awsimple import S3Access, S3ContentCache, get_directory_size, lru_cache_write
 from awsimple.s3 import cache_index_dir_name
 from test_awsimple import test_awsimple_str
 
@@ -207,3 +207,43 @@ def test_s3_object_without_sha512_is_found_by_the_index(cache_s3_access, tmp_pat
 
     index_path.unlink()  # without the index file the SHA-512 is not known, so it is downloaded
     assert not cache_s3_access.download_cached(s3_key, dest_path).cache_hit
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_upload_gives_an_object_without_sha512_its_sha512(cache_s3_access, tmp_path):
+    # An S3 object with the same contents (the same CRC64NVME and length) but no SHA-512 is uploaded again, so that it gains its SHA-512: every S3 object awsimple
+    # uploads has one. Found with real AWS, where objects written by an awsimple from before the SHA-512 metadata were skipped by upload() and then needed the index.
+    content = b"uploaded before, without a SHA-512"
+    s3_key = "cache_hits/upload_gains_sha512.txt"
+    cache_s3_access.client.put_object(Bucket=cache_s3_access.bucket_name, Key=s3_key, Body=content, ChecksumAlgorithm="CRC64NVME")
+    assert cache_s3_access.get_s3_object_metadata(s3_key).get_content_sha512() is None
+    file_path = Path(tmp_path, "upload_gains_sha512.txt")
+    file_path.write_bytes(content)
+    assert cache_s3_access.upload(file_path, s3_key)
+    assert cache_s3_access.get_s3_object_metadata(s3_key).get_content_sha512() == hashlib.sha512(content).hexdigest()
+    assert not cache_s3_access.upload(file_path, s3_key)  # now it is skipped
+
+    json_key = "cache_hits/upload_gains_sha512.json"
+    json_object = {"uploaded": "before"}
+    assert cache_s3_access.upload_object_as_json(json_object, json_key, force=True)  # forced: a real bucket has the object of an earlier run
+    json_bytes = cache_s3_access.client.get_object(Bucket=cache_s3_access.bucket_name, Key=json_key)["Body"].read()
+    cache_s3_access.client.put_object(Bucket=cache_s3_access.bucket_name, Key=json_key, Body=json_bytes, ChecksumAlgorithm="CRC64NVME")
+    assert cache_s3_access.upload_object_as_json(json_object, json_key)
+    assert cache_s3_access.get_s3_object_metadata(json_key).get_content_sha512() == hashlib.sha512(json_bytes).hexdigest()
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_cache_index_is_within_the_cache_maximum(tmp_path):
+    # the index file of an S3 object that has no SHA-512 is part of the cache, so the contents are only cached if they fit in the cache together with their index file
+    index_file_size = 128  # a SHA-512 as a hex string
+    for content_size, cache_max, expect_cached in ((50, 100, False), (50, 50 + index_file_size, True), (51, 50 + index_file_size, False)):
+        cache_dir = Path(tmp_path, f"cache_{content_size}_{cache_max}")
+        s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=cache_dir, cache_max_absolute=cache_max)
+        s3_access.create_bucket()
+        s3_key = f"cache_hits/index_within_maximum_{content_size}.txt"
+        s3_access.client.put_object(Bucket=s3_access.bucket_name, Key=s3_key, Body=b"n" * content_size, ChecksumAlgorithm="CRC64NVME")
+        dest_path = Path(tmp_path, "dest.txt")
+        assert s3_access.download_cached(s3_key, dest_path).cache_write == expect_cached
+        assert get_directory_size(cache_dir) == (content_size + index_file_size if expect_cached else 0)
+        assert s3_access.download_cached(s3_key, dest_path).cache_hit == expect_cached
+        assert get_directory_size(cache_dir) <= cache_max
