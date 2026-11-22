@@ -6,13 +6,15 @@ All tests, fixtures, helpers and constants in this file are AI-generated (Claude
 """
 
 import hashlib
+import logging
 import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Union
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 import awsimple
 from awsimple import AWSimpleException, S3Access, S3ContentCache, S3ListedObject, S3ObjectMetadata, S3SyncOutcome, lru_cache_mark_used
@@ -174,3 +176,83 @@ def test_s3_bucket_exists_with_aws_uses_short_timeouts(s3_access, monkeypatch):
     assert service_name == "s3"
     assert config.connect_timeout == 5
     assert config.retries["max_attempts"] == 3
+
+
+class _HeadBucketClient:
+    """An S3 client whose head_bucket() gives one answer."""
+
+    def __init__(self, status_code: Union[int, None] = None, error: Union[Exception, None] = None):
+        self.status_code = status_code
+        self.error = error
+
+    def head_bucket(self, Bucket: str) -> dict:
+        if self.error is not None:
+            raise self.error
+        if self.status_code == 200:
+            return {"BucketRegion": "us-west-2"}
+        response = {
+            "Error": {"Code": str(self.status_code), "Message": "from the test"},  # the response to a HEAD has no body, so the code is the status code
+            "ResponseMetadata": {"HTTPStatusCode": self.status_code, "RequestId": "TESTREQUESTID", "RetryAttempts": 0, "HTTPHeaders": {"x-amz-bucket-region": "us-east-1"}},
+        }
+        raise ClientError(response, "HeadBucket")
+
+
+def _answer_head_bucket(s3_access: S3Access, monkeypatch, client: _HeadBucketClient):
+    # bucket_exists() uses the client of the S3Access with the moto mock and makes a client of its own with AWS, so the test client replaces both
+    monkeypatch.setattr(s3_access, "client", client)
+    monkeypatch.setattr(s3_access.session, "client", lambda *_unused_args, **_unused_kwargs: client)
+
+
+def _awsimple_log_records(caplog) -> list:
+    return [(record.levelno, record.getMessage()) for record in caplog.records if record.name == awsimple.__application_name__]
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@pytest.mark.parametrize(
+    "status_code,exists,log_level,log_text",
+    [
+        (200, True, logging.DEBUG, "exists"),
+        (404, False, logging.INFO, "does not exist"),
+        (403, True, logging.WARNING, "access to it is denied"),  # e.g. a bucket owned by someone else
+        (301, True, logging.WARNING, "another region"),
+    ],
+)
+def test_s3_bucket_exists_by_status_code(s3_access, monkeypatch, caplog, status_code, exists, log_level, log_text):
+    # only an answer from S3 that says so is "exists" or "does not exist", and each answer is logged
+    _answer_head_bucket(s3_access, monkeypatch, _HeadBucketClient(status_code))
+    with caplog.at_level(logging.DEBUG, logger=awsimple.__application_name__):
+        assert s3_access.bucket_exists() == exists
+    ((record_level, message),) = _awsimple_log_records(caplog)
+    assert record_level == log_level
+    assert log_text in message and s3_access.bucket_name in message
+    if status_code != 200:
+        assert f"status_code={status_code}" in message and "TESTREQUESTID" in message and "us-east-1" in message
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@pytest.mark.parametrize("status_code", [400, 429, 500, 503])
+def test_s3_bucket_exists_raises_when_it_is_not_known(s3_access, monkeypatch, caplog, status_code):
+    # e.g. a bucket name that is not valid or expired credentials (400), or S3 is busy (503): this does not say that the bucket does not exist, so it is not False
+    _answer_head_bucket(s3_access, monkeypatch, _HeadBucketClient(status_code))
+    with caplog.at_level(logging.DEBUG, logger=awsimple.__application_name__), pytest.raises(ClientError) as exception_info:
+        s3_access.bucket_exists()
+    assert exception_info.value.response["ResponseMetadata"]["HTTPStatusCode"] == status_code
+    ((record_level, message),) = _awsimple_log_records(caplog)
+    assert record_level == logging.WARNING
+    assert "can not tell" in message and f"status_code={status_code}" in message
+    with pytest.raises(ClientError):  # and so a listing does not report it as a bucket that was not found
+        s3_access.keys()
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_bucket_exists_raises_what_is_not_an_answer_from_s3(s3_access, monkeypatch):
+    _answer_head_bucket(s3_access, monkeypatch, _HeadBucketClient(error=EndpointConnectionError(endpoint_url="https://s3.test")))
+    with pytest.raises(EndpointConnectionError):
+        s3_access.bucket_exists()
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_bucket_exists_with_the_mock():
+    # what the moto mock itself answers
+    assert S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str).bucket_exists()
+    assert not S3Access(profile_name=test_awsimple_str, bucket_name="doesnotexist").bucket_exists()

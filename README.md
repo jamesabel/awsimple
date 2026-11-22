@@ -208,6 +208,10 @@ atomic. New: `S3Access.list_objects()`, `S3Access.sync_to_directory()`, `s3_key_
 and a download to a directory raises `AWSimpleException` for a key that can not be a file under that directory.
 The LocalStack mode (`AWSIMPLE_USE_LOCALSTACK`, `is_using_localstack()` and `use_localstack_env_var`) is removed: test with the moto
 mock and with real AWS.
+`S3Access.bucket_exists()` is only False when S3 answers that there is no such bucket (404). A bucket that exists but can not be
+accessed (403, e.g. it is owned by someone else) or that is in another region (301) is True, with a warning in the log. Any other
+answer (e.g. 400 for a bucket name that is not valid or for expired credentials, or 503) is raised as the `ClientError` it is, since it
+does not say whether the bucket exists; before, it was reported as a bucket that does not exist.
 
 3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
 table). Explict cache life is no longer required (parameter has been removed).
@@ -220,15 +224,23 @@ In general, it's recommended to develop with mock and finally test with the real
 Select via an environment variable:
 
   - AWSIMPLE_USE_MOTO_MOCK=1  # use moto
+  - AWSIMPLE_USE_MOTO_MOCK=0  # use AWS (also what an application gets when the variable is not set)
+
+`awsimple`'s own tests use the moto mock when the variable is not set, so run them with `AWSIMPLE_USE_MOTO_MOCK=0` to test with AWS
+(see the [contributing guide](CONTRIBUTING.md)). The mock is not AWS: e.g. S3 refuses some object keys that moto accepts, and a real
+bucket keeps its objects from one run to the next.
 
 ### Test Time
 
+Time of `awsimple`'s own test suite (`pytest test_awsimple`):
+
 | Method     | Test Time (seconds) | Speedup (or slowdown) | Comment         |
 |------------|---------------------|-----------------------|-----------------|
-| AWS        | 462.65              | 1x                    | baseline        |
-| mock       | 40.46               | 11x                   | faster than AWS |
+| AWS        | 770                 | 1x                    | baseline        |
+| mock       | 300                 | 2.6x                  | faster than AWS |
 
-System: Intel&reg; Core&trade; i7 CPU @ 3.47GHz, 32 GB RAM
+System: Intel&reg; Core&trade; Ultra 7 265K, 64 GB RAM, Windows 11, free-threaded Python 3.14 (measured 2026-11-22). Some tests only
+run with the mock, and many of the tests wait for a set time (e.g. SQS timeouts) whichever is used.
 
 ## Contributing
 

@@ -353,7 +353,17 @@ class S3Access(CacheAccess):
     @typechecked()
     def bucket_exists(self) -> bool:
         """
-        Test if S3 bucket exists
+        Test if S3 bucket exists. Only an answer from S3 that says so is taken as "exists" or "does not exist":
+
+        - 200: the bucket exists (True).
+        - 404: there is no such bucket (False).
+        - 403: the bucket exists, but this account has no access to it, e.g. it is owned by someone else (True, with a warning). What is then done with the bucket fails
+          with the access error.
+        - 301: the bucket exists, in another region (True, with a warning).
+        - anything else (e.g. 400 for a bucket name that is not valid or for credentials that have expired, or 503 once the retries are used up): whether the bucket exists
+          is not known, so the ClientError is raised (with a warning that has the details).
+
+        An error that is not an answer from S3 (e.g. no connection or no credentials) is raised as it is.
 
         :return: True if bucket exists
         """
@@ -366,12 +376,26 @@ class S3Access(CacheAccess):
             s3 = self.session.client("s3", config=config)  # use the session so the configured profile/keys/region are honored
         assert self.bucket_name is not None
         try:
-            s3.head_bucket(Bucket=self.bucket_name)
-            exists = True
+            response = s3.head_bucket(Bucket=self.bucket_name)
         except ClientError as e:
-            log.info(f"{self.bucket_name=}{e=}")
-            exists = False
-        return exists
+            # the response to a HEAD has no body, so the HTTP status code is all there is to tell the cases apart
+            response_metadata = e.response.get("ResponseMetadata", {})
+            status_code = response_metadata.get("HTTPStatusCode")
+            bucket_region = response_metadata.get("HTTPHeaders", {}).get("x-amz-bucket-region")
+            details = f"{status_code=} error={e.response.get('Error')} {bucket_region=} request_id={response_metadata.get('RequestId')} retry_attempts={response_metadata.get('RetryAttempts')}"
+            if status_code == 404:
+                log.info(f'S3 bucket "{self.bucket_name}" does not exist ({details})')
+                return False
+            if status_code == 403:
+                log.warning(f'S3 bucket "{self.bucket_name}" exists, but access to it is denied: it is owned by another account, or the permission to access it is missing ({details})')
+                return True
+            if status_code == 301:
+                log.warning(f'S3 bucket "{self.bucket_name}" exists, but in another region ({details})')
+                return True
+            log.warning(f'can not tell if S3 bucket "{self.bucket_name}" exists ({details})')
+            raise
+        log.debug(f'S3 bucket "{self.bucket_name}" exists (bucket_region={response.get("BucketRegion")})')
+        return True
 
     @typechecked()
     def create_bucket(self) -> bool:
