@@ -8,7 +8,7 @@ from logging import getLogger
 
 from hashy import get_bytes_crc64nvme
 
-from awsimple import S3Access, get_directory_size, is_mock, is_using_localstack
+from awsimple import S3Access, get_directory_size, is_mock
 from test_awsimple import test_awsimple_str, never_change_file_name, temp_dir, cache_dir
 
 big_file_name = "big.txt"
@@ -25,9 +25,8 @@ log = getLogger(__name__)
 def test_get_never_change_metadata(s3_access) -> (int, float, str):
     global never_change_size, never_change_mtime, never_change_etag
 
-    if is_mock() or is_using_localstack():
+    if is_mock():
         # mocking always starts with nothing so we need up "upload" this file, but use boto3 so we don't write awsimple's SHA512.
-        # localstack is similar in that we need to ensure we make the file.
 
         test_file_path = Path(temp_dir, never_change_file_name)
         never_change_file_contents = "modification Aug 21, 2020 at 2:51 PM PT\nnever change this file\n"
@@ -58,7 +57,7 @@ def test_s3_big_file_upload(s3_access):
     big_last_run_file_path = Path("big_last_run.txt")
     big_last_run_file_path.parent.mkdir(exist_ok=True, parents=True)
     last_run = 0.0
-    if not (is_mock() or is_using_localstack()):
+    if not is_mock():
         # avoid large frequent file uploads with real AWS
         try:
             last_run = float(big_last_run_file_path.open().read().strip())

@@ -205,6 +205,8 @@ atomic. New: `S3Access.list_objects()`, `S3Access.sync_to_directory()`, `s3_key_
 `S3Access.download()`. Changes for existing code: `S3ObjectMetadata.legacy_sha512` is now `metadata_sha512`,
 `S3ObjectMetadata.get_sha512()` always returns a SHA-512 (it is no longer a CRC64NVME for objects without a SHA-512),
 and a download to a directory raises `AWSimpleException` for a key that can not be a file under that directory.
+The LocalStack mode (`AWSIMPLE_USE_LOCALSTACK`, `is_using_localstack()` and `use_localstack_env_var`) is removed: test with the moto
+mock and with real AWS.
 
 3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
 table). Explict cache life is no longer required (parameter has been removed).
@@ -217,8 +219,6 @@ In general, it's recommended to develop with mock and finally test with the real
 Select via an environment variable:
 
   - AWSIMPLE_USE_MOTO_MOCK=1  # use moto
-
-`awsimple` is no longer tested with LocalStack (which needs Docker). The `AWSIMPLE_USE_LOCALSTACK=1` mode is still in the library, but nothing tests it.
 
 ### Test Time
 

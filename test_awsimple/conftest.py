@@ -3,9 +3,7 @@ import pytest
 from pathlib import Path
 import logging
 
-from botocore.exceptions import EndpointConnectionError
-
-from awsimple import is_mock, use_moto_mock_env_var, AWSAccess, S3Access, is_using_localstack, dynamodb
+from awsimple import is_mock, use_moto_mock_env_var, AWSAccess, S3Access, dynamodb
 
 from test_awsimple import test_awsimple_str, temp_dir, cache_dir
 
@@ -60,21 +58,10 @@ def session_fixture():
     test_handler.setLevel(logging.ERROR)
     logging.getLogger().addHandler(test_handler)
 
-    print(f"{is_mock()=},{is_using_localstack()=}")
+    print(f"{is_mock()=}")
 
 
 @pytest.fixture(scope="module")
 def s3_access():
     _s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=cache_dir)
     return _s3_access
-
-
-@pytest.fixture(scope="session", autouse=True)
-def test_localstack():
-    if is_using_localstack():
-        # just try anything to see if localstack is running
-        _s3_access = S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str, cache_dir=cache_dir)
-        try:
-            _s3_access.bucket_list()
-        except EndpointConnectionError:
-            pytest.exit(f"{is_using_localstack()=} and localstack is not running - please run scripts/start_localstack.bat")

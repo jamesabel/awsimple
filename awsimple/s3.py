@@ -41,7 +41,6 @@ from awsimple import (
     AWSimpleException,
     convert_serializable_special_cases,
     S3BucketAlreadyExistsNotOwnedByYou,
-    is_using_localstack,
     boto_error_to_string,
 )
 from .exceptions import BucketNotFound
@@ -360,8 +359,8 @@ class S3Access(CacheAccess):
         """
 
         # use a "custom" config so that .head_bucket() doesn't take a really long time if the bucket does not exist
-        if self.is_mocked() or is_using_localstack():
-            s3 = self.client  # the existing client is already pointed at the mock or localstack endpoint
+        if self.is_mocked():
+            s3 = self.client  # the existing client is already the mock's
         else:
             config = Config(connect_timeout=5, retries={"max_attempts": 3, "mode": "standard"})
             s3 = self.session.client("s3", config=config)  # use the session so the configured profile/keys/region are honored

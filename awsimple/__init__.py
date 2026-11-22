@@ -1,5 +1,5 @@
 from .__version__ import __application_name__, __version__, __author__, __title__
-from .mock import use_moto_mock_env_var, is_mock, use_localstack_env_var, is_using_localstack
+from .mock import use_moto_mock_env_var, is_mock
 from .exceptions import DynamoDBItemAlreadyExists, S3BucketAlreadyExistsNotOwnedByYou, PubSubFailed, BucketNotFound
 from .aws import AWSAccess, AWSimpleException, boto_error_to_string
 from .cache import get_disk_free, get_directory_size, lru_cache_write, lru_cache_mark_used, atomic_write_path, CacheAccess, CACHE_DIR_ENV_VAR

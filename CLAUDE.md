@@ -63,8 +63,7 @@ The S3 code is split by concern. `s3.py` has `S3Access`, which does every access
 
 Controlled by environment variables (auto-set in conftest.py):
 - **Moto mock** (default in CI): `AWSIMPLE_USE_MOTO_MOCK=1` — fast, no AWS needed
-- **Real AWS**: unset both env vars — requires AWS credentials
-- **LocalStack**: abandoned as a test environment (it needs Docker, which is not a dev dependency any more). The `AWSIMPLE_USE_LOCALSTACK=1` mode is still in the library and in some tests, untested
+- **Real AWS**: unset the env var — requires AWS credentials
 
 ## Code Style
 
@@ -81,7 +80,7 @@ Controlled by environment variables (auto-set in conftest.py):
 - Packaging metadata is in `pyproject.toml` (hatchling); the version is defined in `awsimple/__version__.py` and read from there at build time
 - Public API is exported from `awsimple/__init__.py`
 - DynamoDB uses a hidden metadata table to track modification times for cache invalidation
-- Mock detection functions (`is_mock()`, `is_using_localstack()`) are in `mock.py`
+- The mock detection function (`is_mock()`) is in `mock.py`
 - Custom exceptions in `exceptions.py`: `DynamoDBItemAlreadyExists`, `S3BucketAlreadyExistsNotOwnedByYou`
 - Naming: nothing has "legacy" in its name (owner's rule). Name a thing for what it is, not for its history
 - 9.x has not been published to PyPI (as of 2026-11-21), so 9.x does not have to stay compatible with earlier 9.x; 8.x is the published version

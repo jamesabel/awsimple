@@ -1,5 +1,5 @@
 """
-AWS access: AWSAccess, the base class of every awsimple service class. It makes the boto3 session, client and resource (for AWS, the moto mock or localstack).
+AWS access: AWSAccess, the base class of every awsimple service class. It makes the boto3 session, client and resource (for AWS or the moto mock).
 """
 
 import os
@@ -14,7 +14,7 @@ from typeguard import typechecked
 from boto3.session import Session
 from botocore.credentials import Credentials
 
-from awsimple import __application_name__, is_mock, is_using_localstack
+from awsimple import __application_name__, is_mock
 from .exceptions import AWSimpleException  # noqa: F401  (re-exported for backwards compatibility)
 
 log = getLogger(__application_name__)
@@ -163,8 +163,6 @@ class AWSAccess:
         self.resource: Any = None
         if is_mock():
             self._create_mock_client_and_resource(boto3)
-        elif is_using_localstack():
-            self._create_localstack_client_and_resource(boto3)
         else:
             self._create_aws_client_and_resource()
 
@@ -173,7 +171,7 @@ class AWSAccess:
         Make the boto3 client, and the resource if the service has one, for this instance's service.
 
         :param factory: what makes them: the boto3 module (default session) or a boto3 session
-        :param kwargs: keyword arguments for both, e.g. region_name, endpoint_url or config
+        :param kwargs: keyword arguments for both, e.g. region_name or config
         """
         if self.resource_name is not None:  # None: just the session, but not the client or resource
             self.client = factory.client(self.resource_name, **kwargs)
@@ -193,29 +191,11 @@ class AWSAccess:
             assert self.resource is not None
             self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
 
-    def _create_localstack_client_and_resource(self, boto3) -> None:
-        """
-        Make the client and resource for localstack.
-
-        :param boto3: the boto3 module
-        """
-        self.aws_access_key_id = "test"
-        self.aws_secret_access_key = "test"
-        self.region_name = "us-west-2"
-        self._create_client_and_resource(boto3, endpoint_url=self._get_localstack_endpoint_url())
-
     def _create_aws_client_and_resource(self) -> None:
         """
         Make the client and resource for AWS, from this instance's session (so its profile, keys and region are used).
         """
         self._create_client_and_resource(self.session, config=self._get_config())
-
-    def _get_localstack_endpoint_url(self) -> str | None:
-        """
-        :return: the URL of the localstack endpoint
-        """
-        endpoint_url = "http://localhost:4566"  # default localstack endpoint
-        return endpoint_url
 
     def _get_config(self):
         """
@@ -265,10 +245,7 @@ class AWSAccess:
         """
         from botocore.exceptions import ClientError, NoCredentialsError  # import here to facilitate mocking
 
-        if is_using_localstack():
-            sts_client = self.session.client("sts", endpoint_url=self._get_localstack_endpoint_url())
-        else:
-            sts_client = self.session.client("sts")
+        sts_client = self.session.client("sts")
         try:
             sts_client.get_caller_identity()  # raises if credentials are invalid
         except (ClientError, NoCredentialsError) as e:
