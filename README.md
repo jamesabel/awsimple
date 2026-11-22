@@ -62,7 +62,7 @@ uploaded (S3's etag is not a true file hash). The length and checksum of every S
 - List an S3 bucket without a request per object, and bring a local directory up to date with a bucket (like `aws s3 sync`,
 without the AWS CLI).
 
-- Supports moto mock and localstack. Handy for testing and CI.
+- Supports moto mock. Handy for testing and CI.
 
 - Supports free-threaded Python (the builds without the GIL, e.g. `python3.14t`): the test suite runs on it, and nothing `awsimple` imports
 turns the GIL back on.
@@ -209,15 +209,16 @@ and a download to a directory raises `AWSimpleException` for a key that can not 
 3.x.x - Cache life for cached DynamoDB scans is now based on most recent table modification time (kept in a separate 
 table). Explict cache life is no longer required (parameter has been removed).
 
-## Testing using moto mock and localstack
+## Testing using moto mock
 
-moto mock-ing can improve performance and reduce AWS costs.  `awsimple` supports both moto mock and localstack.
+moto mock-ing can improve performance and reduce AWS costs.
 In general, it's recommended to develop with mock and finally test with the real AWS services.
 
-Select via environment variables:
+Select via an environment variable:
 
   - AWSIMPLE_USE_MOTO_MOCK=1  # use moto
-  - AWSIMPLE_USE_LOCALSTACK=1  # use localstack
+
+`awsimple` is no longer tested with LocalStack (which needs Docker). The `AWSIMPLE_USE_LOCALSTACK=1` mode is still in the library, but nothing tests it.
 
 ### Test Time
 
@@ -225,7 +226,6 @@ Select via environment variables:
 |------------|---------------------|-----------------------|-----------------|
 | AWS        | 462.65              | 1x                    | baseline        |
 | mock       | 40.46               | 11x                   | faster than AWS |
-| localstack | 2246.82             | 0.2x                  | slower than AWS |
 
 System: Intel&reg; Core&trade; i7 CPU @ 3.47GHz, 32 GB RAM
 

@@ -54,10 +54,10 @@ dev = [
     "hatchling",
     # testing
     "pytest",
-    "moto[dynamodb,s3,sns,sqs]",
-    "docker",  # moto apparently requires docker
+    # Not the "dynamodb" extra of moto: it adds docker, which nothing here uses (the LocalStack test environment has been abandoned) and which can not be installed on
+    # free-threaded Python on Windows (it needs pywin32). The other thing that extra adds (py-partiql-parser) comes with the "s3" extra.
+    "moto[s3,sns,sqs]",
     "awscli",
-    "awscli-local",
     "coverage",
     "pytest-cov",
     "pytest-pycharm",

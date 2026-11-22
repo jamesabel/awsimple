@@ -142,3 +142,16 @@ def test_s3_names_are_importable_from_where_they_were():
     assert s3.BucketNotFound is exceptions.BucketNotFound is awsimple.BucketNotFound
     assert s3.sha512_string == s3_object.sha512_string
     assert isinstance(S3Access(profile_name=test_awsimple_str, bucket_name=test_awsimple_str)._get_content_cache(), S3ContentCache)
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_lru_cache_write_nothing_left_to_evict(tmp_path, monkeypatch):
+    # The cache was measured as full, but by the time room is made there is nothing in it to evict (another thread or process evicted it all, which is what the
+    # measured size stands in for here). The write does not go on for ever: it gives up, which is a normal outcome of a cache write.
+    from awsimple import cache
+
+    cache_dir = Path(tmp_path, "cache")
+    cache_dir.mkdir()
+    monkeypatch.setattr(cache, "get_directory_size", lambda _unused_path: 1000)
+    assert not cache.lru_cache_write(b"x" * 10, cache_dir, "new", max_absolute_cache_size=100)
+    assert list(cache_dir.iterdir()) == []

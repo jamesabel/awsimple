@@ -9,8 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Common Commands
 
 ```bash
-# Make the dev environment (.venv) with uv: awsimple, its dependencies and the dev group in pyproject.toml
-uv sync
+# Make the dev environment (.venv) with uv: awsimple, its dependencies and the dev group in pyproject.toml.
+# The dev environment is free-threaded Python (3.14t), which is what make_venv_dev.bat / make_venv_dev.sh make.
+uv sync --python 3.14t
 
 # Run all tests (uses moto mock by default via conftest.py)
 uv run pytest test_awsimple
@@ -63,7 +64,7 @@ The S3 code is split by concern. `s3.py` has `S3Access`, which does every access
 Controlled by environment variables (auto-set in conftest.py):
 - **Moto mock** (default in CI): `AWSIMPLE_USE_MOTO_MOCK=1` — fast, no AWS needed
 - **Real AWS**: unset both env vars — requires AWS credentials
-- **LocalStack**: `AWSIMPLE_USE_LOCALSTACK=1` — requires running LocalStack
+- **LocalStack**: abandoned as a test environment (it needs Docker, which is not a dev dependency any more). The `AWSIMPLE_USE_LOCALSTACK=1` mode is still in the library and in some tests, untested
 
 ## Code Style
 

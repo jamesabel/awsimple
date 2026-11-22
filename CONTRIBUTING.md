@@ -23,7 +23,7 @@ If it's an idea you have or a problem not captured in an issue, [create one](htt
 
 Requirements:
 
-- [uv](https://docs.astral.sh/uv/), which installs Python (3.12 or higher) and the dependencies
+- [uv](https://docs.astral.sh/uv/), which installs Python and the dependencies
 
 Fork the repo, to make your own personal copy, and then git clone your fork onto your computer.
 
@@ -39,5 +39,6 @@ source make_venv_dev.sh
 make_venv_dev.bat
 ```
 
-This makes the environment in `.venv`. At this point you should be able to make changes to the codebase and run things,
+This makes the environment in `.venv`, with free-threaded Python (3.14t, the build without the GIL). `awsimple` supports Python 3.12 and higher, with or
+without the GIL; `uv run tox` runs the tests on every supported version. At this point you should be able to make changes to the codebase and run things,
 e.g. the tests with `uv run pytest test_awsimple`.
