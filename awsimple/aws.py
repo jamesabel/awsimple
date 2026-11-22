@@ -1,3 +1,7 @@
+"""
+AWS access: AWSAccess, the base class of every awsimple service class. It makes the boto3 session, client and resource (for AWS, the moto mock or localstack).
+"""
+
 import os
 import sys
 import threading
@@ -23,6 +27,10 @@ _moto_lock = threading.Lock()
 
 @dataclass
 class _MotoState:
+    """
+    The process-wide state of the moto mock (see _moto_acquire() and _moto_release()).
+    """
+
     count: int = 0  # number of AWSAccess instances using the mock
     mock: Any = None  # the moto mock, while it is started
     saved_env: dict[str, str | None] = field(default_factory=dict)  # the AWS environment variables as they were before the mock (None if not set)
@@ -31,8 +39,14 @@ class _MotoState:
 _moto_state = _MotoState()
 _mock_env_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN"]
 
+# AWS services that boto3 has a client for but no resource
+services_without_resource = ("logs", "rds")
+
 
 def _moto_acquire():
+    """
+    Start using the moto mock. The first use starts the mock and sets the AWS environment variables to test values (the real ones are saved).
+    """
     with _moto_lock:
         if _moto_state.count == 0:
             for aws_key in _mock_env_keys:
@@ -47,6 +61,9 @@ def _moto_acquire():
 
 
 def _moto_release():
+    """
+    Stop using the moto mock. When the last user stops, the mock is stopped and the AWS environment variables are restored.
+    """
     with _moto_lock:
         if _moto_state.count > 0:
             _moto_state.count -= 1
@@ -63,6 +80,12 @@ def _moto_release():
 
 
 def boto_error_to_string(boto_error) -> Union[str, None]:
+    """
+    Get a short string for a boto3 error: the AWS error code if the error has one (e.g. "NoSuchKey"), otherwise the error as a string.
+
+    :param boto_error: a botocore exception
+    :return: error string (None if the error has a response with no error in it)
+    """
     # BotoCoreError subclasses (e.g. HTTPClientError) don't have a .response attribute - only ClientError does
     if (response := getattr(boto_error, "response", None)) is None:
         most_recent_error = str(boto_error)
@@ -75,6 +98,10 @@ def boto_error_to_string(boto_error) -> Union[str, None]:
 
 
 class AWSAccess:
+    """
+    Basic AWS access (session, client and resource), some basic AWS information, and mock support for testing. The base class of every awsimple service class.
+    """
+
     @typechecked()
     def __init__(
         self,
@@ -127,39 +154,59 @@ class AWSAccess:
         else:
             self._create_aws_client_and_resource()
 
+    def _create_client_and_resource(self, factory: Any, **kwargs) -> None:
+        """
+        Make the boto3 client, and the resource if the service has one, for this instance's service.
+
+        :param factory: what makes them: the boto3 module (default session) or a boto3 session
+        :param kwargs: keyword arguments for both, e.g. region_name, endpoint_url or config
+        """
+        if self.resource_name is not None:  # None: just the session, but not the client or resource
+            self.client = factory.client(self.resource_name, **kwargs)
+            if self.resource_name not in services_without_resource:
+                self.resource = factory.resource(self.resource_name, **kwargs)
+
     def _create_mock_client_and_resource(self, boto3) -> None:
-        # moto mock AWS
+        """
+        Make the client and resource for the moto mock.
+
+        :param boto3: the boto3 module
+        """
         _moto_acquire()
         self._is_mocked = True
-        region = "us-east-1"
-        if self.resource_name is not None:
-            self.client = boto3.client(self.resource_name, region_name=region)
-            if self.resource_name != "logs":  # logs don't have a resource
-                self.resource = boto3.resource(self.resource_name, region_name=region)
+        self._create_client_and_resource(boto3, region_name="us-east-1")
         if self.resource_name == "s3":
             assert self.resource is not None
             self.resource.create_bucket(Bucket="testawsimple")  # todo: put this in the test code
 
     def _create_localstack_client_and_resource(self, boto3) -> None:
+        """
+        Make the client and resource for localstack.
+
+        :param boto3: the boto3 module
+        """
         self.aws_access_key_id = "test"
         self.aws_secret_access_key = "test"
         self.region_name = "us-west-2"
-        if self.resource_name is not None:  # None: just the session, but not the client or resource
-            self.client = boto3.client(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())
-            if self.resource_name != "logs":  # logs don't have a resource
-                self.resource = boto3.resource(self.resource_name, endpoint_url=self._get_localstack_endpoint_url())
+        self._create_client_and_resource(boto3, endpoint_url=self._get_localstack_endpoint_url())
 
     def _create_aws_client_and_resource(self) -> None:
-        if self.resource_name is not None:  # None: just the session, but not the client or resource
-            self.client = self.session.client(self.resource_name, config=self._get_config())  # type: ignore
-            if self.resource_name not in ("logs", "rds"):  # logs and rds don't have a resource
-                self.resource = self.session.resource(self.resource_name, config=self._get_config())  # type: ignore
+        """
+        Make the client and resource for AWS, from this instance's session (so its profile, keys and region are used).
+        """
+        self._create_client_and_resource(self.session, config=self._get_config())
 
     def _get_localstack_endpoint_url(self) -> str | None:
+        """
+        :return: the URL of the localstack endpoint
+        """
         endpoint_url = "http://localhost:4566"  # default localstack endpoint
         return endpoint_url
 
     def _get_config(self):
+        """
+        :return: the botocore configuration for AWS clients and resources (with timeouts long enough for slow connections)
+        """
         from botocore.config import Config  # import here to facilitate mocking
 
         timeout = 60 * 60  # AWS default is 60, which is too short for some uses and/or connections
@@ -225,9 +272,15 @@ class AWSAccess:
         return self._is_mocked
 
     def clear_most_recent_error(self):
+        """
+        Clear the most recent AWS error (self.most_recent_error).
+        """
         self.most_recent_error = None
 
     def __del__(self):
+        """
+        Stop using the moto mock, if this instance uses it.
+        """
         # At interpreter shutdown the moto mock and the modules it uses may already be gone, so stopping it could fail in
         # any number of ways. Nothing needs to be released then: the process is ending.
         if getattr(self, "_is_mocked", False) and not sys.is_finalizing():

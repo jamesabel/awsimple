@@ -1,3 +1,7 @@
+"""
+DynamoDB access with a monotonically increasing value (MIV) as the sort key: DynamoDBMIVUI.
+"""
+
 from typing import Union, Type
 import time
 from copy import deepcopy
@@ -51,6 +55,15 @@ class DynamoDBMIVUI(DynamoDBAccess):
         partition_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
         secondary_key_type: Union[Type[str], Type[int], Type[bytes]] = str,
     ) -> bool:
+        """
+        Create the table, with the MIV as the sort key of the primary key.
+
+        :param partition_key: partition key name
+        :param secondary_index: secondary index key name (None for no secondary index)
+        :param partition_key_type: partition key type
+        :param secondary_key_type: secondary index key type
+        :return: True if the table was created
+        """
         return super().create_table(partition_key, miv_string, secondary_index, partition_key_type, int, secondary_key_type)
 
     @typechecked()
@@ -61,8 +74,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
         :param item: item
         :param time_us: optional time in uS to use (otherwise current time is used)
         """
-        assert self.resource is not None
-        table = self.resource.Table(self.table_name)
+        table = self._get_table()
 
         new_item = deepcopy(item)
 
@@ -102,8 +114,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
             table.put_item(Item=new_item)
 
         # keep the metadata table's mtime current so scan_table_cached() invalidates properly (DynamoDBAccess.put_item does this too, but we write directly to the table here)
-        if self.metadata_table is not None:
-            self.metadata_table.update_table_mtime()
+        self._table_modified()
 
     @typechecked()
     def get_most_senior_item(self, partition_key: str, partition_value: Union[str, int]) -> dict:
@@ -111,8 +122,7 @@ class DynamoDBMIVUI(DynamoDBAccess):
         Get the most senior (greatest miv value) item for a given primary partition (hash) key. Raises DBItemNotFound if it doesn't exist.
         :return: most senior item
         """
-        assert self.resource is not None
-        table = self.resource.Table(self.table_name)
+        table = self._get_table()
         # just get the one most senior item
         response = table.query(KeyConditionExpression=Key(partition_key).eq(partition_value), ScanIndexForward=False, Limit=1)
         if (items := response.get("Items")) is None or len(items) < 1:

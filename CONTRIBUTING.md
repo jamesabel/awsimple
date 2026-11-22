@@ -15,7 +15,7 @@ You're welcome to [create an issue](https://github.com/jamesabel/awsimple/issues
 
 Great! 
 
-If you're intersted in tackling an [existing issue](https://github.com/jamesabel/awsimple/issues), comment on one to make sure you're on the right track.
+If you're interested in tackling an [existing issue](https://github.com/jamesabel/awsimple/issues), comment on one to make sure you're on the right track.
 If it's an idea you have or a problem not captured in an issue, [create one](https://github.com/jamesabel/awsimple/issues/new) and let's align.
 
 
