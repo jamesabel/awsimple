@@ -190,6 +190,16 @@ The cache has a maximum size (`cache_max_absolute`, 1 GB by default, and `cache_
 by default). When a new file does not fit, the least recently used files are evicted. An object that is larger than
 the maximum is not cached. The index file of an object that has no SHA-512 is part of the cache and of its size.
 
+What is in the S3 cache directory (`cache_dir`, by default `aws/s3` in `awsimple`'s directory in the user's cache directory, for all buckets):
+
+| In the cache directory | What it is |
+|---|---|
+| files named with 128 hex digits | The cached contents, each in a file named with the SHA-512 of its contents. |
+| `index` sub-directory | Only made when an S3 object that has no SHA-512 is cached (an object that was not written by `awsimple`). It has one small file per such object, named with the SHA-512 of the object's identity (see above), that holds the SHA-512 of the contents: the name of the cache file. |
+| files that end with `.tmp` | A file that is being written. It is moved into place in one step when it is complete, and is never read as a cache file. |
+
+The cache directory can be deleted at any time: the contents are downloaded again when they are next needed.
+
 ## What `awsimple` Is Not
 
 - `awsimple` is not necessarily the most memory and CPU efficient

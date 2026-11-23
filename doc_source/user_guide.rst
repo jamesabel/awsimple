@@ -105,6 +105,17 @@ AWSimple can use local caching to reduce network traffic, which in turn can redu
 used to ensure file content equivalency: `S3Access.download_cached()` and `S3Access.download_object_as_json_cached()` keep contents in a local
 file named with their SHA512, and only use that file if it still has those contents.
 
+The cache directory (`cache_dir`) has:
+
+- files named with 128 hex digits: the cached contents, each in a file named with the SHA512 of its contents.
+- an `index` sub-directory, which is only made when an S3 object that has no SHA512 is cached (an object that was not written by AWSimple).
+  AWSimple never updates an S3 object's metadata on a read, so it keeps the SHA512 it calculated when it downloaded the contents here: one small
+  file per such object, named with a SHA512 of what identifies the object (bucket, key, size, modification time, version, ETag and CRC64NVME), that
+  holds the SHA512 of the contents. These files count towards the maximum size of the cache.
+- files that end with `.tmp`: a file that is being written. It is moved into place in one step when it is complete.
+
+The cache directory can be deleted at any time: the contents are downloaded again when they are next needed.
+
 S3 list and sync
 ~~~~~~~~~~~~~~~~
 `S3Access.list_objects()` lists a bucket (or the objects with a prefix) with the size, modification time, ETag and storage class of each object,
