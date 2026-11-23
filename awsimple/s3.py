@@ -8,6 +8,7 @@ The S3 code is in these modules:
 - s3_paths.py: S3 keys as local file paths (s3_key_to_local_path()).
 - s3_cache.py: the local cache of S3 object contents (S3ContentCache).
 - s3_sync.py: the plan and the result types of a bucket-to-directory sync.
+- s3_verify.py: the plan, the check of a local file and the result types of a verification of a directory against a bucket.
 
 The names that were in this module before it was split up can still be imported from it.
 """
@@ -49,6 +50,7 @@ from .s3_cache import S3ContentCache, cache_index_dir_name
 from .s3_object import S3DownloadStatus, S3ListedObject, S3ObjectMetadata, cache_key_scheme, native_checksum_to_hex, set_file_mtime, sha512_hex_regex, sha512_string
 from .s3_paths import case_insensitive_file_names, s3_key_to_local_path
 from .s3_sync import ProvideMetadataSubscriber, S3SyncObject, S3SyncOutcome, S3SyncResult, archived_storage_classes, plan_sync
+from .s3_verify import S3VerifyObject, S3VerifyOutcome, S3VerifyResult, plan_verify, verify_local_file
 
 # the public names of the S3 modules, so that they can all be imported from this module
 __all__ = [
@@ -61,6 +63,9 @@ __all__ = [
     "S3SyncObject",
     "S3SyncOutcome",
     "S3SyncResult",
+    "S3VerifyObject",
+    "S3VerifyOutcome",
+    "S3VerifyResult",
     "archived_storage_classes",
     "cache_index_dir_name",
     "cache_key_scheme",
@@ -111,7 +116,7 @@ def _get_json_key(s3_key: str):
 
 class S3Access(CacheAccess):
     """
-    Access to one S3 bucket: write, read, upload, download (optionally through a local cache), list and sync.
+    Access to one S3 bucket: write, read, upload, download (optionally through a local cache), list, sync and verify.
 
     Every object awsimple writes gets S3's native full-object CRC64NVME checksum and the SHA-512 of its contents as object metadata. Every access checks the length and the
     CRC64NVME (when the object has one) of what was transferred, and raises AWSimpleException on a mismatch.
@@ -299,6 +304,13 @@ class S3Access(CacheAccess):
         transfer_config = self.get_s3_download_transfer_config()
         executor_cls = None if transfer_config.use_threads else NonThreadedExecutor
         return TransferManager(self.client, transfer_config, executor_cls=executor_cls)
+
+    def _get_download_worker_count(self) -> int:
+        """
+        :return: the number of S3 objects that are worked on at the same time (downloaded by a sync, or verified), from this instance's download transfer configuration
+        """
+        transfer_config = self.get_s3_download_transfer_config()
+        return transfer_config.max_request_concurrency if transfer_config.use_threads else 1
 
     def _transfer_download(
         self,
@@ -914,12 +926,99 @@ class S3Access(CacheAccess):
 
         log.info(f'S3 sync : {self.bucket_name}/{prefix} to "{dest_dir}" : downloading {len(to_download)} of {len(result.objects)} objects')
         dest_dir.mkdir(parents=True, exist_ok=True)
-        transfer_config = self.get_s3_download_transfer_config()
-        max_workers = transfer_config.max_request_concurrency if transfer_config.use_threads else 1
-        with self._make_download_transfer_manager() as transfer_manager, ThreadPoolExecutor(max_workers) as executor:
+        with self._make_download_transfer_manager() as transfer_manager, ThreadPoolExecutor(self._get_download_worker_count()) as executor:
             futures = [executor.submit(self._sync_download_object, transfer_manager, sync_object, stop_event) for sync_object in to_download]
             for future in as_completed(futures):
                 if callback is not None:
                     callback(future.result())
         result.stopped = result.get_count(S3SyncOutcome.not_attempted) > 0
+        return result
+
+    # ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # verify
+    # ------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def _verify_object(self, verify_object: S3VerifyObject, stop_event: Union[Event, None]) -> S3VerifyObject:
+        """
+        Verify the local file of one S3 object against the metadata of the S3 object, with one metadata request. A failure is put in the verify object, not raised.
+
+        :param verify_object: the object to verify
+        :param stop_event: set to request a stop
+        :return: the verify object, with the outcome of the verification
+        """
+        if stop_event is not None and stop_event.is_set():
+            return verify_object  # stays not attempted
+        try:
+            s3_object_metadata = self.get_s3_object_metadata(verify_object.key)
+        except (AWSimpleException, OSError, *connection_errors) as e:
+            # e.g. the object was deleted since the listing, or the request failed. A failure of one object is an outcome of a verification, which goes on with the others.
+            log.warning(f"{self.bucket_name}/{verify_object.key} : could not get the metadata to verify with : {e}")
+            verify_object.set_outcome(S3VerifyOutcome.failed, f"could not get the metadata of the S3 object ({e})")
+            return verify_object
+        verify_local_file(verify_object, s3_object_metadata, self.mtime_abs_tol)
+        return verify_object
+
+    @typechecked()
+    def verify_directory(
+        self,
+        dest_dir: Path,
+        prefix: str = "",
+        sync_result: Union[S3SyncResult, None] = None,
+        stop_event: Union[Event, None] = None,
+        callback: Union[Callable[[S3VerifyObject], None], None] = None,
+    ) -> S3VerifyResult:
+        """
+        Verify the files of a local directory against this S3 bucket (or the objects with a prefix), e.g. a directory that sync_to_directory() brought up to date: every
+        local file of an S3 object is compared with the metadata of the S3 object. Nothing is changed, locally or in S3.
+
+        For every S3 object that has a local file to verify, the metadata of the object is requested (so, unlike a sync, this makes a request per object, and it reads
+        every local file to calculate its hash). The local file is verified when it has:
+
+        - the size of the S3 object,
+        - the hash of the S3 object: the strongest hash of the whole contents that S3 has for it, which is its SHA-512 (S3's native one, or the one awsimple writes as
+          object metadata), otherwise S3's native full-object SHA-256, SHA-1, CRC64NVME, CRC32C or CRC32 checksum. An object S3 has no such hash for (it was written
+          without a checksum, or it has a composite checksum of its parts) is verified without one, and S3VerifyObject.hash_name is then None.
+        - the modification time of the S3 object, to within mtime_abs_tol seconds (a downloaded file gets the modification time of its S3 object).
+
+        A local file that is missing, or whose size or hash is not the S3 object's, has the outcome S3VerifyOutcome.differs. One that has the contents of the S3 object
+        but not its modification time is S3VerifyOutcome.mtime_differs. An object that could not be verified (e.g. its metadata could not be had) is S3VerifyOutcome.failed,
+        and the verification goes on with the other objects.
+
+        The S3 objects that have a local file to verify are, without a sync result, those of a listing of the bucket that a sync downloads to a local file: folder markers,
+        archived objects and keys that can not all be local files (see sync_to_directory()) are S3VerifyOutcome.skipped. Raises BucketNotFound if the bucket does not
+        exist. With the result of a sync_to_directory() of the same directory and prefix, there is no listing, and the objects verified are those the sync downloaded or
+        found up to date. Any other object of the sync result is S3VerifyOutcome.skipped.
+
+        Objects are verified as many at a time as a sync downloads (see get_s3_download_transfer_config(), by default 10).
+
+        :param dest_dir: the local directory
+        :param prefix: only verify objects that have this prefix in their keys (omit for all objects). It is a string prefix, so it normally ends with "/".
+        :param sync_result: the result of a sync_to_directory() of this directory and prefix, to verify what that sync says is local (omit to list the bucket)
+        :param stop_event: set this event (e.g. from the callback or another thread) to request a stop: verifications that have started are completed, and the others are
+          in the result as S3VerifyOutcome.not_attempted
+        :param callback: called with every object when its outcome is known, from the thread that called this method
+        :return: the outcome of every object of the listing or of the sync result
+        """
+        if sync_result is None:
+            # everything a sync has (or would make) a local file for: what is not current is then found to differ
+            sync_objects = plan_sync(self.list_objects(prefix), dest_dir, prefix, False, self.mtime_abs_tol)
+            verified_outcomes = (S3SyncOutcome.would_download, S3SyncOutcome.up_to_date)
+        else:
+            sync_objects = sync_result.objects
+            verified_outcomes = (S3SyncOutcome.downloaded, S3SyncOutcome.up_to_date)
+        result = S3VerifyResult(plan_verify(sync_objects, verified_outcomes))
+        to_verify = result.get_objects(S3VerifyOutcome.not_attempted)
+        if callback is not None:
+            for verify_object in result.get_objects(S3VerifyOutcome.skipped):
+                callback(verify_object)
+        if len(to_verify) == 0:
+            return result
+
+        log.info(f'S3 verify : "{dest_dir}" against {self.bucket_name}/{prefix} : verifying {len(to_verify)} of {len(result.objects)} objects')
+        with ThreadPoolExecutor(self._get_download_worker_count()) as executor:
+            futures = [executor.submit(self._verify_object, verify_object, stop_event) for verify_object in to_verify]
+            for future in as_completed(futures):
+                if callback is not None:
+                    callback(future.result())
+        result.stopped = result.get_count(S3VerifyOutcome.not_attempted) > 0
         return result

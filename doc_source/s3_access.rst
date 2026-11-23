@@ -39,6 +39,14 @@ S3 sync
    :undoc-members:
    :show-inheritance:
 
+S3 verify
+---------
+
+.. automodule:: awsimple.s3_verify
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 CRC64NVME
 ---------
 

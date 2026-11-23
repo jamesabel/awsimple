@@ -167,6 +167,26 @@ local files (keys that are the same local file, e.g. `a/b` and `a//b`, or a key 
 a directory) are skipped with the reason, and a failure of one object is reported without stopping the others. There
 is a dry run, an event to request a stop, and a callback per object.
 
+`S3Access.verify_directory()` verifies the files of a local directory against a bucket (or a prefix), e.g. what a sync brought
+up to date. It changes nothing:
+
+    s3_access = S3Access("testawsimple", profile_name="testawsimple")
+    sync_result = s3_access.sync_to_directory(Path("backup"))
+    verify_result = s3_access.verify_directory(Path("backup"), sync_result=sync_result)
+    for verify_object in verify_result.get_objects(S3VerifyOutcome.differs):
+        print(verify_object.key, verify_object.reason)
+
+Every local file of an S3 object is compared with the metadata of the S3 object: its size, a hash of its contents and its
+modification time (to within `mtime_abs_tol`, 10 seconds by default). The hash is the strongest hash of the whole contents
+that S3 has for the object: its SHA-512 (S3's native one, or the one `awsimple` writes as object metadata), otherwise S3's
+native full-object SHA-256, SHA-1, CRC64NVME, CRC32C or CRC32 checksum (CRC32C needs `awscrt`, which is installed with
+`awsimple`). An object that S3 has no hash of the whole contents for is verified by size and modification time. Unlike a
+sync, a verification makes a metadata request per object and reads every local file. A local file that is missing or whose
+size or hash is not the S3 object's `differs`, one with the contents but not the modification time of the S3 object has the
+outcome `mtime_differs`, and an object that could not be verified is `failed` without stopping the others. With the result
+of a sync, what that sync downloaded or found up to date is verified, without listing the bucket again. Without it, the
+bucket is listed. There is an event to request a stop, and a callback per object.
+
 ## Caching
 
 S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 
@@ -209,6 +229,10 @@ The cache directory can be deleted at any time: the contents are downloaded agai
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
 ## Updates/Releases
+
+9.3.0 - New: `S3Access.verify_directory()` verifies the files of a local directory against the metadata of their S3 objects (size, hash and
+modification time), with the result of a `sync_to_directory()` or with a listing of the bucket. `get_s3_object_hash()` gives the strongest hash of
+the whole contents that S3 has for an object.
 
 9.2.0 - Faster S3: the CRC64NVME that `awsimple` checks every S3 transfer with is calculated with the AWS Common Runtime (`awscrt`, about
 170 times as fast as the pure Python it replaces, which is still used if `awscrt` can not be imported), in the one module `awsimple/crc64nvme.py`
