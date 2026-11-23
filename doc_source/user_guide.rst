@@ -133,6 +133,26 @@ a directory:
     for sync_object in result.get_objects(S3SyncOutcome.failed):
         print(sync_object.key, sync_object.reason)
 
+S3 verification of a directory
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+`S3Access.verify_directory()` verifies the files of a local directory against a bucket, e.g. what a sync brought up to date: every local file of an
+S3 object is compared with the metadata of the S3 object, which is its size, a hash of its contents and its modification time. The hash is the
+strongest hash of the whole contents that S3 has for the object (its SHA512, otherwise S3's native full-object SHA256, SHA1, CRC64NVME, CRC32C or
+CRC32 checksum). It makes a request per object and reads every local file, and it changes nothing:
+
+.. code:: python
+
+    from pathlib import Path
+
+    from awsimple import S3Access, S3VerifyOutcome
+
+    s3_access = S3Access("james-abel-awsimple-test-bucket")
+    sync_result = s3_access.sync_to_directory(Path("backup"))
+    verify_result = s3_access.verify_directory(Path("backup"), sync_result=sync_result)
+    print(verify_result.get_count(S3VerifyOutcome.verified))
+    for verify_object in verify_result.get_objects(S3VerifyOutcome.differs):
+        print(verify_object.key, verify_object.reason)
+
 DynamoDB
 --------
 DynamoDB is a "NoSQL" (AKA document based) database. It is a "serverless" service that offers an `On Demand` option. DynamoDB is made up

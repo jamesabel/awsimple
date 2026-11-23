@@ -78,12 +78,13 @@ def test_crc64nvme_without_awscrt(no_awscrt, tmp_path):
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
 def test_crc64nvme_is_only_calculated_in_one_place():
-    # the rest of awsimple gets its CRC64NVME from awsimple/crc64nvme.py, so that this is where the implementation is chosen
+    # The rest of awsimple gets its CRC64NVME from awsimple/crc64nvme.py, so that this is where the implementation is chosen. Another module may use awscrt for
+    # something else (e.g. the CRC32C in s3_verify.py), but not its CRC64NVME.
     package_dir = Path(crc64nvme.__file__).parent
     for module_path in package_dir.glob("*.py"):
         if module_path.name != "crc64nvme.py":
             source = module_path.read_text(encoding="utf-8")
-            assert "awscrt" not in source, module_path.name
+            assert "checksums.crc64nvme" not in source, module_path.name  # the CRC64NVME of awscrt
             for line in source.splitlines():
                 if "hashy" in line and "import" in line:
                     assert "crc64nvme" not in line, (module_path.name, line)
