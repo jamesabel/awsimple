@@ -33,6 +33,15 @@ Every option has a one letter form: `-b` (`--bucket`), `-p` (`--profile`), `-m` 
 
 The S3 objects it writes have keys that start with `s3_cache_demo/` and are deleted at the end (unless `--keep`).
 
+What you find in the `cache` sub-directory afterwards:
+
+- Files named with 128 hex digits: the cached contents, each in a file named with the SHA-512 of its contents. Two of the S3 objects
+  have the same contents, so they are one file.
+- An `index` sub-directory with one file. The demonstration writes one S3 object without `awsimple`, as another tool would, so that
+  object has no SHA-512. `awsimple` never changes an S3 object on a read, so the SHA-512 it calculated when it downloaded the
+  contents is kept in this file, which is named with a hash of what identifies the object. The `index` sub-directory is only made
+  for such objects: a cache of objects that were all written by `awsimple` has none.
+
 
 
 ### 1. Make the Virtual Environment (the run scripts activate it)
