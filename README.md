@@ -203,7 +203,8 @@ the maximum is not cached. The index file of an object that has no SHA-512 is pa
 9.2.0 - Faster S3: the CRC64NVME that `awsimple` checks every S3 transfer with is calculated with the AWS Common Runtime (`awscrt`, about
 170 times as fast as the pure Python it replaces, which is still used if `awscrt` can not be imported), in the one module `awsimple/crc64nvme.py`
 (`get_bytes_crc64nvme()`, `get_file_crc64nvme()`). `S3Access.download()` makes one request for the metadata of the S3 object, not two (and none if
-it is given the metadata), and raises `AWSimpleException` at once for an S3 object that does not exist. boto3 clients are made one at a time, which
+it is given the metadata), and raises `AWSimpleException` at once for an S3 object that does not exist. An upload decides whether it is needed
+with one request, not two. boto3 clients are made one at a time, which
 fixes a rare failure when `awsimple` objects are made from several threads at once.
 
 9.x.x - S3 hashes and cache: every object `awsimple` writes also gets the SHA-512 of its contents as object metadata, the

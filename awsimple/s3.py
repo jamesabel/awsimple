@@ -351,10 +351,9 @@ class S3Access(CacheAccess):
         :param mtime: modification time of the contents (None if they have none, e.g. they are not a file)
         :return: True if the S3 object does not exist, is not known to have these contents, or would gain a checksum or SHA-512 it does not have
         """
-        if not self.object_exists(s3_key):
+        # one request: the metadata of the S3 object, which also tells if there is one
+        if (s3_object_metadata := self._get_s3_object_metadata_if_exists(s3_key)) is None:
             return True
-
-        s3_object_metadata = self.get_s3_object_metadata(s3_key)
         log.info(f"{s3_object_metadata=}")
         if s3_object_metadata.crc64nvme is not None:
             # Use the native full-object checksum, if the object has one. A CRC is not collision resistant, so the size and the SHA-512 must also be the same. An object
@@ -508,11 +507,23 @@ class S3Access(CacheAccess):
         :param s3_key: S3 key
         :return: S3ObjectMetadata
         """
+        if (s3_object_metadata := self._get_s3_object_metadata_if_exists(s3_key)) is None:
+            raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist")
+        return s3_object_metadata
+
+    def _get_s3_object_metadata_if_exists(self, s3_key: str) -> Union[S3ObjectMetadata, None]:
+        """
+        Get S3 object metadata, with one request to S3 (which is also how to find out if an S3 object exists when its metadata is needed if it does).
+
+        :param s3_key: S3 key
+        :return: S3ObjectMetadata, or None if the object does not exist
+        """
         try:
             head = self.client.head_object(Bucket=self.bucket_name, Key=s3_key, ChecksumMode="ENABLED")
         except ClientError as e:
             if boto_error_to_string(e) in ("404", "NoSuchKey", "NotFound"):
-                raise AWSimpleException(f"{self.bucket_name=} {s3_key=} does not exist") from e
+                log.debug(f"{self.bucket_name=} {s3_key=} does not exist ({e})")
+                return None
             raise
         assert isinstance(self.bucket_name, str)  # mainly for the type checker
         # sha512 and crc64nvme are S3's native (server-validated) full-object checksums; metadata_sha512 is the SHA-512 in awsimple's object metadata (not validated by S3)

@@ -184,3 +184,31 @@ def test_s3_download_object_that_does_not_exist(s3_access, tmp_path):
         s3_access.download("download_options/does_not_exist.txt", Path(tmp_path, "does_not_exist.txt"))
     assert requests == {"HeadObject": 1}
     assert not Path(tmp_path, "does_not_exist.txt").exists()
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+def test_s3_upload_makes_one_request_to_decide(s3_access, tmp_path):
+    # Whether an upload is needed is decided with one request, for the metadata of the S3 object (it was two: a bucket listing to see if the object exists, then the
+    # metadata). An upload that is made is then the upload itself and the request that checks what was written.
+    s3_key = "upload_requests/one_request_to_decide.txt"
+    s3_access.delete_object(s3_key)
+    file_path = Path(tmp_path, "one_request_to_decide.txt")
+    file_path.write_text("decided with one request")
+
+    with _count_requests(s3_access) as requests:
+        assert s3_access.upload(file_path, s3_key)  # there is no such S3 object
+    assert requests == {"HeadObject": 2, "PutObject": 1}  # the decision, the upload and the check
+
+    with _count_requests(s3_access) as requests:
+        assert not s3_access.upload(file_path, s3_key)  # unchanged
+    assert requests == {"HeadObject": 1}
+
+    file_path.write_text("changed, so it is uploaded")
+    with _count_requests(s3_access) as requests:
+        assert s3_access.upload(file_path, s3_key)
+    assert requests == {"HeadObject": 2, "PutObject": 1}
+
+    with _count_requests(s3_access) as requests:
+        s3_access.upload_object_as_json({"a": 1}, "upload_requests/one_request_to_decide")  # uploaded, unless a real bucket has it from an earlier run
+        assert not s3_access.upload_object_as_json({"a": 1}, "upload_requests/one_request_to_decide")  # unchanged
+    assert requests["ListObjectsV2"] == 0 and requests["ListObjects"] == 0
