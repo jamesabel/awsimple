@@ -84,6 +84,12 @@ __all__ = [
 # local file hash). It is also S3's own default, so objects written by other modern tools are usually comparable too.
 default_multipart_threshold = 8 * 1024 * 1024  # 8 MiB
 
+# The size of the HTTP connection pool of an S3 client (botocore's default is 10). A sync works on as many objects at the same time as the transfer manager has request
+# threads (see S3Access._get_download_worker_count()), and both make requests: a metadata request per object in the sync's threads, and the download requests in the
+# transfer manager's threads, which an object that is downloaded in parts can use all of. A smaller pool still works, but connections that do not fit in it are opened
+# for one request and then discarded (urllib3 logs "Connection pool is full, discarding connection").
+s3_max_pool_connections = 2 * TransferConfig().max_request_concurrency
+
 json_extension = ".json"
 
 log = getLogger(__application_name__)
@@ -167,12 +173,19 @@ class S3Access(CacheAccess):
 
     def get_s3_download_transfer_config(self) -> TransferConfig:
         """
-        The transfer configuration for downloads. A derived class can override this if a different configuration is desired.
+        The transfer configuration for downloads. A derived class can override this if a different configuration is desired. The connection pool is sized for the
+        default number of concurrent requests (see s3_max_pool_connections).
 
         :return: transfer configuration
         """
         # This is boto3's default (threads, 10 concurrent requests, 8 MiB multipart threshold and chunk size), which is what downloads have always used.
         return TransferConfig()
+
+    def _get_config(self) -> Config:
+        """
+        :return: the botocore configuration of every AWSAccess, with a connection pool for the requests a sync makes at the same time (see s3_max_pool_connections)
+        """
+        return super()._get_config().merge(Config(max_pool_connections=s3_max_pool_connections))
 
     @typechecked()
     def set_public_readable(self, public_readable: bool):

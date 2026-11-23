@@ -199,7 +199,7 @@ def test_s3_sync_to_directory_keeps_the_local_file_when_the_check_fails(s3_acces
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-def test_s3_sync_to_directory_callback_and_stop(tmp_path):
+def test_s3_sync_to_directory_callback_and_stop(tmp_path, monkeypatch):
     class SingleThreadDownload(S3Access):
         # one download at a time, so that what a stop does is the same every time
         def get_s3_download_transfer_config(self) -> TransferConfig:
@@ -215,22 +215,25 @@ def test_s3_sync_to_directory_callback_and_stop(tmp_path):
     result = s3_access.sync_to_directory(tmp_path, prefix, dry_run=True, callback=called.append)
     assert called == list(result.objects.values())
 
-    # a stop is requested when the first download is done
+    # A stop is requested during the first download. It is requested from the thread that downloads (with its metadata request), not from the callback: the callback
+    # is called from this thread, by when the one downloading thread can have downloaded every object.
     stop_event = Event()
+    get_s3_object_metadata = s3_access.get_s3_object_metadata
+
+    def _get_s3_object_metadata_and_stop(s3_key):
+        stop_event.set()
+        return get_s3_object_metadata(s3_key)
+
     called = []
-
-    def _callback(sync_object):
-        called.append(sync_object)
-        if sync_object.outcome == S3SyncOutcome.downloaded:
-            stop_event.set()
-
-    result = s3_access.sync_to_directory(tmp_path, prefix, stop_event=stop_event, callback=_callback)
+    with monkeypatch.context() as patch:
+        patch.setattr(s3_access, "get_s3_object_metadata", _get_s3_object_metadata_and_stop)
+        result = s3_access.sync_to_directory(tmp_path, prefix, stop_event=stop_event, callback=called.append)
     assert result.stopped
     assert sorted(called, key=lambda sync_object: sync_object.key) == list(result.objects.values())
     assert result.get_count(S3SyncOutcome.skipped) == 1
-    assert 1 <= result.get_count(S3SyncOutcome.downloaded) < 3
-    assert result.get_count(S3SyncOutcome.downloaded) + result.get_count(S3SyncOutcome.not_attempted) == 3
-    assert len([path for path in tmp_path.iterdir() if path.is_file()]) == result.get_count(S3SyncOutcome.downloaded)
+    assert result.get_count(S3SyncOutcome.downloaded) == 1  # the download that had started is completed
+    assert result.get_count(S3SyncOutcome.not_attempted) == 2
+    assert len([path for path in tmp_path.iterdir() if path.is_file()]) == 1
 
     # the next sync downloads the others
     result = s3_access.sync_to_directory(tmp_path, prefix)
