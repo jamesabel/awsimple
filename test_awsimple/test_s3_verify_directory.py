@@ -210,7 +210,7 @@ def test_s3_verify_directory_failure_does_not_stop_the_others(s3_access, tmp_pat
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
-def test_s3_verify_directory_callback_and_stop(tmp_path):
+def test_s3_verify_directory_callback_and_stop(tmp_path, monkeypatch):
     class SingleThreadDownload(S3Access):
         # one object at a time, so that what a stop does is the same every time
         def get_s3_download_transfer_config(self) -> TransferConfig:
@@ -221,20 +221,24 @@ def test_s3_verify_directory_callback_and_stop(tmp_path):
     _write(s3_access, prefix, {"a.txt": "a", "b.txt": "bb", "c.txt": "ccc"})
     sync_result = s3_access.sync_to_directory(tmp_path, prefix)
 
-    # a stop is requested when the first object is verified
+    # A stop is requested while the first object is verified. It is requested from the thread that verifies (with its metadata request), not from the callback: the
+    # callback is called from this thread, by when the one verifying thread can have verified every object.
     stop_event = Event()
+    get_s3_object_metadata = s3_access.get_s3_object_metadata
+
+    def _get_s3_object_metadata_and_stop(s3_key):
+        stop_event.set()
+        return get_s3_object_metadata(s3_key)
+
+    monkeypatch.setattr(s3_access, "get_s3_object_metadata", _get_s3_object_metadata_and_stop)
     called = []
 
-    def _callback(verify_object):
-        called.append(verify_object)
-        stop_event.set()
-
-    result = s3_access.verify_directory(tmp_path, prefix, sync_result=sync_result, stop_event=stop_event, callback=_callback)
+    result = s3_access.verify_directory(tmp_path, prefix, sync_result=sync_result, stop_event=stop_event, callback=called.append)
 
     assert result.stopped
     assert sorted(called, key=lambda verify_object: verify_object.key) == list(result.objects.values())
-    assert 1 <= result.get_count(S3VerifyOutcome.verified) < 3
-    assert result.get_count(S3VerifyOutcome.verified) + result.get_count(S3VerifyOutcome.not_attempted) == 3
+    assert result.get_count(S3VerifyOutcome.verified) == 1  # what had started is completed
+    assert result.get_count(S3VerifyOutcome.not_attempted) == 2
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
