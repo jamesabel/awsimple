@@ -180,7 +180,7 @@ of its contents, so it is what finds the object in the cache, and S3 objects wit
 Downloaded contents are only cached once their calculated SHA-512 matches, and a cache file is only used if it has the
 length of the S3 object and the SHA-512 it is named with (otherwise the object is downloaded and the file is written
 again). Every cached access makes one request for the S3 object's metadata, so a changed object is never served from
-the cache. `awsimple` never updates an S3 object's metadata on a read. When an S3 object has no
+the cache (a download, cached or not, makes that one metadata request and no other). `awsimple` never updates an S3 object's metadata on a read. When an S3 object has no
 SHA-512, it is instead checked against its native CRC64NVME, key, size and modification time: a SHA-512 of these
 (with the bucket, version and ETag) is mapped by a local index to the SHA-512 calculated when the contents were
 downloaded. The key is only hashed, never used as a cache file name, so file system path irregularities do not
@@ -199,6 +199,13 @@ the maximum is not cached. The index file of an object that has no SHA-512 is pa
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
 ## Updates/Releases
+
+9.2.0 - Faster S3: the CRC64NVME that `awsimple` checks every S3 transfer with is calculated with the AWS Common Runtime (`awscrt`, about
+170 times as fast as the pure Python it replaces, which is still used if `awscrt` can not be imported), in the one module `awsimple/crc64nvme.py`
+(`get_bytes_crc64nvme()`, `get_file_crc64nvme()`). `S3Access.download()` makes one request for the metadata of the S3 object, not two (and none if
+it is given the metadata), and raises `AWSimpleException` at once for an S3 object that does not exist. An upload decides whether it is needed
+with one request, not two. boto3 clients are made one at a time, which
+fixes a rare failure when `awsimple` objects are made from several threads at once.
 
 9.x.x - S3 hashes and cache: every object `awsimple` writes also gets the SHA-512 of its contents as object metadata, the
 S3 cache is based on that SHA-512, and the length and CRC64NVME of every S3 transfer are checked. Cache writes are

@@ -38,3 +38,11 @@ S3 sync
    :members:
    :undoc-members:
    :show-inheritance:
+
+CRC64NVME
+---------
+
+.. automodule:: awsimple.crc64nvme
+   :members:
+   :undoc-members:
+   :show-inheritance:

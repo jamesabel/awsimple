@@ -17,13 +17,19 @@ The `pubsub` folder has a further example that the run scripts do not run, since
 ### The S3 cache demonstration
 
 `s3_cache_demo.py` shows how the S3 cache works and measures what it saves. It downloads the same S3 objects with and
-without the cache, counts the requests to S3 and the bytes downloaded, and times each step. The download destination
-and the cache are temporary directories that it leaves in place and prints, so you can look at how the cache is made.
+without the cache, counts the requests to S3 and the bytes downloaded, and times each step. The files it uploads, the
+download destination and the cache are the `source`, `dest` and `cache` sub-directories of a data directory, which it leaves in
+place and prints, so you can look at how the cache is made. The data directory is a new temporary directory, or the one you give
+with `--data-dir`: nothing in it is deleted, so the program stops with a message if those sub-directories are not empty.
 
 ```
 python s3_cache_demo.py --mock                # no AWS account needed (moto mock): the counts, but not meaningful times
 python s3_cache_demo.py --bucket my-bucket    # real AWS: the default profile, or add --profile
+python s3_cache_demo.py -m -d my_data_dir     # the directories are made in my_data_dir
 ```
+
+Every option has a one letter form: `-b` (`--bucket`), `-p` (`--profile`), `-m` (`--mock`), `-c` (`--count`), `-s` (`--size`),
+`-k` (`--keep`) and `-d` (`--data-dir`). `python s3_cache_demo.py --help` lists them.
 
 The S3 objects it writes have keys that start with `s3_cache_demo/` and are deleted at the end (unless `--keep`).
 
