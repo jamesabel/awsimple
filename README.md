@@ -230,6 +230,10 @@ The cache directory can be deleted at any time: the contents are downloaded agai
 
 ## Updates/Releases
 
+9.3.1 - The HTTP connection pool of an `S3Access` holds 20 connections (it was botocore's default of 10), which is what `sync_to_directory()` can use
+at the same time when an object is downloaded in parts. With the smaller pool, connections were opened for one request and discarded, and urllib3 logged
+"Connection pool is full, discarding connection".
+
 9.3.0 - New: `S3Access.verify_directory()` verifies the files of a local directory against the metadata of their S3 objects (size, hash and
 modification time), with the result of a `sync_to_directory()` or with a listing of the bucket. `get_s3_object_hash()` gives the strongest hash of
 the whole contents that S3 has for an object.
