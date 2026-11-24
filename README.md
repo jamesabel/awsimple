@@ -230,6 +230,9 @@ The cache directory can be deleted at any time: the contents are downloaded agai
 
 ## Updates/Releases
 
+9.3.2 - When `sync_to_directory()` fails an object because what was downloaded is not the S3 object, the reason of the failed object says what differs:
+the two lengths, or the two CRC64NVMEs. It said only that the length and CRC64NVME were not the S3 object's, and the values were in the log alone.
+
 9.3.1 - The HTTP connection pool of an `S3Access` holds 20 connections (it was botocore's default of 10), which is what `sync_to_directory()` can use
 at the same time when an object is downloaded in parts. With the smaller pool, connections were opened for one request and discarded, and urllib3 logged
 "Connection pool is full, discarding connection".

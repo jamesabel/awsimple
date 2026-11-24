@@ -294,21 +294,22 @@ class S3Access(CacheAccess):
         if s3_object_metadata.crc64nvme != expected_crc64nvme:
             raise AWSimpleException(f"{self.bucket_name}/{s3_key} : the CRC64NVME of what was written is {expected_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme}")
 
-    def _is_download_intact(self, dest_path: Path, s3_object_metadata: S3ObjectMetadata) -> bool:
+    def _get_download_fault(self, dest_path: Path, s3_object_metadata: S3ObjectMetadata) -> Union[str, None]:
         """
         Check that a file that was just downloaded has the length and the CRC64NVME (if the S3 object has one) of the S3 object.
 
         :param dest_path: path to the downloaded file
         :param s3_object_metadata: S3 object metadata
-        :return: True if the file has the S3 object's length and CRC64NVME
+        :return: None if the file has the S3 object's length and CRC64NVME, otherwise what is wrong with it (with the values that differ)
         """
+        fault = None
         if (dest_size := os.path.getsize(dest_path)) != s3_object_metadata.size:
-            log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : downloaded {dest_size} bytes but the S3 object is {s3_object_metadata.size} bytes")
-            return False
-        if s3_object_metadata.crc64nvme is not None and (dest_crc64nvme := get_file_crc64nvme(dest_path)) != s3_object_metadata.crc64nvme:
-            log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : the downloaded CRC64NVME is {dest_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme}")
-            return False
-        return True
+            fault = f"downloaded {dest_size} bytes but the S3 object is {s3_object_metadata.size} bytes"
+        elif s3_object_metadata.crc64nvme is not None and (dest_crc64nvme := get_file_crc64nvme(dest_path)) != s3_object_metadata.crc64nvme:
+            fault = f"the downloaded CRC64NVME is {dest_crc64nvme} but the S3 object's is {s3_object_metadata.crc64nvme} (both are {dest_size} bytes)"
+        if fault is not None:
+            log.warning(f"{self.bucket_name}/{s3_object_metadata.key} to {dest_path} : {fault}")
+        return fault
 
     def _make_download_transfer_manager(self) -> TransferManager:
         """
@@ -350,19 +351,18 @@ class S3Access(CacheAccess):
             subscribers.append(ProgressCallbackInvoker(callback))
         transfer_manager.download(self.bucket_name, s3_object_metadata.key, str(file_path), extra_args, subscribers).result()
 
-    def _finish_download(self, file_path: Path, s3_object_metadata: S3ObjectMetadata) -> bool:
+    def _finish_download(self, file_path: Path, s3_object_metadata: S3ObjectMetadata) -> Union[str, None]:
         """
-        The last step of every download: check the downloaded file against the S3 object (see _is_download_intact()) and, if it is intact, give it the modification time
+        The last step of every download: check the downloaded file against the S3 object (see _get_download_fault()) and, if it is intact, give it the modification time
         of the S3 object.
 
         :param file_path: path to the downloaded file
         :param s3_object_metadata: S3 object metadata
-        :return: True if the file is intact
+        :return: None if the file is intact, otherwise what is wrong with it
         """
-        if not self._is_download_intact(file_path, s3_object_metadata):
-            return False
-        set_file_mtime(file_path, s3_object_metadata.mtime)
-        return True
+        if (fault := self._get_download_fault(file_path, s3_object_metadata)) is None:
+            set_file_mtime(file_path, s3_object_metadata.mtime)
+        return fault
 
     def _is_upload_needed(self, s3_key: str, size: int, crc64nvme: str, sha512: str, mtime: Union[float, None] = None) -> bool:
         """
@@ -785,7 +785,7 @@ class S3Access(CacheAccess):
             with self._make_download_transfer_manager() as transfer_manager:
                 self._transfer_download(transfer_manager, metadata, dest_path, callback)
             # not intact: an incomplete or corrupted transfer, or the S3 object was written again during the download
-            return self._finish_download(dest_path, metadata)
+            return self._finish_download(dest_path, metadata) is None
 
         # the transfer manager's own errors are also tried again, e.g. the S3 object was written again during a download in parts (its ETag is no longer the metadata's)
         self._retry(_download, f"download {self.bucket_name}/{s3_key} to {dest_path}", (*connection_errors, RetriesExceededError, S3DownloadFailedError))
@@ -885,8 +885,8 @@ class S3Access(CacheAccess):
             local_path.parent.mkdir(parents=True, exist_ok=True)
             with atomic_write_path(local_path) as temp_path:
                 self._transfer_download(transfer_manager, s3_object_metadata, temp_path, extra_args=extra_args)
-                if not self._finish_download(temp_path, s3_object_metadata):
-                    raise AWSimpleException(f"{self.bucket_name}/{sync_object.key} : what was downloaded does not have the length and CRC64NVME of the S3 object")
+                if (fault := self._finish_download(temp_path, s3_object_metadata)) is not None:
+                    raise AWSimpleException(f"{self.bucket_name}/{sync_object.key} : {fault}")  # the reason of the failed object, so it says what differs
             sync_object.set_outcome(S3SyncOutcome.downloaded)
         except (AWSimpleException, OSError, RetriesExceededError, S3DownloadFailedError, *connection_errors) as e:
             # a failure of one object is an outcome of a sync, which goes on with the other objects
