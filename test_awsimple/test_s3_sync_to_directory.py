@@ -199,6 +199,34 @@ def test_s3_sync_to_directory_keeps_the_local_file_when_the_check_fails(s3_acces
 
 
 # AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
+@pytest.mark.parametrize(
+    "wrong,expected",
+    [
+        ({"crc64nvme": "0" * 16}, "the downloaded CRC64NVME is {crc64nvme} but the S3 object's is 0000000000000000 (both are 15 bytes)"),
+        ({"size": 7}, "downloaded 15 bytes but the S3 object is 7 bytes"),
+    ],
+)
+def test_s3_sync_to_directory_failed_check_says_what_differs(s3_access, tmp_path, monkeypatch, wrong, expected):
+    # the reason of the failed object has the values that differ, so that whoever reads it does not need the log to know if it was the length or the CRC64NVME
+    prefix = f"{sync_prefix}check_reason/"
+    _write(s3_access, prefix, {"a.txt": "the S3 contents"})
+    get_s3_object_metadata = s3_access.get_s3_object_metadata
+    crc64nvme = get_s3_object_metadata(f"{prefix}a.txt").crc64nvme
+
+    def _wrong_metadata(s3_key):
+        s3_object_metadata = get_s3_object_metadata(s3_key)
+        for name, value in wrong.items():
+            setattr(s3_object_metadata, name, value)  # as if what was downloaded were not the S3 object's contents
+        return s3_object_metadata
+
+    monkeypatch.setattr(s3_access, "get_s3_object_metadata", _wrong_metadata)
+    result = s3_access.sync_to_directory(tmp_path, prefix)
+    assert _outcomes(result, prefix) == {"a.txt": S3SyncOutcome.failed}
+    assert result.objects[f"{prefix}a.txt"].reason == f"{test_awsimple_str}/{prefix}a.txt : " + expected.format(crc64nvme=crc64nvme)
+    assert list(tmp_path.iterdir()) == []
+
+
+# AI-GENERATED TEST (Claude Code) - delete this line to make this test human-owned.
 def test_s3_sync_to_directory_callback_and_stop(tmp_path, monkeypatch):
     class SingleThreadDownload(S3Access):
         # one download at a time, so that what a stop does is the same every time
