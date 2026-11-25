@@ -12,6 +12,7 @@ from .s3_paths import s3_key_to_local_path
 from .s3_cache import S3ContentCache
 from .s3_sync import S3SyncOutcome, S3SyncObject, S3SyncResult
 from .s3_verify import S3VerifyOutcome, S3VerifyObject, S3VerifyResult, S3ObjectHash, get_s3_object_hash
+from .s3_usage import S3Usage, S3RequestTier, get_s3_request_tier, standard_storage_class
 from .s3 import S3Access
 from .sqs import SQSAccess, SQSPollAccess, aws_sqs_long_poll_max_wait_time, aws_sqs_max_messages, get_all_sqs_queues
 from .sns import SNSAccess

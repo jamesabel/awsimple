@@ -58,6 +58,7 @@ The S3 code is split by concern. `s3.py` has `S3Access`, which does every access
 - `crc64nvme.py`: the CRC64NVME of bytes and files (the one place the implementation is chosen)
 - `s3_sync.py`: the plan (`plan_sync()`) and result types of `S3Access.sync_to_directory()`
 - `s3_verify.py`: the plan (`plan_verify()`), the check of one local file (`verify_local_file()`), the hash it compares (`get_s3_object_hash()`) and the result types of `S3Access.verify_directory()`
+- `s3_usage.py`: `S3Usage`, the count of the S3 requests (by operation and storage class) and of the bytes S3 sent, which is what AWS charges for. `S3Access.usage` is one, and it counts through botocore's `after-call` event of every S3 client the instance makes (`S3Access._create_client_and_resource()`, `_create_session_client()`), so a new S3 request needs nothing to be counted. It has no prices
 
 **Pub/Sub** (pubsub.py): High-level `Pub` and `Sub` classes that compose SNS+SQS into a channel-based messaging abstraction with background polling threads.
 

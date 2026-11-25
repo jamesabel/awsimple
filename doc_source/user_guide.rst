@@ -153,6 +153,24 @@ CRC32 checksum). It makes a request per object and reads every local file, and i
     for verify_object in verify_result.get_objects(S3VerifyOutcome.differs):
         print(verify_object.key, verify_object.reason)
 
+What an S3Access used of S3
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+AWS charges for S3 requests, at a price that depends on the kind of request and on the storage class of the object, and for the bytes of the objects
+that are read. An `S3Access` counts both as its `usage` (an `S3Usage`): every S3 API call of the instance, by operation name and by the storage class
+of its object, and the bytes S3 sent. `awsimple` has no prices, so what the usage costs is up to the caller:
+
+.. code:: python
+
+    from pathlib import Path
+
+    from awsimple import S3Access
+
+    s3_access = S3Access("james-abel-awsimple-test-bucket")
+    s3_access.verify_directory(Path("backup"))
+    print(s3_access.usage.get_request_counts())  # e.g. {("ListObjectsV2", "STANDARD"): 1, ("HeadObject", "STANDARD"): 950, ("HeadObject", "GLACIER_IR"): 50}
+    print(s3_access.usage.get_tier_counts())  # the same requests, as the request tiers AWS prices them by
+    print(s3_access.usage.get_download_sizes())  # the bytes S3 sent, by storage class
+
 DynamoDB
 --------
 DynamoDB is a "NoSQL" (AKA document based) database. It is a "serverless" service that offers an `On Demand` option. DynamoDB is made up
