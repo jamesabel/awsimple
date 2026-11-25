@@ -187,6 +187,26 @@ outcome `mtime_differs`, and an object that could not be verified is `failed` wi
 of a sync, what that sync downloaded or found up to date is verified, without listing the bucket again. Without it, the
 bucket is listed. There is an event to request a stop, and a callback per object.
 
+### What an S3Access used of S3
+
+AWS charges for S3 requests, at a price that depends on the kind of request and on the storage class of the object, and for
+the bytes of the objects that are read. An `S3Access` counts both, as its `usage` (an `S3Usage`):
+
+    s3_access = S3Access("testawsimple", profile_name="testawsimple")
+    s3_access.verify_directory(Path("backup"))
+    print(s3_access.usage.get_request_counts())  # e.g. {("ListObjectsV2", "STANDARD"): 1, ("HeadObject", "STANDARD"): 950, ("HeadObject", "GLACIER_IR"): 50}
+    print(s3_access.usage.get_tier_counts())  # e.g. {(S3RequestTier.tier1, "STANDARD"): 1, (S3RequestTier.tier2, "STANDARD"): 950, (S3RequestTier.tier2, "GLACIER_IR"): 50}
+    print(s3_access.usage.get_download_sizes())  # the bytes S3 sent, by storage class
+
+Every S3 API call of the instance is counted, including the ones of a download in parts and the ones the caller makes with
+`S3Access.client`: by its operation name and by the storage class of its object (`STANDARD` for a request that is not
+for one object, such as a bucket listing). `get_tier_counts()` has them as the request tiers of an AWS bill: tier 1 (PUT,
+COPY, POST, LIST), tier 2 (GET, HEAD and the others) and the requests that are free (DELETE). A request that S3 refuses is
+counted, as AWS charges for it, and a request that botocore retried is counted once. `awsimple` has no prices: they
+differ by region and change, so what the usage costs is up to the caller (the AWS Price List has them). A verification of
+a directory is a metadata request per object, which for objects in a storage class such as Glacier Instant Retrieval is
+charged at many times the price of a request for a `STANDARD` object.
+
 ## Caching
 
 S3 objects and DynamoDB tables can be cached locally to reduce network traffic, minimize AWS costs, 
@@ -229,6 +249,10 @@ The cache directory can be deleted at any time: the contents are downloaded agai
 - `awsimple` does not provide all the options and features that the regular AWS API (e.g. boto3) does
 
 ## Updates/Releases
+
+9.4.0 - An `S3Access` counts what it used of S3 that AWS charges for, as its `usage` (`S3Usage`): the requests, by S3 API operation and by the storage
+class of the object (and as the request tiers AWS prices them by), and the bytes of the objects S3 sent, by storage class. New in the API: `S3Usage`,
+`S3RequestTier`, `get_s3_request_tier()` and `standard_storage_class`.
 
 9.3.2 - When `sync_to_directory()` fails an object because what was downloaded is not the S3 object, the reason of the failed object says what differs:
 the two lengths, or the two CRC64NVMEs. It said only that the length and CRC64NVME were not the S3 object's, and the values were in the log alone.

@@ -9,6 +9,7 @@ The S3 code is in these modules:
 - s3_cache.py: the local cache of S3 object contents (S3ContentCache).
 - s3_sync.py: the plan and the result types of a bucket-to-directory sync.
 - s3_verify.py: the plan, the check of a local file and the result types of a verification of a directory against a bucket.
+- s3_usage.py: the count of the S3 requests and of the bytes S3 sent, which is what AWS charges for (S3Usage).
 
 The names that were in this module before it was split up can still be imported from it.
 """
@@ -49,6 +50,7 @@ from .exceptions import BucketNotFound
 from .s3_cache import S3ContentCache, cache_index_dir_name
 from .s3_object import S3DownloadStatus, S3ListedObject, S3ObjectMetadata, cache_key_scheme, native_checksum_to_hex, set_file_mtime, sha512_hex_regex, sha512_string
 from .s3_paths import case_insensitive_file_names, s3_key_to_local_path
+from .s3_usage import S3Usage
 from .s3_sync import ProvideMetadataSubscriber, S3SyncObject, S3SyncOutcome, S3SyncResult, archived_storage_classes, plan_sync
 from .s3_verify import S3VerifyObject, S3VerifyOutcome, S3VerifyResult, plan_verify, verify_local_file
 
@@ -142,7 +144,9 @@ class S3Access(CacheAccess):
         self.public_readable = False
         self.download_status = S3DownloadStatus()
         self._bucket_region = None  # type: Union[str, None]  # lazily determined and cached
+        self.usage = S3Usage()  # the S3 requests this instance made and the bytes S3 sent it, which is what AWS charges for
         super().__init__(resource_name="s3", **kwargs)
+        self.usage.reset()  # making an S3Access asks nothing of S3: what was counted is the moto mock making its bucket (see AWSAccess)
 
     # ------------------------------------------------------------------------------------------------------------------------------------------------------------------
     # configuration
@@ -186,6 +190,30 @@ class S3Access(CacheAccess):
         :return: the botocore configuration of every AWSAccess, with a connection pool for the requests a sync makes at the same time (see s3_max_pool_connections)
         """
         return super()._get_config().merge(Config(max_pool_connections=s3_max_pool_connections))
+
+    def _create_client_and_resource(self, factory: Any, **kwargs) -> None:
+        """
+        Make the boto3 client and resource, with the S3 API calls of both counted in this instance's usage. The resource has a client of its own.
+
+        :param factory: what makes them: the boto3 module (default session) or a boto3 session
+        :param kwargs: keyword arguments for both, e.g. region_name or config
+        """
+        super()._create_client_and_resource(factory, **kwargs)
+        self.usage.instrument(self.client)
+        self.usage.instrument(self.resource.meta.client)
+
+    def _create_session_client(self, service_name: str, **kwargs) -> Any:
+        """
+        Make a further boto3 client from this instance's session, with its S3 API calls counted in this instance's usage.
+
+        :param service_name: AWS service name, e.g. s3 or sts
+        :param kwargs: keyword arguments for the client, e.g. config
+        :return: the boto3 client
+        """
+        client = super()._create_session_client(service_name, **kwargs)
+        if service_name == "s3":
+            self.usage.instrument(client)
+        return client
 
     @typechecked()
     def set_public_readable(self, public_readable: bool):

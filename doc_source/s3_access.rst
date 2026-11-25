@@ -47,6 +47,14 @@ S3 verify
    :undoc-members:
    :show-inheritance:
 
+S3 usage
+--------
+
+.. automodule:: awsimple.s3_usage
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 CRC64NVME
 ---------
 
